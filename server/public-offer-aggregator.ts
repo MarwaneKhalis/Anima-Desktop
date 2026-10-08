@@ -1,5 +1,5 @@
 import type { JobOffer, OfferSearchCriteria, OfferSearchService } from "../src/shared/career.ts";
-import { CareerError } from "./career-store.ts";
+import { careerUrl, CareerError } from "./career-store.ts";
 
 type Offer = Omit<JobOffer, "id" | "discoveredAt" | "updatedAt">;
 
@@ -15,7 +15,7 @@ type SearchResult =
 function canonicalUrl(value: unknown, allowedTestOrigins: ReadonlySet<string>): string {
   if (typeof value !== "string") return "";
   try {
-    const url = new URL(value);
+    const url = new URL(careerUrl(value, [...allowedTestOrigins]));
     if ((url.protocol !== "https:" && !allowedTestOrigins.has(url.origin)) || url.username || url.password) return "";
     url.hash = "";
     for (const key of [...url.searchParams.keys()]) {

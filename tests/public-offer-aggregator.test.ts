@@ -73,6 +73,8 @@ test("drops offers with malformed or non-public links", async () => {
   const aggregator = new PublicOfferAggregator([
     { name: "Feed", service: service([
       offer("http://employer.example/job"),
+      offer("https://127.0.0.1/private-job"),
+      offer("https://[::1]/private-job"),
       offer("https://user:pass@employer.example/job"),
       offer("https://employer.example/job"),
     ], []) },
