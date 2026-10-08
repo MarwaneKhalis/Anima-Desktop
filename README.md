@@ -16,6 +16,8 @@ _Aperçu avec des données de test._
 2. Ouvrez le fichier et suivez l’installation.
 3. Lancez **Anima Connect** depuis le menu Démarrer ou le raccourci du bureau.
 
+Lancez la version installée par ce programme. Le fichier `Anima Connect.exe` dans `release/win-unpacked` est un artefact de vérification locale, pas le fichier à ouvrir après téléchargement du dépôt.
+
 L’installateur est prévu pour Windows 10/11 64 bits et une installation par utilisateur. Node.js, Chrome et un serveur web ne sont pas nécessaires. L’application enregistre ses données dans le profil Windows local ; un export ou une sauvegarde que vous enregistrez ailleurs peut quitter cet ordinateur. Une connexion Internet est nécessaire pour consulter des offres et ouvrir les sites carrière.
 
 > **À propos de Windows SmartScreen :** les versions actuelles ne sont pas signées par un certificat éditeur. Windows peut afficher un avertissement au premier lancement.
@@ -52,3 +54,4 @@ pnpm desktop:dist
 ```
 
 L’installateur généré se trouve dans `release/`. La suite de tests utilise des offres et sites fictifs ; elle n’envoie pas de candidature à un employeur. Voir [l’architecture](docs/CAREER_ARCHITECTURE.md) et [les vérifications](docs/VERIFICATION.md).
+
