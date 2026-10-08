@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 8048)
-Total output lines: 314
-
 # Anima Connect — architecture candidatures et prospection
 
 Statut : architecture et limites du parcours bureau, mise à jour le 8 octobre 2026. Les décisions des sections suivantes décrivent la cible initiale ; la section 2 résume les sources et adaptateurs effectivement présents dans le code.
@@ -26,7 +23,7 @@ Décision : extension du dépôt existant, mêmes serveur et base locale, tables
 5. **Suivre** : reçu vérifiable, événements, statut métier, date de relance et notes. Ajouter entretien, réponse, refus et offre reçue depuis la fiche ; afficher la provenance manuelle de ces mises à jour.
 6. **Prospection** : fonctionnalités LinkedIn existantes accessibles depuis la même application ; liaison facultative candidature → prospect ; tableau de bord commun issu des données stockées.
 
-Automatisation effectivement requise : formulaires HTML standard à champs étiquetés, login classique identifiant/mot de passe, fichier CV et soumission avec confirmation. Les adaptateurs présents sont Greenhouse, Lever, Ashby, Recruitee, Workable et SmartRecruiters, sur leurs hôtes publics explicitement autorisés. Aucun adaptateur générique ne promet une compatibilité universelle avec Workday, Taleo, LinkedIn Easy Apply ou les widgets propriétaires. Les CAPTCHA, MFA, consentements légaux inconnus, questions factuelles inconnues et boutons ambigus interrompent l'action, avec une explication exploitable.
+Automatisation effectivement requise : formulaires HTML standard à champs étiquetés, login classique identifiant/mot de passe, fichier CV et soumission avec confirmation. Les adaptateurs présents sont Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters et Teamtailor, sur leurs hôtes publics explicitement autorisés. Aucun adaptateur générique ne promet une compatibilité universelle avec Workday, Taleo, LinkedIn Easy Apply ou les widgets propriétaires. Les CAPTCHA, MFA, consentements légaux inconnus, questions factuelles inconnues et boutons ambigus interrompent l'action, avec une explication exploitable.
 
 ## 3. Répartition des fichiers
 
@@ -152,7 +149,95 @@ Le coffre `Vault` de A utilise les tables de la même base. Contrat :
 ```ts
 class Vault {
   constructor(db: DatabaseSync);
-  s…2048 tokens truncated…ment de toutes les copies mémoire. Initialisation une seule fois ; phrase au moins 12 caractères. Mauvaise phrase : erreur neutre sans altération du coffre.
+  status(): VaultStatus;
+  initialize(passphrase:string): VaultStatus;
+  unlock(passphrase:string): VaultStatus;
+  lock(): VaultStatus;
+  listCredentials(): CredentialSummary[];
+  saveCredential(input:{origin:string; label:string; username:string; password:string}): CredentialSummary;
+  deleteCredential(id:string): void;
+  // Interne serveur uniquement. Vérifie égalité d'origine après normalisation.
+  getCredential(id:string, origin:string): {username:string; password:string};
+}
+```
+
+Le moteur B expose :
+
+```ts
+interface CareerBrowserOptions { headless?:boolean; allowedTestOrigins?:string[]; }
+class CareerBrowser {
+  constructor(options?:CareerBrowserOptions);
+  discover(url:string): Promise<{offers:Omit<JobOffer,'id'|'discoveredAt'|'updatedAt'>[]; note:string}>;
+  run(input:{
+    application:Application; job:JobOffer; profile:CareerProfile;
+    resume:{meta:Resume; bytes:Buffer}; mode:RunMode;
+    // Ne demander le secret qu'après identification de l'origine du formulaire login.
+    getCredential:(origin:string)=>{username:string; password:string}|null;
+    beforeSubmit:()=>void;
+    // Verrouillage/annulation invalide ce contexte ; ne pas soumettre après cela.
+    signal?:AbortSignal;
+  }): Promise<RunResult>;
+  close(): Promise<void>;
+}
+class CareerRunner {
+  constructor(store:CareerStore, vault:Vault, browser:CareerBrowser);
+  start(id:string, mode:RunMode, credentialId?:string): Application;
+  isBusy(): boolean;
+  stop(): Promise<void>;
+}
+```
+
+`start` rejette immédiatement si un autre run/découverte utilise le contexte ; claim puis lance une promesse suivie d'un `catch` qui persiste un résultat sûr. Son résultat HTTP est l'application `running`, jamais un succès simulé. `beforeSubmit` appelle `markSubmitting`; un échec postérieur devient `uncertain`. Le navigateur relit tous les champs et obstacles avant le clic final. `stop` annule et ferme le contexte ; la conséquence d'une interruption dépend de la présence du marqueur durable `submitting`.
+
+La découverte navigateur et les runs partagent un verrou explicite. Ne pas permettre à une découverte de changer la page d'un run en cours. Une deuxième action concurrente renvoie 409. Variante acceptable : contextes distincts pour découverte et candidature, tout en sérialisant les candidatures.
+
+Contrat complémentaire de découverte, propriété de l'intégrateur :
+
+```ts
+interface CareerDiscovery {
+  discover(url:string): Promise<{
+    offers:Omit<JobOffer,'id'|'discoveredAt'|'updatedAt'>[];
+    note:string;
+  }>;
+}
+```
+
+`server/job-discovery.ts` implémente les sources publiques Greenhouse et Lever à partir d'une URL de board reconnue, plus JSON-LD `JobPosting` depuis une URL publique générique. Le client saisit une URL ; il ne fournit jamais une URL de proxy HTTP arbitraire. Le service valide les destinations et redirections, limite taille/temps/pagination, et conserve l'URL finale de candidature. Aucun besoin d'authentification pour ces adaptateurs publics. `server/arbeitnow-france-discovery.ts` ajoute une recherche sans URL depuis l'API publique Arbeitnow France : cinq pages maximum, 100 entrées par page, filtres locaux, cache de dix minutes et limite de 450 offres renvoyées. `server/jobicy-remote-discovery.ts` ajoute le flux public des emplois distants Jobicy en zone France, plafonné à 200 offres et mis en cache une heure. `FranceTravailDiscovery` reste une source facultative qui demande des identifiants habilités. L'API persiste les offres via `CareerStore.saveJob` puis renvoie les résultats. Les fixtures couvrent les chemins déterministes ; les contrôles en direct restent en lecture seule.
+
+## 6. API HTTP exacte
+
+Préfixe `/api/career`. Toutes les réponses JSON ont `Cache-Control: no-store`. Erreurs : `{error:string, code:string}` ; 400 validation, 403 origine, 404 absence, 409 conflit, 423 coffre verrouillé, 413 taille excessive. Les routes nouvelles sont déléguées par `index.ts` à `handleCareerApi(req,res,url,context): Promise<boolean>` ; `false` signifie route inconnue. Contexte A : `{store:CareerStore,vault:Vault,browser:CareerBrowser,runner:CareerRunner,discovery:CareerDiscovery,demo:boolean}`. L'interface structurelle `CareerDiscovery` est exportée depuis `src/shared/career.ts`, sans dépendance serveur. Les helpers JSON/réponse sont privés au module ou fournis par root sans dépendance circulaire.
+
+| Méthode et chemin relatif | Entrée | Réponse |
+|---|---|---|
+| GET `/bootstrap` | — | 200 `CareerSnapshot` |
+| PUT `/profile` | `CareerProfile` sans `updatedAt` | 200 `CareerProfile` |
+| POST `/resumes` | JSON `{name,filename,mime,base64}` | 201 `Resume` |
+| GET `/resumes/:id/download` | — | Binaire, Content-Disposition attachment |
+| DELETE `/resumes/:id` | — | 200 `{deleted:true}` |
+| POST `/vault/initialize` | `{passphrase}` | 201 `VaultStatus` |
+| POST `/vault/unlock` | `{passphrase}` | 200 `VaultStatus` |
+| POST `/vault/lock` | `{}` | 200 `VaultStatus`, stop navigateur avant réponse |
+| POST `/credentials` | `{origin,label,username,password}` | 201 `CredentialSummary` |
+| DELETE `/credentials/:id` | — | 200 `{deleted:true}` |
+| POST `/jobs` | `{url,title,company,location,description?,sourceUrl?}` | 201 `JobOffer` |
+| POST `/discover` | `{url}` | 200 `DiscoveryResult`, offres persistées |
+| POST `/applications` | `{jobId,resumeId,prospectId?}` | 201 `Application` (200 si existante) |
+| GET `/applications/:id` | — | 200 `Application` |
+| PATCH `/applications/:id` | réponses/champs publics ci-dessus | 200 `Application` |
+| POST `/applications/:id/run` | `{mode:'prepare'|'submit',credentialId?}` | 202 `Application` |
+| POST `/applications/:id/resolve` | `{resolution:'submitted'|'not_submitted',detail}` | 200 `Application` |
+
+La démo utilise de fausses données isolées et refuse découverte/navigation/envoi/stockage de secrets réels. Le frontend ne doit jamais transmettre un secret en query string, journaliser une requête, conserver un secret dans localStorage ou garder le mot de passe après succès.
+
+Protection locale : API liée exclusivement à loopback ; Host limité aux noms et ports locaux configurés ; Origin comparée exactement ; refuser `Sec-Fetch-Site: cross-site`. Les mutations carrière exigent `X-Anima-Request: 1`, et JSON sauf téléchargement ; le navigateur malveillant externe ne peut envoyer ce header sans préflight accepté. Ne pas activer CORS général. Les requêtes API serveur de test sans Origin exigent aussi ce header. Ajouter ce header au helper UI carrière. Vérifier la sécurité avant l'analyse du corps. La liste des origines de test est une option constructeur contrôlée par le harness, jamais une propriété JSON client ni un mode démo.
+
+## 7. Stockage, coffre et restauration
+
+- Tables : `career_profile` singleton JSON, `career_resumes` métadonnées et BLOB, `career_jobs` URL UNIQUE, `career_applications` job_id UNIQUE/FK, `career_events` FK/index, `career_vault` version/sel/vérificateur, `career_credentials` id/origin/label/username/ciphertext/nonce/tag. Les JSON sont des valeurs, jamais SQL interpolé.
+- CV PDF/DOCX seulement, 10 MiB décodés maximum, cohérence extension/MIME/signature ; nom de téléchargement assaini, aucune utilisation du filename fourni comme chemin. Les octets SQLite assurent sauvegarde complète et upload Playwright `{name,mimeType,buffer}` sans fichier temporaire supplémentaire. Le plafond JSON de cette route couvre le base64 et refuse l'excès avant accumulation illimitée.
+- Coffre : dérivation `scrypt` avec sel aléatoire de 16 octets, `N=32768,r=8,p=1,maxmem>=64MiB`, clé 32 octets ; AES-256-GCM, nonce aléatoire 12 octets par écriture, tag 16 octets, données authentifiées comprenant version/id/origin. Chiffrer un vérificateur connu indépendant pour vérifier la phrase même si aucun compte n'existe.
+- Au repos aucun mot de passe, phrase secrète ni clé dans la base, fichier de configuration, logs ou frontend persistant. La clé reste en mémoire serveur et est écrasée autant que possible au verrouillage ; un runtime JavaScript ne garantit pas l'effacement de toutes les copies mémoire. Initialisation une seule fois ; phrase au moins 12 caractères. Mauvaise phrase : erreur neutre sans altération du coffre.
 - Le navigateur carrière utilise un contexte éphémère, visible par défaut, distinct du profil LinkedIn persistant. Les cookies restent en mémoire et sont supprimés à sa fermeture ; reconnexion automatique avec le coffre déverrouillé à une prochaine visite. Ne pas écrire `storageState` ou mots de passe au disque en clair.
 - Renseigner les credentials uniquement sur l'origine exacte enregistrée, jamais un suffixe de domaine, sous-domaine supposé équivalent, iframe étrangère ou redirection non approuvée. La session déjà connectée peut servir sans déchiffrage.
 - URLs métier : HTTPS public ; refuser schémas dangereux, userinfo, adresses privées/loopback/link-local, adresses IPv6 privées et fragments comme identifiant. Conserver les paramètres qui identifient réellement une offre ; retirer seulement paramètres marketing connus. Refuser changement d'origine durant un flux automatisé tant qu'une prise en charge explicite n'existe pas. En tests, seule l'origine exacte du serveur fixture est autorisée.
@@ -226,4 +311,3 @@ Les sorties de tests doivent distinguer les scénarios exécutés, les limites c
 ## 11. Revue et publication
 
 Avant commit : revue croisée sur validations d'entrée, injection DOM, origine, secrets, état durable avant clic et absence de double soumission ; correction de tous problèmes bloquants. Inspection du diff et fichiers staged pour exclure `data/`, CV réels, credentials, captures ou logs privés. Ne pas écraser les fichiers déjà staged de l'utilisateur ; conserver l'historique/branche existants avant changements de branche. Publier dans le dépôt Anima-Connect existant selon le mandat utilisateur ; attacher toute PR créée au chat. Livraison accompagnée de la commande Windows de démarrage, URL locale, bilan des tests et périmètre exact des formulaires pris en charge.
-

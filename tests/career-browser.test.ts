@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 9238)
-Total output lines: 592
-
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
@@ -181,6 +178,36 @@ test("SmartRecruiters 'I'm interested' flow pauses on a required answer and subm
     assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
   } finally { await submit.close(); }
 });
+test("Teamtailor documented application URL is followed even when the Apply button text is customized", async () => {
+  const allowedTestOrigins = [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin];
+  const before = fx.submissions.length;
+  let marker = 0;
+  const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}) => inputFor(
+    "/jobicy-teamtailor", mode, { answers }, () => { marker++; },
+  );
+
+  const preparation = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const missing = await preparation.run(makeInput("prepare"));
+    assert.equal(missing.state, "needs_input");
+    assert.match(missing.missingFields[0]?.label || "", /work in France/i);
+    assert.equal(fx.submissions.length, before);
+    const ready = await preparation.resume(makeInput("prepare", { tt_work_france: "Yes" }));
+    assert.equal(ready.state, "ready");
+    assert.equal(fx.submissions.length, before, "prepare never posts to the Teamtailor fixture");
+  } finally { await preparation.close(); }
+
+  const submit = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const submitted = await submit.run(makeInput("submit", { tt_work_france: "Yes" }));
+    assert.equal(submitted.state, "submitted");
+    assert.equal(marker, 1);
+    assert.equal(fx.submissions.length, before + 1);
+    assert.equal(fx.submissions.at(-1)?.fields.firstName, profile.firstName);
+    assert.equal(fx.submissions.at(-1)?.fields.tt_work_france, "Yes");
+    assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+  } finally { await submit.close(); }
+});
 test("Jobicy-discovered offer follows visible Apply links to a simulated Ashby form and waits for confirmation", async () => {
   const discovery = new JobicyRemoteDiscovery(async () => Response.json({ jobs: [{
     url: "https://www.jobicy.com/jobs/remote-software-engineer",
@@ -192,7 +219,216 @@ test("Jobicy-discovered offer follows visible Apply links to a simulated Ashby f
   const discovered = found.offers[0]!;
   // Map the public Jobicy listing onto a local page fixture; the listing links onward
   // to a second local origin which models jobs.ashbyhq.com and its public application.
-  const fixtureJob: JobOffer = { ...job("/jobicy-discovered"), ...discovered…3238 tokens truncated…resuming cannot submit while the challenge remains visible");
+  const fixtureJob: JobOffer = { ...job("/jobicy-discovered"), ...discovered, id: "job", url: fx.jobicyAshbyUrl };
+  const allowedTestOrigins = [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin];
+  const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}, beforeSubmit = () => {}) => ({
+    application: app(answers), job: fixtureJob, profile,
+    resume: { meta: meta("cv-a", bytesA), bytes: bytesA }, mode,
+    getCredential: () => null, beforeSubmit,
+  });
+  const answers = { workAuthorization: "Yes", visa_sponsorship: "No", motivation: "I want to build useful software." };
+
+  const initialCount = fx.submissions.length;
+  const prep = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const challenge = await prep.run(makeInput("prepare"));
+    assert.equal(challenge.state, "blocked");
+    assert.match(challenge.message, /CAPTCHA ou MFA/i);
+    assert.equal(prep.hasPausedSession(), true);
+    fx.resolveAshbyChallenge();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const missing = await prep.resume(makeInput("prepare"));
+    assert.equal(missing.state, "needs_input", missing.message);
+    assert.deepEqual(missing.missingFields.map(field => field.key).sort(), ["motivation", "visa sponsorship", "work authorization"].sort());
+    assert.equal(prep.hasPausedSession(), true);
+    assert.equal(fx.submissions.length, initialCount);
+    const ready = await prep.resume(makeInput("prepare", answers));
+    assert.equal(ready.state, "ready");
+    assert.equal(fx.submissions.length, initialCount, "preparation never sends the application");
+  } finally { await prep.close(); }
+
+  let marker = 0;
+  const submit = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const result = await submit.run(makeInput("submit", answers, () => { marker++; }));
+    assert.equal(result.state, "submitted");
+    assert.equal(marker, 1, "the final submission is marked once after the user-confirmed submit mode");
+    assert.equal(fx.submissions.length, initialCount + 1);
+    assert.equal(fx.submissions.at(-1)?.fields.email, profile.email);
+    assert.equal(fx.submissions.at(-1)?.fields.country, "France", "the known country is mapped from the profile");
+    assert.equal(fx.submissions.at(-1)?.fields.workAuthorization, "Yes");
+    assert.equal(fx.submissions.at(-1)?.fields.visa_sponsorship, "No");
+    assert.equal(fx.submissions.at(-1)?.fields.motivation, answers.motivation);
+    assert.equal(fx.submissions.at(-1)?.fields.gender, undefined, "optional demographic data is omitted when unanswered");
+    assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+    assert.match(result.receipt?.reference || "", /^ATS-/);
+  } finally { await submit.close(); }
+});
+test("Ashby lookalike links and external form actions are rejected without data exfiltration", async () => {
+  const allowedTestOrigins = [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin];
+  const before = fx.submissions.length;
+  const lookalikeBrowser = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const lookalike = await lookalikeBrowser.run(inputFor("/jobicy-ashby-lookalike", "submit"));
+    assert.equal(lookalike.state, "blocked");
+    assert.equal(fx.submissions.length, before);
+  } finally { await lookalikeBrowser.close(); }
+
+  const exfilBefore = fx.exfilCount;
+  const external = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const outcome = await external.run(inputFor("/jobicy-ashby-external", "submit"));
+    assert.equal(outcome.state, "blocked");
+    assert.match(outcome.message, /origine différente interdite/i);
+    assert.equal(fx.submissions.length, before, "the foreign form action is never submitted");
+    assert.equal(fx.exfilCount, exfilBefore, "the external tracking request is denied");
+  } finally { await external.close(); }
+});
+test("submission sends exactly one POST and selected resume bytes", async () => {
+  const count = fx.submissions.length;
+  const { outcome, marker } = await run("/simple", "submit");
+  assert.equal(outcome.state, "submitted"); assert.equal(marker, 1); assert.equal(fx.submissions.length, count + 1);
+  const posted = fx.submissions.at(-1)!;
+  assert.equal(posted.fields.firstName, "Ada"); assert.equal(posted.fields.lastName, "Lovelace"); assert.equal(posted.fields.email, "ada@example.test");
+  assert.equal(posted.fields.disability, ""); assert.equal(posted.resume?.sha256, meta("cv-a", bytesA).sha256); assert.deepEqual(posted.resume?.bytes, bytesA);
+  assert.match(outcome.receipt?.reference || "", /^REC-/);
+});
+test("second selected CV is sent, never the default CV", async () => {
+  const { outcome } = await run("/alternate", "submit", { bytes: bytesB });
+  assert.equal(outcome.state, "submitted");
+  assert.equal(fx.submissions.at(-1)?.resume?.filename, "cv-b.pdf");
+  assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-b", bytesB).sha256);
+});
+test("login redirects back and repeats in a fresh ephemeral context", async () => {
+  const initial = fx.loginCount;
+  const credential = { username: "applicant@example.test", password: "secret-pass" };
+  assert.equal((await run("/login-apply", "submit", { credential })).outcome.state, "submitted");
+  assert.equal((await run("/login-apply", "submit", { credential })).outcome.state, "submitted");
+  assert.equal(fx.loginCount, initial + 2);
+});
+test("readonly login failure never logs the stored password", async () => {
+  const old = console.error;
+  const logged: string[] = [];
+  console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const { outcome } = await run("/readonly-login", "submit", { credential: { username: "applicant@example.test", password: "secret-pass" } });
+    assert.equal(outcome.state, "blocked");
+    assert.equal(logged.join("\n").includes("secret-pass"), false);
+  } finally { console.error = old; }
+});
+test("multistep prepare reaches recap without POST; submit receives bytes", async () => {
+  const count = fx.submissions.length;
+  assert.equal((await run("/multi", "prepare", { answers: { "Work authorization": "Yes" } })).outcome.state, "ready");
+  assert.equal(fx.submissions.length, count);
+  assert.equal((await run("/multi", "submit", { answers: { "Work authorization": "Yes" } })).outcome.state, "submitted");
+  assert.equal(fx.submissions.length, count + 1);
+  assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+});
+test("unknown required answer, select mismatch and consent block; explicit answer works", async () => {
+  const count = fx.submissions.length;
+  const unknown = await run("/unknown", "submit");
+  assert.equal(unknown.outcome.state, "needs_input"); assert.equal(unknown.marker, 0);
+  assert.match(unknown.outcome.missingFields[0]?.label || "", /Work authorization/);
+  assert.equal((await run("/unknown", "submit", { answers: { "Work authorization": "Maybe" } })).outcome.state, "needs_input");
+  assert.equal((await run("/consent", "submit", { answers: { "I agree to the terms": false } })).outcome.state, "needs_input");
+  assert.equal(fx.submissions.length, count);
+  assert.equal((await run("/unknown", "submit", { answers: { "Work authorization": "Yes" } })).outcome.state, "submitted");
+});
+test("required answers can resume in the original open browser session", async () => {
+  const b = browser();
+  try {
+    const visits = fx.unknownVisits;
+    const submissions = fx.submissions.length;
+    let marker = 0;
+    const paused = await b.run(inputFor("/unknown", "submit", {}, () => { marker++; }));
+    assert.equal(paused.state, "needs_input");
+    assert.equal(paused.missingFields[0]?.key, "work authorization");
+    assert.equal(b.hasPausedSession(), true);
+    assert.equal(marker, 0);
+    assert.equal(fx.unknownVisits, visits + 1);
+
+    const resumed = await b.resume(inputFor("/unknown", "submit", { answers: { workAuthorization: "Yes" } }, () => { marker++; }));
+    assert.equal(resumed.state, "submitted");
+    assert.equal(marker, 1);
+    assert.equal(fx.submissions.length, submissions + 1);
+    assert.equal(fx.unknownVisits, visits + 1, "resume must not navigate back to the job form");
+    assert.equal(b.hasPausedSession(), false);
+  } finally { await b.close(); }
+});
+test("a manually entered required answer survives resume without profile automation overwriting it", async () => {
+  const b = browser();
+  try {
+    const submissions = fx.submissions.length;
+    const visits = fx.unknownVisits;
+    const paused = await b.run(inputFor("/unknown", "submit"));
+    assert.equal(paused.state, "needs_input");
+    fx.resolveUnknownAnswer("No");
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 250));
+    const resumed = await b.resume(inputFor("/unknown", "submit"));
+    assert.equal(resumed.state, "submitted");
+    assert.equal(fx.submissions.length, submissions + 1);
+    assert.equal(fx.submissions.at(-1)?.fields.workAuthorization, "No");
+    assert.equal(fx.unknownVisits, visits + 1);
+  } finally { await b.close(); }
+});
+test("required select default Yes remains unanswered without explicit fact", async () => {
+  const count = fx.submissions.length;
+  const unknown = await run("/select-default", "submit");
+  assert.equal(unknown.outcome.state, "needs_input");
+  assert.equal(unknown.marker, 0);
+  assert.equal(fx.submissions.length, count);
+  const answered = await run("/select-default", "submit", { answers: { workAuthorization: "No" } });
+  assert.equal(answered.outcome.state, "submitted");
+  assert.equal(fx.submissions.at(-1)?.fields.workAuthorization, "No");
+});
+test("optional sensitive select default is not transmitted without an answer", async () => {
+  const { outcome } = await run("/optional-default", "submit");
+  assert.equal(outcome.state, "submitted");
+  assert.equal(fx.submissions.at(-1)?.fields.disabilityStatus, undefined);
+});
+test("required radio group needs explicit answer and selects only matching choice", async () => {
+  const count = fx.submissions.length;
+  const unknown = await run("/radio-authorization", "submit");
+  assert.equal(unknown.outcome.state, "needs_input");
+  assert.equal(fx.submissions.length, count);
+  const yes = await run("/radio-authorization", "submit", { answers: { workAuthorization: true } });
+  assert.equal(yes.outcome.state, "submitted");
+  assert.equal(fx.submissions.at(-1)?.fields.workAuthorization, "Yes");
+  const no = await run("/radio-authorization", "submit", { answers: { workAuthorization: false } });
+  assert.equal(no.outcome.state, "submitted");
+  assert.equal(fx.submissions.at(-1)?.fields.workAuthorization, "No");
+});
+test('application answers override profile answers across field-name aliases',async()=>{
+  const outcome=await browser().run({application:app({workAuthorization:'No'}),job:job('/select-default'),profile:{...profile,answers:{'Work authorization':'Yes'}},resume:{meta:meta('cv-a',bytesA),bytes:bytesA},mode:'submit',getCredential:()=>null,beforeSubmit:()=>{}});
+  assert.equal(outcome.state,'submitted');assert.equal(fx.submissions.at(-1)?.fields.workAuthorization,'No');
+});
+
+test("CAPTCHA, MFA and foreign redirect stop before posting or credential use", async () => {
+  const count = fx.submissions.length;
+  let credentials = 0;
+  assert.equal((await run("/challenge", "submit")).outcome.state, "blocked");
+  assert.equal((await run("/mfa", "submit")).outcome.state, "blocked");
+  const b = browser();
+  try {
+    const bad = await b.run({ application: app(), job: job("/bad-origin"), profile, resume: { meta: meta("cv-a", bytesA), bytes: bytesA }, mode: "submit", getCredential: () => { credentials++; return { username: "x", password: "y" }; }, beforeSubmit: () => assert.fail("must not submit") });
+    assert.equal(bad.state, "blocked"); assert.equal(credentials, 0); assert.equal(fx.submissions.length, count);
+  } finally { await b.close(); }
+});
+test("CAPTCHA and MFA leave the browser open until the user resolves the challenge and resumes", async () => {
+  const count = fx.submissions.length;
+  for (const [path, resolve] of [["/challenge", () => fx.resolveChallenge()], ["/mfa", () => fx.resolveMfa()]] as const) {
+    const b = browser();
+    try {
+      const beforeIntervention = fx.submissions.length;
+      const paused = await b.run(inputFor(path, "submit"));
+      assert.equal(paused.state, "blocked");
+      assert.match(paused.message, /CAPTCHA ou MFA/);
+      assert.equal(b.hasPausedSession(), true);
+      assert.equal(fx.submissions.length, beforeIntervention);
+      const prematureResume = await b.resume(inputFor(path, "submit"));
+      assert.equal(prematureResume.state, "blocked", "the live challenge must remain an intervention gate");
+      assert.equal(b.hasPausedSession(), true);
+      assert.equal(fx.submissions.length, beforeIntervention, "resuming cannot submit while the challenge remains visible");
       resolve();
       await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
       const resumed = await b.resume(inputFor(path, "submit"));
@@ -383,4 +619,3 @@ test("runner stop persists failed before marker and uncertain after marker", asy
   assert.throws(() => runner.start(after.id, "submit"));
   db.db.close();
 });
-
