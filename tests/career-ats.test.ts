@@ -113,7 +113,8 @@ test("cross-origin document navigation needs an explicit Apply target or same-ve
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://workday.wd5.myworkdayjobs.com:444/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com", redirected: true }), false, "cross-origin Workday redirects are blocked");
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://evil.example/apply", pendingAtsOrigin: "https://evil.example" }), false);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://careers.example/jobs/1", to: "https://boards.greenhouse.io/acme/jobs/12/apply", initialNavigation: true, redirected: true }), false, "an arbitrary initial job-page redirect cannot bypass the visible Apply link");
-  assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", redirected: true }), true);
+  assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", redirected: true }), false, "same-vendor redirects still require an explicitly selected destination");
+  assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", pendingAtsOrigin: "https://job-boards.greenhouse.io", redirected: true }), true, "a visible Apply link may select the exact alternate host");
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://jobs.lever.co/acme/id/apply", redirected: true }), false);
 });
 
@@ -140,4 +141,3 @@ test("Remote OK apply redirectors are exact and may lead only to a supported ATS
   assert.equal(allowsCareerAtsNavigation({ ...redirect, to: "http://boards.greenhouse.io/acme/jobs/123/apply" }), false);
   assert.equal(allowsCareerAtsNavigation({ ...redirect, to: "http://127.0.0.1:4321/apply", testOrigins: fixtures }), true);
 });
-

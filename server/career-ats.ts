@@ -32,14 +32,14 @@ export function careerAtsForUrl(value: string): CareerAts | null {
   try { return careerAtsForHostname(new URL(value).hostname); } catch { return null; }
 }
 
-/** A cross-origin document is accepted only for an exact explicit Apply target, or a
- * public ATS redirect within the same vendor family. Redirects to ordinary domains fail closed. */
+/** A cross-origin document is accepted only for the exact visible Apply target already selected.
+ * Remote OK's verified /l/<id> redirect is handled separately. */
 export function allowsCareerAtsNavigation(input: {
   from: string; to: string; pendingAtsOrigin?: string; initialNavigation: boolean;
   redirected: boolean; remoteOkApplyRedirect?: boolean; testOrigins: ReadonlySet<string>;
 }): boolean {
-  let from: URL; let to: URL;
-  try { from = new URL(input.from); to = new URL(input.to); } catch { return false; }
+  let to: URL;
+  try { new URL(input.from); to = new URL(input.to); } catch { return false; }
   const toAts = careerAtsForUrl(to.href);
   if (input.remoteOkApplyRedirect && input.redirected
     && ((to.protocol === "https:" && toAts !== null) || input.testOrigins.has(to.origin))) return true;
@@ -47,16 +47,8 @@ export function allowsCareerAtsNavigation(input: {
   // be selected explicitly as the pending destination before navigation is allowed.
   if (input.testOrigins.has(to.origin)) return input.pendingAtsOrigin === to.origin;
   if (to.protocol !== "https:") return false;
-  const fromAts = careerAtsForUrl(from.href);
   if (!toAts) return false;
-  if ((fromAts === "smartrecruiters" || fromAts === "teamtailor" || fromAts === "workday") && toAts === fromAts && from.origin !== to.origin
-    && (input.redirected || input.pendingAtsOrigin !== to.origin)) return false;
-  return input.pendingAtsOrigin === to.origin
-    // A job page cannot silently redirect the initial navigation to an ATS.
-    // Cross-origin ATS navigation must follow a visible Apply link; initial
-    // canonical redirects are allowed only within the same recognized vendor.
-    || (input.initialNavigation && input.redirected && fromAts !== null && fromAts === toAts)
-    || (input.redirected && fromAts !== null && fromAts === toAts);
+  return input.pendingAtsOrigin === to.origin;
 }
 
 /** Permit cross-origin bytes only for explicitly enumerated, passive vendor assets. */
@@ -130,4 +122,3 @@ export async function findApplyLink(page: Page, testOrigins: ReadonlySet<string>
   if (allowed.length > 1) return "ambiguous";
   return allowed[0] || null;
 }
-

@@ -583,6 +583,34 @@ test("third-party exfiltration request is blocked while filling", async () => {
   assert.equal(outcome.state, "submitted");
   assert.equal(fx.exfilCount, count);
 });
+test("service workers are blocked so they cannot bypass request interception with applicant data", async () => {
+  const b = new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin] });
+  const input = inputFor("/service-worker-job", "submit");
+  const exfilBefore = fx.exfilCount;
+  const submissionsBefore = fx.submissions.length;
+  try {
+    let outcome = await b.run(input);
+    assert.equal(outcome.state, "blocked", "the Apply link stays hidden until the Service Worker registration resolves");
+    const context = (b as unknown as { context: import("playwright").BrowserContext }).context;
+    const page = context.pages()[0];
+    assert.ok(page);
+    const registration = await page.evaluate(async () => {
+      if (!navigator.serviceWorker) return "unavailable";
+      try {
+        const reg = await navigator.serviceWorker.register("/service-worker.js");
+        await new Promise(resolve => setTimeout(resolve, 250));
+        return reg.active?.state || reg.installing?.state || reg.waiting?.state || "registered";
+      } catch { return "blocked"; }
+    });
+    assert.ok(registration === "unavailable" || registration === "blocked" || registration === "redundant", `Service Worker registration was not blocked: ${registration}`);
+    assert.equal(context.serviceWorkers().length, 0, "the application context has no active Service Worker capable of intercepting requests");
+    await page.locator("#apply").evaluate((link) => { (link as HTMLAnchorElement).hidden = false; });
+    outcome = await b.resume(input);
+    assert.equal(outcome.state, "submitted", outcome.message);
+    assert.equal(fx.submissions.length, submissionsBefore + 1);
+    assert.equal(fx.exfilCount, exfilBefore, "the attempted worker sent no applicant data to the cross-origin fixture");
+  } finally { await b.close(); }
+});
 test("rejects private URL outside exact constructor test origin", async () => {
   const b = new CareerBrowser({ headless: true });
   const outcome = await b.run({ application: app(), job: job("/simple"), profile, resume: { meta: meta("cv-a", bytesA), bytes: bytesA }, mode: "submit", getCredential: () => null, beforeSubmit: () => assert.fail() });
@@ -715,4 +743,3 @@ test("runner stop persists failed before marker and uncertain after marker", asy
   assert.throws(() => runner.start(after.id, "submit"));
   db.db.close();
 });
-

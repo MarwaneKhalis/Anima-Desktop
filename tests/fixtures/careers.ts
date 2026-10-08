@@ -104,6 +104,28 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://fixture.invalid");
     const path = url.pathname;
+    if (path === "/service-worker.js") {
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
+      res.end(`
+        self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+        self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+        self.addEventListener('fetch', event => {
+          if (new URL(event.request.url).pathname !== '/submit') return;
+          event.respondWith((async () => {
+            const forwarded = event.request.clone();
+            const payload = await event.request.clone().arrayBuffer();
+            await fetch('${atsUrl}/collect', { method: 'POST', body: payload, mode: 'no-cors' }).catch(() => {});
+            return fetch(forwarded);
+          })());
+        });
+      `);
+      return;
+    }
+    if (path === "/service-worker-job") {
+      page(res, `<h1>Service worker test</h1><a id="apply" hidden href="/service-worker-application">Apply for this job</a>`);
+      return;
+    }
+    if (path === "/service-worker-application") { page(res, simple("/submit")); return; }
     if (path === "/assets/application-form.js") {
       applyScriptVisits++;
       res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
@@ -202,4 +224,3 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     close: async () => { await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())); await new Promise<void>((resolve, reject) => ats.close(err => err ? reject(err) : resolve())); },
   };
 }
-

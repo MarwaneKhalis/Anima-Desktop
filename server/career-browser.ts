@@ -216,7 +216,7 @@ export class CareerBrowser {
       const start = safeUrl(input.job.url, this.testOrigins);
       await assertPublic(start, this.testOrigins);
       this.browser = await chromium.launch({ headless: this.options.headless ?? false });
-      this.context = await this.browser.newContext({ acceptDownloads: false, viewport: { width: 1365, height: 900 } });
+      this.context = await this.browser.newContext({ acceptDownloads: false, serviceWorkers: "block", viewport: { width: 1365, height: 900 } });
       this.context.setDefaultTimeout(10_000);
       this.context.setDefaultNavigationTimeout(20_000);
       const page = await this.context.newPage();
@@ -252,11 +252,7 @@ export class CareerBrowser {
           const remoteOkApplyRedirect = session!.pendingAtsOrigin === REMOTE_OK_APPLY_REDIRECT
             && Boolean(redirectedFrom && isRemoteOkApplyRedirectorUrl(redirectedFrom.url(), this.testOrigins));
           if (request.isNavigationRequest() && session!.initialNavigation && redirectedFrom
-            && !session!.pendingAtsOrigin && !remoteOkApplyRedirect) {
-            const fromAts = careerAtsForUrl(redirectedFrom.url());
-            const toAts = careerAtsForUrl(url.href);
-            if (!fromAts || fromAts !== toAts) return route.abort();
-          }
+            && !session!.pendingAtsOrigin && !remoteOkApplyRedirect) return route.abort();
           const allowedAtsNavigation = request.isNavigationRequest() && allowsCareerAtsNavigation({
             from: session!.flowOrigin, to: url.href, pendingAtsOrigin: session!.pendingAtsOrigin,
             initialNavigation: session!.initialNavigation, redirected: Boolean(redirectedFrom), remoteOkApplyRedirect, testOrigins: this.testOrigins,
@@ -275,9 +271,7 @@ export class CareerBrowser {
       });
       await page.goto(start.href, { waitUntil: "domcontentloaded" });
       const landed = new URL(page.url());
-      const startAts = careerAtsForUrl(start.href);
-      const landedAts = careerAtsForUrl(landed.href);
-      if (landed.origin !== start.origin && (!startAts || landedAts !== startAts)) {
+      if (landed.origin !== start.origin) {
         return await this.finish(session, result("blocked", "Redirection initiale vers un autre site refusée. Ouvrez la fiche et sélectionnez son lien Apply visible."));
       }
       session.initialNavigation = false;
@@ -511,4 +505,3 @@ export class CareerBrowser {
     return result("blocked", "Le formulaire dépasse dix étapes.");
   }
 }
-
