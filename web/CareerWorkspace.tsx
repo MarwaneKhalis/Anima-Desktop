@@ -93,7 +93,7 @@ export default function CareerWorkspace() {
   const [query, setQuery] = useState(""),
     [source, setSource] = useState(""),
     [franceTravail, setFranceTravail] = useState<FranceTravailStatus>({ configured: false }),
-    [searchSource, setSearchSource] = useState<"arbeitnow" | "france-travail">("arbeitnow"),
+    [searchSource, setSearchSource] = useState<"arbeitnow" | "france-travail" | "jobicy">("arbeitnow"),
     [franceCredentials, setFranceCredentials] = useState({ clientId: "", clientSecret: "", scope: "" }),
     [searchCriteria, setSearchCriteria] = useState({ keywords: "", department: "", commune: "", contractType: "", limit: 50 }),
     [maxSubmissions, setMaxSubmissions] = useState(10),
@@ -306,13 +306,17 @@ export default function CareerWorkspace() {
     if (apply && !resumeId) throw new Error("Ajoutez un CV dans Profil & CV avant de lancer une campagne.");
     const keywords = searchCriteria.keywords.trim() || profile.preferences.titles.join(", ");
     if (!keywords) throw new Error("Renseignez des métiers recherchés dans Profil & CV, ou saisissez un mot-clé.");
-    const publicSource = searchSource === "arbeitnow";
+    const searchPath = searchSource === "arbeitnow"
+      ? "/sources/arbeitnow/search"
+      : searchSource === "jobicy"
+        ? "/sources/jobicy/search"
+        : "/sources/france-travail/search";
     const found = await api<{ jobs: JobOffer[]; note: string }>(
-      publicSource ? "/sources/arbeitnow/search" : "/sources/france-travail/search",
+      searchPath,
       "POST",
       {
         keywords,
-        ...(!publicSource && searchCriteria.department.trim() ? { department: searchCriteria.department.trim() } : {}),
+        ...(searchSource === "france-travail" && searchCriteria.department.trim() ? { department: searchCriteria.department.trim() } : {}),
         ...(searchCriteria.commune.trim() ? { commune: searchCriteria.commune.trim() } : {}),
         ...(searchCriteria.contractType.trim() ? { contractType: searchCriteria.contractType.trim() } : {}),
         limit: searchCriteria.limit,
@@ -760,15 +764,17 @@ export default function CareerWorkspace() {
                     <div className="cw-source-title">
                       <div>
                         <span className="cw-eyebrow">RECHERCHE AUTOMATIQUE</span>
-                        <h2>{searchSource === "arbeitnow" ? "Offres Arbeitnow France" : "Offres France Travail"}</h2>
+                        <h2>{searchSource === "arbeitnow" ? "Offres Arbeitnow France" : searchSource === "jobicy" ? "Offres télétravaillables pour la France" : "Offres France Travail"}</h2>
                         <p>
                           {searchSource === "arbeitnow"
                             ? "Recherche publique d’offres récentes en France, sans clé API ni URL à copier."
-                            : "La recherche part de vos mots-clés et critères. Cette source demande des identifiants API personnels conservés dans le coffre local chiffré."}
+                            : searchSource === "jobicy"
+                              ? "Offres à distance explicitement ouvertes à la France. Source publique, sans clé API ni compte à créer."
+                              : "La recherche part de vos mots-clés et critères. Cette source demande des identifiants API personnels conservés dans le coffre local chiffré."}
                         </p>
                       </div>
-                      <span className={`cw-source-status ${searchSource === "arbeitnow" || franceTravail.configured ? "is-ready" : ""}`}>
-                        {searchSource === "arbeitnow" ? "Source publique disponible" : franceTravail.configured ? "Identifiants enregistrés" : "Accès France Travail requis"}
+                      <span className={`cw-source-status ${searchSource !== "france-travail" || franceTravail.configured ? "is-ready" : ""}`}>
+                        {searchSource === "france-travail" ? franceTravail.configured ? "Identifiants enregistrés" : "Accès France Travail requis" : "Source publique disponible"}
                       </span>
                     </div>
                     {searchSource === "france-travail" && !data.vault.unlocked && (
@@ -786,8 +792,9 @@ export default function CareerWorkspace() {
                     >
                       <label>
                         Source d’offres
-                        <select value={searchSource} onChange={(e) => setSearchSource(e.target.value as "arbeitnow" | "france-travail")}>
+                        <select value={searchSource} onChange={(e) => setSearchSource(e.target.value as "arbeitnow" | "france-travail" | "jobicy")}>
                           <option value="arbeitnow">Arbeitnow France · public, sans clé API</option>
+                          <option value="jobicy">Jobicy · télétravail ouvert à la France</option>
                           <option value="france-travail">France Travail · accès restreint</option>
                         </select>
                       </label>
@@ -824,7 +831,7 @@ export default function CareerWorkspace() {
                           />
                         </label>
                         <label>
-                          {searchSource === "arbeitnow" ? "Contrat (filtre texte, facultatif)" : "Contrat (code API, facultatif)"}
+                          {searchSource === "france-travail" ? "Contrat (code API, facultatif)" : "Contrat (filtre texte, facultatif)"}
                           <input
                             value={searchCriteria.contractType}
                             onChange={(e) => setSearchCriteria({ ...searchCriteria, contractType: e.target.value.toUpperCase().slice(0, 40) })}
@@ -858,9 +865,11 @@ export default function CareerWorkspace() {
                         </button>
                       </div>
                       <small className="cw-automation-note">
-                        {searchSource === "arbeitnow"
-                          ? <>Les offres viennent de l’<a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">API publique Arbeitnow France</a>, actualisée environ chaque heure. L’éditeur demande un lien de retour vers <a href="https://www.arbeitnow.com" target="_blank" rel="noreferrer">Arbeitnow</a>. La couverture dépend des annonces indexées ; seuls les parcours Greenhouse et Lever sont remplis automatiquement aujourd’hui.</>
-                          : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement. L’envoi automatique est pris en charge sur Greenhouse et Lever ; les autres sites peuvent demander une reprise manuelle.</>} Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
+                          {searchSource === "arbeitnow"
+                            ? <>Les offres viennent de l’<a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">API publique Arbeitnow France</a>. La couverture dépend des annonces indexées.</>
+                            : searchSource === "jobicy"
+                              ? <>Les offres viennent de l’<a href="https://jobicy.com" target="_blank" rel="noreferrer">API publique Jobicy</a>, limitée aux annonces télétravaillables des 7 derniers jours. La recherche est actualisée au plus une fois par heure et le lien Jobicy reste la source canonique.</>
+                              : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse et Lever ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
                       </small>
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
                       {!resumeId && <small>Ajoutez d’abord un CV dans l’onglet Profil & CV pour activer les candidatures.</small>}

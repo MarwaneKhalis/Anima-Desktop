@@ -387,6 +387,44 @@ test("Arbeitnow search can save offers before a CV is added", async (t) => {
   assert.equal(await applyButton.isDisabled(), true);
 });
 
+test("Jobicy search starts a desktop application campaign without a pasted job URL", async (t) => {
+  const app = await startCareerTestServer({ mockJobicySearch: true });
+  t.after(() => app.close());
+  assert.equal((await app.json("/api/career/profile", profile(), "PUT")).response.status, 200);
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV principal", filename: "cv.pdf", mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
+
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByLabel("Source d’offres").selectOption("jobicy");
+  await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
+  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
+  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+
+  const completed = await waitFor(async () => {
+    const { value } = await app.json("/api/career/campaigns");
+    return value.campaigns[0];
+  }, campaign => campaign?.state === "completed", 20_000);
+  assert.equal(completed.counts.submitted, 1);
+  const { value: snapshot } = await app.json("/api/career/bootstrap");
+  assert.equal(snapshot.jobs[0].title, "Offre de test Jobicy France");
+  assert.equal(snapshot.jobs[0].sourceUrl, "https://jobicy.com/jobs/test");
+  assert.equal(snapshot.applications[0].state, "submitted");
+  assert.ok(snapshot.applications[0].receipt);
+  assert.equal(app.fixture.submissions.length, 1);
+  assert.deepEqual(pageErrors, []);
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.screenshot({ path: "artifacts/career-ui/10-jobicy-campaign.png", fullPage: true });
+});
+
 test("career UI resumes a paused application after saving a missing answer", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());

@@ -33,3 +33,22 @@
   ; This is a per-user desktop app; avoid an elevation/install-scope choice.
   StrCpy $isForceCurrentInstall "1"
 !macroend
+
+!macro customInstall
+  ; Electron checks icudtl.dat with its restricted sandbox token.
+  ; Apply the AppContainer ACE and the installing user's ACE after all files
+  ; have been extracted, including files with restrictive packaged ACLs.
+  ClearErrors
+  UserInfo::GetName
+  IfErrors user_name_unavailable
+  Pop $1
+  StrCmp $1 "" user_name_unavailable
+  nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$INSTDIR" /grant "*S-1-15-2-1:(OI)(CI)(RX)" "$1:(OI)(CI)(RX)" /T /Q'
+  Pop $0
+  StrCmp $0 "0" installed_acl_granted
+    DetailPrint "Impossible d’autoriser la lecture sandboxée des fichiers installés (code $0)."
+    Abort "L’installation n’a pas pu configurer les droits requis pour Anima Connect."
+  user_name_unavailable:
+    Abort "Impossible d’identifier le compte qui installe Anima Connect."
+  installed_acl_granted:
+!macroend

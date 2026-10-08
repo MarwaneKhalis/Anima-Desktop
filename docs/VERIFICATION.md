@@ -1,8 +1,14 @@
 # Vérification
 
-## Résultats actuels — 7 octobre 2026
+## Résultats actuels — 8 octobre 2026
 
-Windows, Node.js 24, Chromium Playwright. La suite complète compte **71 tests réussis, 0 échec, 0 ignoré**. `pnpm build` et `pnpm desktop:compile` réussissent ; l’installateur NSIS x64 a été généré.
+La branche `codex/automatic-application` passe la suite complète (**133 tests, 0 échec**), `pnpm build`, `pnpm desktop:dist` et les deux smoke tests Windows du workflow [#16](https://github.com/MarwaneKhalis/Anima-Connect/actions/runs/37775792306). Le runner Windows a lancé l’EXE extrait puis installé le NSIS dans un profil temporaire propre avec le sandbox Chromium actif. Le smoke vérifie démarrage, absence de serveur exposé, préparation sans envoi, envoi vers une fixture et persistance après redémarrage.
+
+Le build et la suite complète ont aussi été lancés localement. Sur l’hôte Codex, le smoke de l’installation locale ne peut pas traverser le dossier `%TEMP%` avec le jeton AppContainer ; l’installateur a posé ses ACL sur le dossier de l’application, mais le parent de ce dossier bloque Chromium. Le succès runner Windows ci-dessus vérifie le paquet avec le sandbox actif sur un hôte standard. Aucun site carrière réel n’a reçu de candidature.
+
+### Résultats historiques — 7 octobre 2026
+
+Windows, Node.js 24, Chromium Playwright. La suite complète comptait **71 tests réussis, 0 échec, 0 ignoré**. `pnpm build` et `pnpm desktop:compile` réussissaient ; l’installateur NSIS x64 avait été généré.
 
 | Vérification bureau                                        | Résultat                                                  |
 | ---------------------------------------------------------- | --------------------------------------------------------- |

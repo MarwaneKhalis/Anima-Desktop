@@ -73,16 +73,17 @@ continuer. Une pause automatique causée par un blocage conserve l’intention d
 une reprise après skip n’a lieu que si le navigateur est libre. Une pause manuelle n’est jamais relancée
 par un skip.
 
-Le parcours de recherche par défaut utilise `ArbeitnowFranceDiscovery` : mots-clés, commune et
-contrat facultatifs → API publique Arbeitnow France → offres filtrées localement et dédupliquées,
-enregistrées dans `CareerStore` → campagnes durables. Il parcourt au plus cinq pages (jusqu’à 500
-annonces), renvoie au plus 450 résultats et met les pages en cache dix minutes. La source est
-actualisée environ chaque heure, mais ne couvre pas tout le marché français. L’interface renvoie
-vers la source et inclut le lien de retour demandé par Arbeitnow. `FranceTravailDiscovery` reste
-disponible en option pour les personnes disposant d’identifiants habilités ; la recherche publique
-n’en dépend pas. L’envoi automatique est limité aux formulaires Greenhouse et Lever reconnus. Les
-autres sites, redirections non prises en charge, CAPTCHA/MFA et questions sans réponse nécessitent
-une intervention humaine et peuvent mettre la campagne en pause.
+La recherche laisse choisir `ArbeitnowFranceDiscovery` ou `JobicyRemoteDiscovery` : mots-clés,
+commune et contrat facultatifs → flux public sélectionné → offres filtrées localement et
+dédupliquées, enregistrées dans `CareerStore` → campagnes durables. Arbeitnow parcourt au plus cinq
+pages de 100 annonces, renvoie au plus 450 résultats et met chaque page en cache dix minutes. Jobicy
+demande au plus 200 offres distantes ouvertes à la France, publiées dans les sept derniers jours,
+et met la réponse en cache une heure. Ces sources ne couvrent pas tout le marché. L’interface
+conserve le lien vers la source et le lien de retour demandé par Arbeitnow.
+`FranceTravailDiscovery` reste disponible en option pour les personnes disposant d’identifiants
+habilités ; la recherche publique n’en dépend pas. L’envoi automatique est limité aux formulaires
+Greenhouse, Lever et Ashby reconnus. Les autres sites, redirections non prises en charge, CAPTCHA/MFA
+et questions sans réponse nécessitent une intervention humaine et peuvent mettre la campagne en pause.
 
 `server/career-campaign-api.ts` expose `handleCareerCampaignApi` avant l’API carrière. Il reçoit
 `{careerStore,campaigns,engine,demo}` et offre :

@@ -269,7 +269,7 @@ export class CareerBrowser {
           if (apply) {
             if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
             session.seen.add(apply.href);
-            if (apply.vendor !== "test") session.pendingAtsOrigin = new URL(apply.href).origin;
+            session.pendingAtsOrigin = new URL(apply.href).origin;
             await advance(page, page.locator("a[href]").nth(apply.index));
             continue;
           }
@@ -391,7 +391,7 @@ export class CareerBrowser {
           if (apply.vendor !== "test" && targetAts !== currentAts) return result("blocked", "Le lien de candidature sort du fournisseur ATS pris en charge.");
           if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
           session.seen.add(apply.href);
-          if (apply.vendor !== "test") session.pendingAtsOrigin = new URL(apply.href).origin;
+          session.pendingAtsOrigin = new URL(apply.href).origin;
           await advance(page, page.locator("a[href]").nth(apply.index));
           continue;
         }

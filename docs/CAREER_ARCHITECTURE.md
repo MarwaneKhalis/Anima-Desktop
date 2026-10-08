@@ -1,6 +1,6 @@
 # Anima Connect — architecture candidatures et prospection
 
-Statut : spécification préalable à l'implémentation, 5 octobre 2026. Responsable : architecte. Le document fixe le périmètre à vérifier ; il ne constitue pas une preuve de fonctionnalités déjà livrées.
+Statut : architecture et limites du parcours bureau, mise à jour le 8 octobre 2026. Les décisions des sections suivantes décrivent la cible initiale ; la section 2 résume les sources et adaptateurs effectivement présents dans le code.
 
 ## 1. Audit et décisions
 
@@ -17,13 +17,13 @@ Décision : extension du dépôt existant, mêmes serveur et base locale, tables
 ## 2. Parcours livré et limites explicites
 
 1. **Mon profil** : identité, coordonnées, liens, expériences, études, compétences, langues, préférences et réponses explicitement renseignées. Plusieurs CV locaux, nommés, avec choix par candidature.
-2. **Offres** : rechercher sans URL dans le flux public Arbeitnow France, par mots-clés, commune et contrat ; les résultats sont filtrés localement et dédupliqués. La recherche parcourt au plus cinq pages de 100 annonces et ne couvre donc pas tout le marché. France Travail est proposé en option aux utilisateurs autorisés à son API. L'import d'une URL directe, des boards Greenhouse/Lever et du JSON-LD `JobPosting` reste disponible en complément. Chaque résultat conserve sa source, son titre, son entreprise, son URL et sa date de collecte.
+2. **Offres** : rechercher sans URL dans les flux publics Arbeitnow France et Jobicy (offres distantes géolocalisées en France), par mots-clés, commune et contrat ; les résultats sont filtrés localement et dédupliqués. Arbeitnow parcourt au plus cinq pages de 100 annonces et renvoie au plus 450 offres ; Jobicy interroge au plus 200 offres et met le flux en cache une heure. Ces sources ne couvrent pas tout le marché. France Travail reste une option avec identifiants API habilités. L'import d'une URL directe, des boards Greenhouse/Lever et du JSON-LD `JobPosting` reste disponible en complément. Chaque résultat conserve sa source, son titre, son entreprise, son URL et sa date de collecte.
 3. **Candidature** : sélectionner l'offre et le CV ; préparer automatiquement : ouvrir, se connecter si nécessaire avec le compte du domaine, remplir les champs reconnus, télécharger le CV, identifier les questions restantes.
 4. **Envoyer** : un bouton explicite peut préparer puis soumettre en une action sur un formulaire pris en charge. Il autorise cette candidature et ce CV. La préparation seule ne clique jamais le bouton final. Aucun dialogue supplémentaire n'est nécessaire si les données et le formulaire sont connus.
 5. **Suivre** : reçu vérifiable, événements, statut métier, date de relance et notes. Ajouter entretien, réponse, refus et offre reçue depuis la fiche ; afficher la provenance manuelle de ces mises à jour.
 6. **Prospection** : fonctionnalités LinkedIn existantes accessibles depuis la même application ; liaison facultative candidature → prospect ; tableau de bord commun issu des données stockées.
 
-Automatisation effectivement requise : formulaires HTML standard à champs étiquetés, login classique identifiant/mot de passe, fichier CV et soumission avec confirmation. Les adaptateurs livrés et testés sont nommés dans l'interface/documentation. Un adaptateur générique n'autorise aucune promesse de compatibilité universelle avec Workday, Taleo, LinkedIn Easy Apply ou les widgets propriétaires. Les CAPTCHA, MFA, consentements légaux inconnus, questions factuelles inconnues et boutons ambigus doivent interrompre l'action, avec une explication exploitable.
+Automatisation effectivement requise : formulaires HTML standard à champs étiquetés, login classique identifiant/mot de passe, fichier CV et soumission avec confirmation. Les adaptateurs présents sont Greenhouse, Lever et Ashby, sur leurs hôtes publics explicitement autorisés. Aucun adaptateur générique ne promet une compatibilité universelle avec Workday, Taleo, LinkedIn Easy Apply ou les widgets propriétaires. Les CAPTCHA, MFA, consentements légaux inconnus, questions factuelles inconnues et boutons ambigus interrompent l'action, avec une explication exploitable.
 
 ## 3. Répartition des fichiers
 
@@ -202,7 +202,7 @@ interface CareerDiscovery {
 }
 ```
 
-`server/job-discovery.ts` implémente les sources publiques Greenhouse et Lever à partir d'une URL de board reconnue, plus JSON-LD `JobPosting` depuis une URL publique générique. Le client saisit une URL ; il ne fournit jamais une URL de proxy HTTP arbitraire. Le service valide les destinations et redirections, limite taille/temps/pagination, et conserve l'URL finale de candidature. Aucun besoin d'authentification pour ces adaptateurs publics. `server/arbeitnow-france-discovery.ts` ajoute une recherche sans URL depuis l'API publique Arbeitnow France : cinq pages maximum, 100 entrées par page, filtres locaux, cache de dix minutes et limite de 450 offres renvoyées. `FranceTravailDiscovery` reste une source facultative qui demande des identifiants habilités. L'API persiste les offres via `CareerStore.saveJob` puis renvoie les résultats. Les fixtures couvrent les chemins déterministes ; les contrôles en direct restent en lecture seule.
+`server/job-discovery.ts` implémente les sources publiques Greenhouse et Lever à partir d'une URL de board reconnue, plus JSON-LD `JobPosting` depuis une URL publique générique. Le client saisit une URL ; il ne fournit jamais une URL de proxy HTTP arbitraire. Le service valide les destinations et redirections, limite taille/temps/pagination, et conserve l'URL finale de candidature. Aucun besoin d'authentification pour ces adaptateurs publics. `server/arbeitnow-france-discovery.ts` ajoute une recherche sans URL depuis l'API publique Arbeitnow France : cinq pages maximum, 100 entrées par page, filtres locaux, cache de dix minutes et limite de 450 offres renvoyées. `server/jobicy-remote-discovery.ts` ajoute le flux public des emplois distants Jobicy en zone France, plafonné à 200 offres et mis en cache une heure. `FranceTravailDiscovery` reste une source facultative qui demande des identifiants habilités. L'API persiste les offres via `CareerStore.saveJob` puis renvoie les résultats. Les fixtures couvrent les chemins déterministes ; les contrôles en direct restent en lecture seule.
 
 ## 6. API HTTP exacte
 

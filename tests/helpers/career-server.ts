@@ -60,7 +60,7 @@ async function waitForServer(
   );
 }
 
-export async function startCareerTestServer(options: { mockFranceTravailSearch?: boolean; mockArbeitnowSearch?: boolean } = {}): Promise<CareerTestServer> {
+export async function startCareerTestServer(options: { mockFranceTravailSearch?: boolean; mockArbeitnowSearch?: boolean; mockJobicySearch?: boolean } = {}): Promise<CareerTestServer> {
   const fixture = await startCareerFixtures();
   const port = await reservePort();
   const dataDir = await mkdtemp(join(tmpdir(), "anima-career-api-"));
@@ -79,6 +79,7 @@ export async function startCareerTestServer(options: { mockFranceTravailSearch?:
         CAREER_TEST_ORIGINS: JSON.stringify([new URL(fixture.baseUrl).origin]),
         CAREER_TEST_FRANCE_TRAVAIL_URL: options.mockFranceTravailSearch ? `${fixture.baseUrl}/simple` : "",
         CAREER_TEST_ARBEITNOW_URL: options.mockArbeitnowSearch ? `${fixture.baseUrl}/simple?source=arbeitnow` : "",
+        CAREER_TEST_JOBICY_URL: options.mockJobicySearch ? `${fixture.baseUrl}/simple?source=jobicy` : "",
         CAREER_HEADLESS: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],

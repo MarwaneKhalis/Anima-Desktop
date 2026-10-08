@@ -2,20 +2,21 @@
 
 ## Périmètre actuel
 
-Le navigateur sait ouvrir les parcours publics Greenhouse et Lever, suivre un unique lien de candidature visible, attendre les scripts de formulaire chargés depuis l’ATS, puis appliquer les règles de remplissage déjà utilisées par l’application.
+Le navigateur sait ouvrir les parcours publics Greenhouse, Lever et Ashby, suivre un unique lien de candidature visible, attendre les scripts de formulaire chargés depuis l’ATS, puis appliquer les règles de remplissage déjà utilisées par l’application.
 
 - Greenhouse : `boards.greenhouse.io`, `job-boards.greenhouse.io`, `boards.eu.greenhouse.io`.
 - Lever : `jobs.lever.co`, `jobs.eu.lever.co`.
+- Ashby : `jobs.ashbyhq.com`.
 
 Les liens vers des formulaires hébergés ailleurs, les domaines personnalisés et les formulaires génériques ne reçoivent aucune donnée du profil. Les contrôles externes sont bloqués sauf ressources passives explicitement autorisées : pages du même ATS, et CSS/polices Greenhouse sous `/assets/` sur `static.greenhouse.io`, sans chaîne de requête. Les scripts, pixels, POST, XHR, fetch et documents tiers sont bloqués.
 
 ## Formulaires observés en lecture seule
 
-Les résultats publics indexés de pages Greenhouse montrent les champs First Name, Last Name, Email, Phone, Resume/CV, puis des questions propres à chaque employeur. Les pages de candidature Lever montrent Resume/CV, Full name, Email, Phone, parfois Current company, liens, questions sur mesure et une action Submit application. Certains parcours présentent aussi un CAPTCHA ou une vérification anti-robot.
+Les résultats publics indexés de pages Greenhouse montrent les champs First Name, Last Name, Email, Phone, Resume/CV, puis des questions propres à chaque employeur. Les pages de candidature Lever montrent Resume/CV, Full name, Email, Phone, parfois Current company, liens, questions sur mesure et une action Submit application. Ashby utilise également des champs de candidature variables par employeur. Certains parcours présentent un CAPTCHA ou une vérification anti-robot.
 
 Exemples publics consultés : [formulaire Greenhouse Study.com](https://boards.greenhouse.io/embed/job_app?token=4126095008), [formulaire Greenhouse Opendoor](https://boards.greenhouse.io/embed/job_app?token=4572025006), [formulaire Lever Match Group](https://jobs.lever.co/matchgroup/4b304f3c-a2fd-426c-8988-727a5e16bd26/apply) et [formulaire de démonstration Lever](https://jobs.lever.co/leverdemo-8/c737ad83-0a87-4472-9ec3-1813ca12f7fa).
 
-La lecture directe des pages d’exemple a renvoyé une erreur 404 ou une protection anti-robot. Les tests utilisent donc des fixtures Playwright synthétiques reproduisant seulement les structures visibles et courantes ci-dessus; elles ne sont pas des copies du DOM privé ou d’un compte employeur. Aucun dossier réel n’a été envoyé.
+La lecture directe des pages d’exemple a renvoyé une erreur 404 ou une protection anti-robot. Les tests utilisent donc des fixtures Playwright synthétiques reproduisant seulement les structures visibles et courantes ci-dessus; elles ne sont pas des copies du DOM privé ou d’un compte employeur. Pour Ashby, la fixture couvre le lien Apply depuis une offre Jobicy, le CAPTCHA, les réponses requises inconnues et l’envoi confirmé. Aucun dossier réel n’a été envoyé.
 
 ## Arrêts de sécurité et limites
 

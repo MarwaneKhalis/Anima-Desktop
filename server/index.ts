@@ -29,6 +29,7 @@ import { handleCareerCampaignApi } from "./career-campaign-api.ts";
 import { JobDiscovery } from "./job-discovery.ts";
 import { FranceTravailDiscovery } from "./france-travail-discovery.ts";
 import { ArbeitnowFranceDiscovery } from "./arbeitnow-france-discovery.ts";
+import { JobicyRemoteDiscovery } from "./jobicy-remote-discovery.ts";
 import { csvParse, csvStringify, makeSearchUrl } from "./domain.ts";
 import type { Prospect, SavedSearch, Template } from "../src/shared/types.ts";
 import type { OfferSearchService } from "../src/shared/career.ts";
@@ -85,6 +86,10 @@ const testOfferSearch: OfferSearchService | undefined = testFranceTravailUrl
 const testArbeitnowUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_ARBEITNOW_URL : undefined;
 const testPublicOfferSearch: OfferSearchService | undefined = testArbeitnowUrl
   ? { search: async (criteria) => ({ offers: [{ url: testArbeitnowUrl, title: "Offre de test Arbeitnow France", company: "Entreprise de test", location: "Paris, France", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://www.arbeitnow.fr" }], note: `Résultat de test pour ${criteria.keywords}.` }) }
+  : undefined;
+const testJobicyUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_JOBICY_URL : undefined;
+const testJobicyOfferSearch: OfferSearchService | undefined = testJobicyUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testJobicyUrl, title: "Offre de test Jobicy France", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://jobicy.com/jobs/test" }], note: `Résultat de test Jobicy pour ${criteria.keywords}.` }) }
   : undefined;
 let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);
@@ -249,6 +254,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           ? new FranceTravailDiscovery(demoVault)
           : testOfferSearch || new FranceTravailDiscovery(vault),
         publicOfferSearch: testPublicOfferSearch || new ArbeitnowFranceDiscovery(),
+        jobicyOfferSearch: testJobicyOfferSearch || (demo ? undefined : new JobicyRemoteDiscovery()),
         demo,
         allowedTestOrigins,
       })

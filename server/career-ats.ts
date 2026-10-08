@@ -1,16 +1,18 @@
 import type { Page } from "playwright";
 
-export type CareerAts = "greenhouse" | "lever";
+export type CareerAts = "greenhouse" | "lever" | "ashby";
 export type ResourceKind = "document" | "stylesheet" | "image" | "media" | "font" | "script" | "texttrack" | "xhr" | "fetch" | "eventsource" | "websocket" | "manifest" | "other";
 
 const GREENHOUSE_PAGES = new Set(["boards.greenhouse.io", "job-boards.greenhouse.io", "boards.eu.greenhouse.io"]);
 const LEVER_PAGES = new Set(["jobs.lever.co", "jobs.eu.lever.co"]);
+const ASHBY_PAGES = new Set(["jobs.ashbyhq.com"]);
 const GREENHOUSE_STATIC = new Set(["static.greenhouse.io"]);
 
 export function careerAtsForHostname(hostname: string): CareerAts | null {
   const host = hostname.toLowerCase().replace(/\.$/, "");
   if (GREENHOUSE_PAGES.has(host)) return "greenhouse";
   if (LEVER_PAGES.has(host)) return "lever";
+  if (ASHBY_PAGES.has(host)) return "ashby";
   return null;
 }
 
@@ -27,7 +29,10 @@ export function allowsCareerAtsNavigation(input: {
 }): boolean {
   let from: URL; let to: URL;
   try { from = new URL(input.from); to = new URL(input.to); } catch { return false; }
-  if (input.testOrigins.has(to.origin)) return input.initialNavigation && input.redirected;
+  // A test fixture may model a visible cross-origin Apply link, but it must still
+  // be selected explicitly as the pending destination before navigation is allowed.
+  if (input.testOrigins.has(to.origin)) return input.pendingAtsOrigin === to.origin
+    || (input.initialNavigation && input.redirected);
   if (to.protocol !== "https:") return false;
   const fromAts = careerAtsForUrl(from.href);
   const toAts = careerAtsForUrl(to.href);

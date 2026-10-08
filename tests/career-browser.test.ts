@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { CareerBrowser } from "../server/career-browser.ts";
+import { JobicyRemoteDiscovery } from "../server/jobicy-remote-discovery.ts";
 import { CareerRunner } from "../server/career-runner.ts";
 import { CareerStore } from "../server/career-store.ts";
 import { Vault } from "../server/vault.ts";
@@ -83,6 +84,82 @@ test("Lever-style full-name form and Greenhouse-style custom questions use safe 
   assert.equal(fx.submissions.at(-1)?.fields.first_name, profile.firstName);
   assert.equal(fx.submissions.at(-1)?.fields.last_name, profile.lastName);
   assert.equal(fx.submissions.at(-1)?.fields.custom_work_authorized, "No");
+});
+test("Jobicy-discovered offer follows visible Apply links to a simulated Ashby form and waits for confirmation", async () => {
+  const discovery = new JobicyRemoteDiscovery(async () => Response.json({ jobs: [{
+    url: "https://www.jobicy.com/jobs/remote-software-engineer",
+    jobTitle: "Software Engineer", companyName: "Ashby Fixture", jobGeo: "France (Remote)",
+    jobType: ["Full-Time"], jobExcerpt: "Build software", jobDescription: "A public remote role.",
+  }] }));
+  const found = await discovery.search({ keywords: "software engineer" });
+  assert.equal(found.offers.length, 1);
+  const discovered = found.offers[0]!;
+  // Map the public Jobicy listing onto a local page fixture; the listing links onward
+  // to a second local origin which models jobs.ashbyhq.com and its public application.
+  const fixtureJob: JobOffer = { ...job("/jobicy-discovered"), ...discovered, id: "job", url: fx.jobicyAshbyUrl };
+  const allowedTestOrigins = [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin];
+  const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}, beforeSubmit = () => {}) => ({
+    application: app(answers), job: fixtureJob, profile,
+    resume: { meta: meta("cv-a", bytesA), bytes: bytesA }, mode,
+    getCredential: () => null, beforeSubmit,
+  });
+  const answers = { workAuthorization: "Yes", visa_sponsorship: "No", motivation: "I want to build useful software." };
+
+  const initialCount = fx.submissions.length;
+  const prep = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const challenge = await prep.run(makeInput("prepare"));
+    assert.equal(challenge.state, "blocked");
+    assert.match(challenge.message, /CAPTCHA ou MFA/i);
+    assert.equal(prep.hasPausedSession(), true);
+    fx.resolveAshbyChallenge();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const missing = await prep.resume(makeInput("prepare"));
+    assert.equal(missing.state, "needs_input", missing.message);
+    assert.deepEqual(missing.missingFields.map(field => field.key).sort(), ["motivation", "visa sponsorship", "work authorization"].sort());
+    assert.equal(prep.hasPausedSession(), true);
+    assert.equal(fx.submissions.length, initialCount);
+    const ready = await prep.resume(makeInput("prepare", answers));
+    assert.equal(ready.state, "ready");
+    assert.equal(fx.submissions.length, initialCount, "preparation never sends the application");
+  } finally { await prep.close(); }
+
+  let marker = 0;
+  const submit = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const result = await submit.run(makeInput("submit", answers, () => { marker++; }));
+    assert.equal(result.state, "submitted");
+    assert.equal(marker, 1, "the final submission is marked once after the user-confirmed submit mode");
+    assert.equal(fx.submissions.length, initialCount + 1);
+    assert.equal(fx.submissions.at(-1)?.fields.email, profile.email);
+    assert.equal(fx.submissions.at(-1)?.fields.country, "France", "the known country is mapped from the profile");
+    assert.equal(fx.submissions.at(-1)?.fields.workAuthorization, "Yes");
+    assert.equal(fx.submissions.at(-1)?.fields.visa_sponsorship, "No");
+    assert.equal(fx.submissions.at(-1)?.fields.motivation, answers.motivation);
+    assert.equal(fx.submissions.at(-1)?.fields.gender, undefined, "optional demographic data is omitted when unanswered");
+    assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+    assert.match(result.receipt?.reference || "", /^ATS-/);
+  } finally { await submit.close(); }
+});
+test("Ashby lookalike links and external form actions are rejected without data exfiltration", async () => {
+  const allowedTestOrigins = [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin];
+  const before = fx.submissions.length;
+  const lookalikeBrowser = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const lookalike = await lookalikeBrowser.run(inputFor("/jobicy-ashby-lookalike", "submit"));
+    assert.equal(lookalike.state, "blocked");
+    assert.equal(fx.submissions.length, before);
+  } finally { await lookalikeBrowser.close(); }
+
+  const exfilBefore = fx.exfilCount;
+  const external = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const outcome = await external.run(inputFor("/jobicy-ashby-external", "submit"));
+    assert.equal(outcome.state, "blocked");
+    assert.match(outcome.message, /origine différente interdite/i);
+    assert.equal(fx.submissions.length, before, "the foreign form action is never submitted");
+    assert.equal(fx.exfilCount, exfilBefore, "the external tracking request is denied");
+  } finally { await external.close(); }
 });
 test("submission sends exactly one POST and selected resume bytes", async () => {
   const count = fx.submissions.length;
