@@ -54,6 +54,30 @@ const date = (s: string) =>
 const labelJob = (snapshot: CareerSnapshot, a: Application) =>
   snapshot.jobs.find((j) => j.id === a.jobId);
 const active = (a: Application) => ["running", "submitting"].includes(a.state);
+type FranceTravailStatus = { configured: boolean; scope?: string; updatedAt?: string };
+type CampaignSummary = {
+  id: string;
+  resumeId: string;
+  credentialId: string | null;
+  maxSubmissions: number;
+  state: "queued" | "running" | "paused" | "stopped" | "completed" | "limit_reached";
+  counts: { total: number; pending: number; running: number; submitted: number; needsInput: number; uncertain: number; failed: number; skipped: number };
+  createdAt: string;
+};
+type CampaignItemSummary = { id: string; applicationId: string; jobId: string; state: string; error: string };
+type CampaignDetail = { campaign: CampaignSummary; items: CampaignItemSummary[]; resumeDeferred?: boolean };
+const campaignItemStates: Record<string, string> = {
+  pending: "En attente", running: "En cours", submitted: "Envoyée", needs_input: "Réponse requise",
+  uncertain: "Envoi à vérifier", failed: "Échec avant envoi", skipped: "Passée",
+};
+const campaignStates: Record<CampaignSummary["state"], string> = {
+  queued: "En attente",
+  running: "En cours",
+  paused: "En pause",
+  stopped: "Arrêtée",
+  completed: "Terminée",
+  limit_reached: "Plafond atteint",
+};
 
 export default function CareerWorkspace() {
   const [tab, setTab] = useState<Tab>("home"),
@@ -68,6 +92,13 @@ export default function CareerWorkspace() {
     [notice, setNotice] = useState("");
   const [query, setQuery] = useState(""),
     [source, setSource] = useState(""),
+    [franceTravail, setFranceTravail] = useState<FranceTravailStatus>({ configured: false }),
+    [searchSource, setSearchSource] = useState<"arbeitnow" | "france-travail">("arbeitnow"),
+    [franceCredentials, setFranceCredentials] = useState({ clientId: "", clientSecret: "", scope: "" }),
+    [searchCriteria, setSearchCriteria] = useState({ keywords: "", department: "", commune: "", contractType: "", limit: 50 }),
+    [maxSubmissions, setMaxSubmissions] = useState(10),
+    [campaigns, setCampaigns] = useState<CampaignSummary[]>([]),
+    [campaignDetails, setCampaignDetails] = useState<Record<string, CampaignDetail>>({}),
     [jobDraft, setJobDraft] = useState({
       url: "",
       title: "",
@@ -80,8 +111,7 @@ export default function CareerWorkspace() {
     [detail, setDetail] = useState<string | null>(null);
   const [fileResumeChoices, setFileResumeChoices] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<string[]>([]),
-    [batch, setBatch] = useState(false),
-    cancelBatch = useRef(false);
+    [batch, setBatch] = useState(false);
   const [passphrase, setPassphrase] = useState(""),
     [account, setAccount] = useState({
       origin: "",
@@ -120,6 +150,35 @@ export default function CareerWorkspace() {
     setResumeId((id) =>
       value.resumes.some((r) => r.id === id) ? id : value.resumes[0]?.id || "",
     );
+    setCredentialId((id) => value.credentials.some((credential) => credential.id === id) ? id : "");
+    await refreshCampaigns();
+  }
+  async function refreshCampaigns() {
+    try {
+      const value = await api<{ campaigns: CampaignSummary[] }>("/campaigns");
+      setCampaigns(value.campaigns || []);
+    } catch {
+      // Older builds do not expose durable campaigns; keep the rest of the workspace usable.
+    }
+  }
+  async function toggleCampaignDetails(campaignId: string) {
+    if (campaignDetails[campaignId]) {
+      setCampaignDetails((current) => { const next = { ...current }; delete next[campaignId]; return next; });
+      return;
+    }
+    try {
+      const detail = await api<CampaignDetail>(`/campaigns/${campaignId}`);
+      setCampaignDetails((current) => ({ ...current, [campaignId]: detail }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+  async function refreshFranceTravail() {
+    try {
+      setFranceTravail(await api<FranceTravailStatus>("/sources/france-travail"));
+    } catch {
+      setFranceTravail({ configured: false });
+    }
   }
   useEffect(() => {
     setData(null);
@@ -127,13 +186,23 @@ export default function CareerWorkspace() {
     setDetail(null);
     setSelected([]);
     setError("");
-    cancelBatch.current = true;
-    load(true).catch((e) => setError(e.message));
+    load(true)
+      .then(() => recoverPendingCampaign())
+      .catch((e) => setError(e.message));
+    refreshFranceTravail();
     apiFetch(`/api/bootstrap?demo=${demo ? 1 : 0}`)
       .then((r) => r.json())
       .then((v) => setProspects(v.prospects || []))
       .catch(() => {});
   }, [demo]);
+  useEffect(() => {
+    if (!profile) return;
+    setSearchCriteria((current) => ({
+      ...current,
+      keywords: current.keywords || profile.preferences.titles.join(", "),
+      commune: current.commune || profile.city || profile.preferences.locations[0] || "",
+    }));
+  }, [profile]);
   useEffect(() => {
     const timer = setInterval(
       () => load().catch((e) => setError(e.message)),
@@ -169,7 +238,6 @@ export default function CareerWorkspace() {
     });
   }
   async function runBatch() {
-    cancelBatch.current = false;
     setBatch(true);
     setError("");
     try {
@@ -184,30 +252,81 @@ export default function CareerWorkspace() {
         ),
       );
       setSelected(ids);
-      for (const id of ids) {
-        if (cancelBatch.current) break;
-        await run(id, "submit");
-        let result: Application;
-        do {
-          await new Promise((r) => setTimeout(r, 650));
-          result = await api<Application>(`/applications/${id}`);
-          await load();
-        } while (active(result));
-        if (result.state === "submitted")
-          setSelected((items) => items.filter((item) => item !== id));
-        else {
-          setNotice(
-            `Lot arrêté : ${states[result.state]}. Ouvrez la candidature pour continuer.`,
-          );
-          break;
-        }
-      }
+      const jobIds = [...new Set(ids.map((id) => latest.applications.find((a) => a.id === id)?.jobId).filter((id): id is string => !!id))];
+      if (!jobIds.length) throw new Error("Aucune candidature disponible dans la sélection.");
+      await createAndStartCampaign(jobIds);
+      setSelected([]);
+      setNotice(`Campagne durable lancée sur ${jobIds.length} offre(s), plafond ${maxSubmissions}.`);
+      await refreshCampaigns();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBatch(false);
       await load();
     }
+  }
+  async function createAndStartCampaign(jobIds: string[]) {
+    const normalizedJobIds = [...new Set(jobIds)].sort();
+    const payload = { jobIds: normalizedJobIds, resumeId, maxSubmissions, ...(credentialId ? { credentialId } : {}) };
+    const storageKey = "anima-pending-campaign";
+    let pending: { key: string; payload: typeof payload } | undefined;
+    try { pending = JSON.parse(localStorage.getItem(storageKey) || "null") || undefined; } catch { pending = undefined; }
+    const sameRequest = pending && JSON.stringify(pending.payload) === JSON.stringify(payload);
+    const request = sameRequest ? pending! : { key: crypto.randomUUID(), payload };
+    localStorage.setItem(storageKey, JSON.stringify(request));
+    const created = await api<{ campaign: { id: string } }>("/campaigns", "POST", {
+      ...payload,
+      idempotencyKey: request.key,
+    });
+    await api(`/campaigns/${created.campaign.id}/start`, "POST", {});
+    localStorage.removeItem(storageKey);
+    return created.campaign.id;
+  }
+  async function recoverPendingCampaign() {
+    if (demo) return;
+    try {
+      const pending = JSON.parse(localStorage.getItem("anima-pending-campaign") || "null");
+      if (!pending?.key || !Array.isArray(pending?.payload?.jobIds) || !pending.payload.jobIds.length) return;
+      const created = await api<{ campaign: { id: string } }>("/campaigns", "POST", {
+        ...pending.payload,
+        idempotencyKey: pending.key,
+      });
+      await api(`/campaigns/${created.campaign.id}/start`, "POST", {});
+      localStorage.removeItem("anima-pending-campaign");
+      await refreshCampaigns();
+      setNotice("La campagne interrompue a repris automatiquement.");
+    } catch {
+      // Keep the request key so a later retry can safely resume without duplicating applications.
+    }
+  }
+  async function searchOffers(apply = false) {
+    if (!profile) throw new Error("Le profil n’est pas encore chargé.");
+    if (apply && !resumeId) throw new Error("Ajoutez un CV dans Profil & CV avant de lancer une campagne.");
+    const keywords = searchCriteria.keywords.trim() || profile.preferences.titles.join(", ");
+    if (!keywords) throw new Error("Renseignez des métiers recherchés dans Profil & CV, ou saisissez un mot-clé.");
+    const publicSource = searchSource === "arbeitnow";
+    const found = await api<{ jobs: JobOffer[]; note: string }>(
+      publicSource ? "/sources/arbeitnow/search" : "/sources/france-travail/search",
+      "POST",
+      {
+        keywords,
+        ...(!publicSource && searchCriteria.department.trim() ? { department: searchCriteria.department.trim() } : {}),
+        ...(searchCriteria.commune.trim() ? { commune: searchCriteria.commune.trim() } : {}),
+        ...(searchCriteria.contractType.trim() ? { contractType: searchCriteria.contractType.trim() } : {}),
+        limit: searchCriteria.limit,
+      },
+    );
+    if (!found.jobs.length) return found.note || "Aucune offre ne correspond à ces critères.";
+    if (!apply) return `${found.jobs.length} offre(s) récupérée(s). ${found.note}`;
+    await createAndStartCampaign(found.jobs.map((job) => job.id));
+    await refreshCampaigns();
+    return `Campagne lancée sur ${found.jobs.length} offre(s), avec un plafond de ${maxSubmissions} envoi(s). ${found.note}`;
+  }
+  async function saveFranceTravailCredentials() {
+    const saved = await api<FranceTravailStatus>("/sources/france-travail", "POST", franceCredentials);
+    setFranceTravail(saved);
+    setFranceCredentials({ clientId: "", clientSecret: "", scope: "" });
+    return "Accès France Travail enregistré dans le coffre chiffré.";
   }
   async function upload(file: File) {
     const base64 = await new Promise<string>((resolve, reject) => {
@@ -272,12 +391,12 @@ export default function CareerWorkspace() {
         </select>
       </label>
       <label>
-        Compte de connexion
+        Compte carrière préféré
         <select
           value={credentialId}
           onChange={(e) => setCredentialId(e.target.value)}
         >
-          <option value="">Sans compte / accès public</option>
+          <option value="">Choix automatique si un seul compte existe pour le site</option>
           {data?.credentials.map((c) => (
             <option key={c.id} value={c.id}>
               {c.label || c.origin} · {c.username}
@@ -285,6 +404,7 @@ export default function CareerWorkspace() {
           ))}
         </select>
       </label>
+      <small>La campagne garde ce choix. Pour les autres sites, elle utilise un compte uniquement s’il n’y en a qu’un pour cette origine.</small>
     </div>
   );
   return (
@@ -335,9 +455,8 @@ export default function CareerWorkspace() {
             </div>
           </div>
           <button
-            disabled={busy || batch || !!data?.applications.some(active)}
+            disabled={busy || batch || !!data?.applications.some(active) || campaigns.some((campaign) => campaign.state === "running")}
             onClick={() => {
-              cancelBatch.current = true;
               localStorage.setItem("anima-demo", demo ? "0" : "1");
               setDemo(!demo);
               setCredentialId("");
@@ -629,41 +748,160 @@ export default function CareerWorkspace() {
                       </span>
                       <h1>Les bonnes opportunités.</h1>
                       <p>
-                        Importez un tableau Greenhouse, Lever ou une offre avec
-                        données structurées.
+                        Cherchez depuis vos critères, puis laissez une campagne
+                        traiter les candidatures compatibles.
                       </p>
                     </div>
                     <span className="cw-pill">{data.jobs.length} offres</span>
                   </div>
                   <section className="cw-panel">
+                    <div className="cw-source-title">
+                      <div>
+                        <span className="cw-eyebrow">RECHERCHE AUTOMATIQUE</span>
+                        <h2>{searchSource === "arbeitnow" ? "Offres Arbeitnow France" : "Offres France Travail"}</h2>
+                        <p>
+                          {searchSource === "arbeitnow"
+                            ? "Recherche publique d’offres récentes en France, sans clé API ni URL à copier."
+                            : "La recherche part de vos mots-clés et critères. Cette source demande des identifiants API personnels conservés dans le coffre local chiffré."}
+                        </p>
+                      </div>
+                      <span className={`cw-source-status ${searchSource === "arbeitnow" || franceTravail.configured ? "is-ready" : ""}`}>
+                        {searchSource === "arbeitnow" ? "Source publique disponible" : franceTravail.configured ? "Identifiants enregistrés" : "Accès France Travail requis"}
+                      </span>
+                    </div>
+                    {searchSource === "france-travail" && !data.vault.unlocked && (
+                      <div className="cw-help">
+                        <strong>{data.vault.initialized ? "Coffre verrouillé." : "Coffre non initialisé."}</strong> {data.vault.initialized ? "Déverrouillez-le" : "Initialisez-le"} pour enregistrer les identifiants API et permettre la recherche.
+                        <button onClick={() => setTab("vault")}>Ouvrir le coffre</button>
+                      </div>
+                    )}
                     <form
-                      className="cw-inline"
+                      className="cw-search-form"
                       onSubmit={(e) => {
                         e.preventDefault();
-                        action(async () => {
-                          const result = await api<{ note: string }>(
-                            "/discover",
-                            "POST",
-                            { url: source },
-                          );
-                          return result.note;
-                        }, "Import terminé.");
+                        action(() => searchOffers(), "Recherche terminée.");
                       }}
                     >
                       <label>
-                        URL du tableau ou de l’offre
+                        Source d’offres
+                        <select value={searchSource} onChange={(e) => setSearchSource(e.target.value as "arbeitnow" | "france-travail")}>
+                          <option value="arbeitnow">Arbeitnow France · public, sans clé API</option>
+                          <option value="france-travail">France Travail · accès restreint</option>
+                        </select>
+                      </label>
+                      <label>
+                        Métier(s) ou mot(s)-clé(s)
                         <input
-                          type="url"
+                          type="text"
                           required
-                          value={source}
-                          onChange={(e) => setSource(e.target.value)}
-                          placeholder="https://jobs.lever.co/entreprise"
+                          value={searchCriteria.keywords}
+                          onChange={(e) => setSearchCriteria({ ...searchCriteria, keywords: e.target.value })}
+                          placeholder={profile?.preferences.titles.join(", ") || "Ex. développeur TypeScript"}
                         />
                       </label>
-                      <button className="cw-primary" disabled={busy}>
-                        Importer les offres ↗
-                      </button>
+                      <div className="cw-search-fields">
+                        {searchSource === "france-travail" && (
+                          <label>
+                            Département (facultatif)
+                            <input
+                              inputMode="text"
+                              maxLength={3}
+                              value={searchCriteria.department}
+                              onChange={(e) => setSearchCriteria({ ...searchCriteria, department: e.target.value.replace(/[^0-9a-z]/gi, "").toUpperCase().slice(0, 3) })}
+                              placeholder="75 ou 2A"
+                            />
+                          </label>
+                        )}
+                        <label>
+                          Ville ou commune (facultatif)
+                          <input
+                            maxLength={100}
+                            value={searchCriteria.commune}
+                            onChange={(e) => setSearchCriteria({ ...searchCriteria, commune: e.target.value })}
+                            placeholder="Paris ou code INSEE"
+                          />
+                        </label>
+                        <label>
+                          {searchSource === "arbeitnow" ? "Contrat (filtre texte, facultatif)" : "Contrat (code API, facultatif)"}
+                          <input
+                            value={searchCriteria.contractType}
+                            onChange={(e) => setSearchCriteria({ ...searchCriteria, contractType: e.target.value.toUpperCase().slice(0, 40) })}
+                            placeholder="CDI"
+                          />
+                        </label>
+                        <label>
+                          Nombre d’offres à examiner
+                          <select value={searchCriteria.limit} onChange={(e) => setSearchCriteria({ ...searchCriteria, limit: Number(e.target.value) })}>
+                            {[25, 50, 100, 150, 300, 450].map((n) => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="cw-search-actions">
+                        <button className="cw-primary" disabled={busy || demo || (searchSource === "france-travail" && (!franceTravail.configured || !data.vault.unlocked))}>
+                          Rechercher les offres ↗
+                        </button>
+                        <label className="cw-cap">
+                          Plafond d’envoi par campagne
+                          <select value={maxSubmissions} onChange={(e) => setMaxSubmissions(Number(e.target.value))}>
+                            {[1, 3, 5, 10, 20, 50].map((n) => <option key={n} value={n}>{n} candidature{n > 1 ? "s" : ""}</option>)}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          className="cw-primary cw-apply-button"
+                          disabled={busy || demo || (searchSource === "france-travail" && (!franceTravail.configured || !data.vault.unlocked)) || !resumeId}
+                          onClick={() => action(() => searchOffers(true), "Campagne lancée.")}
+                        >
+                          Trouver et candidater automatiquement
+                        </button>
+                      </div>
+                      <small className="cw-automation-note">
+                        {searchSource === "arbeitnow"
+                          ? <>Les offres viennent de l’<a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">API publique Arbeitnow France</a>, actualisée environ chaque heure. L’éditeur demande un lien de retour vers <a href="https://www.arbeitnow.com" target="_blank" rel="noreferrer">Arbeitnow</a>. La couverture dépend des annonces indexées ; seuls les parcours Greenhouse et Lever sont remplis automatiquement aujourd’hui.</>
+                          : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement. L’envoi automatique est pris en charge sur Greenhouse et Lever ; les autres sites peuvent demander une reprise manuelle.</>} Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
+                      </small>
+                      {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
+                      {!resumeId && <small>Ajoutez d’abord un CV dans l’onglet Profil & CV pour activer les candidatures.</small>}
                     </form>
+                    {searchSource === "france-travail" && <details className="cw-details" open={!franceTravail.configured && !demo}>
+                      <summary>{franceTravail.configured ? "Modifier la configuration France Travail" : "Configurer l’accès France Travail"}</summary>
+                      <p>
+                        L’API Offres d’emploi est à accès restreint et sa diffusion publique est actuellement suspendue. Demandez d’abord un accès auprès de{" "}
+                        <a href="https://francetravail.io/contact" target="_blank" rel="noreferrer">France Travail</a>, puis saisissez les identifiants et le périmètre qui vous seront attribués. Les identifiants enregistrés ne sont pas testés avant la première recherche.
+                      </p>
+                      {franceTravail.configured && franceTravail.scope && (
+                        <p className="cw-configured-note">Périmètre enregistré : {franceTravail.scope}</p>
+                      )}
+                      <form className="cw-grid" onSubmit={(e) => { e.preventDefault(); action(saveFranceTravailCredentials, "Configuration enregistrée."); }}>
+                        <label>
+                          Client ID
+                          <input autoComplete="off" disabled={!data.vault.unlocked} value={franceCredentials.clientId} onChange={(e) => setFranceCredentials({ ...franceCredentials, clientId: e.target.value })} required />
+                        </label>
+                        <label>
+                          Client secret
+                          <input type="password" autoComplete="new-password" disabled={!data.vault.unlocked} value={franceCredentials.clientSecret} onChange={(e) => setFranceCredentials({ ...franceCredentials, clientSecret: e.target.value })} required />
+                        </label>
+                        <label>
+                          Scope / périmètre API
+                          <input autoComplete="off" disabled={!data.vault.unlocked} value={franceCredentials.scope} onChange={(e) => setFranceCredentials({ ...franceCredentials, scope: e.target.value })} required />
+                        </label>
+                        <button className="cw-primary" disabled={busy || demo || !data.vault.unlocked}>Enregistrer dans le coffre</button>
+                      </form>
+                      {franceTravail.configured && (
+                        <button disabled={busy || demo || !data.vault.unlocked} onClick={() => action(async () => { await api("/sources/france-travail", "DELETE", {}); setFranceTravail({ configured: false }); return "Accès France Travail supprimé."; })}>Supprimer les identifiants</button>
+                      )}
+                    </details>}
+                    <details className="cw-details">
+                      <summary>Importer depuis une URL (optionnel)</summary>
+                      <p>Utile pour ajouter un tableau carrière précis Greenhouse ou Lever. La recherche France Travail ci-dessus ne demande pas de lien.</p>
+                      <form className="cw-inline" onSubmit={(e) => { e.preventDefault(); action(async () => { const result = await api<{ note: string }>("/discover", "POST", { url: source }); return result.note; }, "Import terminé."); }}>
+                        <label>
+                          URL du tableau ou de l’offre
+                          <input type="url" required value={source} onChange={(e) => setSource(e.target.value)} placeholder="https://jobs.lever.co/entreprise" />
+                        </label>
+                        <button disabled={busy}>Importer</button>
+                      </form>
+                    </details>
                     <details className="cw-details">
                       <summary>Ajouter une offre avec son lien</summary>
                       <form
@@ -723,6 +961,80 @@ export default function CareerWorkspace() {
                     </details>
                   </section>
                   {profileTools}
+                  {!!campaigns.length && (
+                    <section className="cw-panel cw-campaigns">
+                      <div className="cw-section-head">
+                        <div>
+                          <span className="cw-eyebrow">TRAITEMENT AUTOMATIQUE</span>
+                          <h2>Campagnes de candidature</h2>
+                        </div>
+                        <span className="cw-pill">{campaigns.length} campagne(s)</span>
+                      </div>
+                      <div className="cw-campaign-list">
+                        {campaigns.slice(0, 5).map((campaign) => (
+                          <article className="cw-campaign-row" key={campaign.id}>
+                            <div className="cw-campaign-main">
+                              <strong>{campaignStates[campaign.state]}</strong>
+                              <small>
+                                {campaign.counts?.submitted || 0} envoyée(s) · {campaign.counts?.running || 0} en cours · {campaign.counts?.needsInput || 0} à compléter · {campaign.counts?.uncertain || 0} à vérifier · plafond {campaign.maxSubmissions}
+                              </small>
+                              <small>
+                                Compte : {campaign.credentialId
+                                  ? data.credentials.find((credential) => credential.id === campaign.credentialId)?.label || "sélectionné, à vérifier"
+                                  : "détection automatique (un seul compte par site)"}
+                              </small>
+                            </div>
+                            <div className="cw-campaign-actions">
+                              <button onClick={() => void toggleCampaignDetails(campaign.id)}>
+                                {campaignDetails[campaign.id] ? "Masquer" : "Détails"}
+                              </button>
+                              {(campaign.state === "queued" || campaign.state === "paused") && !campaign.counts?.uncertain && (
+                                <button className="cw-primary" disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/start`, "POST", {}), "Campagne reprise.")}>Reprendre</button>
+                              )}
+                              {campaign.state === "paused" && !!campaign.counts?.uncertain && <small>Résolvez d’abord l’envoi incertain avant de reprendre.</small>}
+                              {campaign.state === "running" && (
+                                <button disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/pause`, "POST", {}), "Campagne mise en pause.")}>Pause</button>
+                              )}
+                              {!["stopped", "completed", "limit_reached"].includes(campaign.state) && (
+                                <button disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/stop`, "POST", {}), "Campagne arrêtée.")}>Arrêter</button>
+                              )}
+                            </div>
+                            {campaignDetails[campaign.id] && (
+                              <div className="cw-campaign-items">
+                                {campaignDetails[campaign.id].items.map((item) => (
+                                  <div className="cw-campaign-item" key={item.id}>
+                                    <span>
+                                      <strong>{campaignItemStates[item.state] || item.state}</strong>
+                                      {item.error && <small>{item.error}</small>}
+                                    </span>
+                                    <div>
+                                      <button onClick={() => { setTab("applications"); setDetail(item.applicationId); }}>
+                                        Voir la candidature
+                                      </button>
+                                      {["pending", "needs_input", "failed"].includes(item.state) && (
+                                        <button disabled={busy || demo} onClick={() => void action(async () => {
+                                          const updated = await api<CampaignDetail>(`/campaigns/${campaign.id}/items/${item.id}/skip`, "POST", { reason: "Passée depuis le suivi de campagne." });
+                                          setCampaignDetails((current) => ({ ...current, [campaign.id]: updated }));
+                                          return updated.resumeDeferred
+                                            ? "Offre passée. La campagne reste en pause ; le navigateur est occupé. Reprenez-la quand il sera disponible."
+                                            : updated.campaign.state === "completed"
+                                              ? "Offre passée. La campagne est terminée."
+                                              : "Offre passée ; la campagne continue si des offres restent en attente.";
+                                        })}>
+                                          Passer cette offre
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </article>
+                        ))}
+                      </div>
+                    <small>Les réponses requises que le profil ne contient pas sont mises en attente pendant que les autres offres continuent. Un CAPTCHA, une MFA ou un site non pris en charge met la campagne en pause : ouvrez ses détails pour traiter ou passer l’offre. Une candidature dont l’envoi est incertain n’est jamais relancée automatiquement.</small>
+                    </section>
+                  )}
                   <div className="cw-section-head">
                     <h2>Votre sélection</h2>
                     <input
@@ -844,20 +1156,11 @@ export default function CareerWorkspace() {
                       disabled={busy || batch || demo || !selected.length}
                       onClick={runBatch}
                     >
-                      Postuler au lot ({selected.length}) ↗
+                      Lancer une campagne · {selected.length} offre(s) · plafond {maxSubmissions} ↗
                     </button>
-                    {batch && (
-                      <button
-                        onClick={() => {
-                          cancelBatch.current = true;
-                          setNotice(
-                            "Le lot s’arrêtera après la candidature en cours.",
-                          );
-                        }}
-                      >
-                        Arrêter le lot
-                      </button>
-                    )}
+                    {campaigns.filter((campaign) => campaign.state === "running").map((campaign) => (
+                      <button key={campaign.id} disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/stop`, "POST", {}), "Campagne arrêtée.")}>Arrêter la campagne</button>
+                    ))}
                   </div>
                   <div className="cw-applications">
                     {data.applications.map((a) => (

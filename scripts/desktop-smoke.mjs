@@ -12,7 +12,7 @@ const executablePath = resolve(
 );
 const fixtureSubmissions = [];
 const fixture = createServer(async (req, res) => {
-  if (req.method === "GET" && req.url === "/apply") {
+  if (req.method === "GET" && ["/apply", "/apply-campaign"].includes(req.url)) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><html lang="fr"><body>
       <h1>Poste de test</h1>
@@ -80,6 +80,18 @@ async function waitForApplication(window, id, expectedState, timeoutMs = 60_000)
   assert.fail(`Candidature attendue en état ${expectedState}, reçue : ${JSON.stringify(last)}`);
 }
 
+async function waitForCampaign(window, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    const value = parseJson(await requestJson(window, "/api/career/campaigns"), 200);
+    last = value.campaigns[0];
+    if (last?.state === "completed") return last;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+  }
+  assert.fail(`Campagne attendue terminée, état reçu : ${JSON.stringify(last)}`);
+}
+
 async function getFreePort() {
   const server = createNetServer();
   const address = await listen(server);
@@ -116,6 +128,7 @@ async function assertSingleInstance(exe, env, userData) {
 
 let application;
 let restarted;
+let diagnosticWindow;
 let userDataDir;
 let smokeError;
 try {
@@ -133,6 +146,7 @@ try {
     PORT: String(expectedPort),
     ANIMA_TEST_MODE: "1",
     CAREER_TEST_ORIGINS: JSON.stringify([fixtureOrigin]),
+    CAREER_TEST_ARBEITNOW_URL: `${fixtureOrigin}/apply-campaign`,
     CAREER_HEADLESS: "1",
   };
   const launchOptions = {
@@ -142,7 +156,7 @@ try {
   };
 
   application = await electron.launch(launchOptions);
-  const window = await application.firstWindow();
+  const window = diagnosticWindow = await application.firstWindow();
   await window.waitForLoadState("load");
   assert.match(await window.title(), /Anima Connect/i);
   await window.getByRole("button", { name: "Tableau de bord" }).waitFor({ state: "visible" });
@@ -210,6 +224,20 @@ try {
   assert.ok(!fixtureSubmissions[0].includes(firstResumeBytes), "Le formulaire ne doit pas recevoir l’autre CV.");
   assert.match(submitted.receipt?.reference || "", /AC-1234/);
 
+  // CVs were inserted through the local API above, so reload the UI to refresh its
+  // snapshot and explicitly choose the intended CV before creating the campaign.
+  await window.reload();
+  await window.waitForLoadState("load");
+  await window.getByRole("button", { name: "Offres", exact: true }).click();
+  await window.getByLabel("CV pour les candidatures").selectOption(selectedResume.id);
+  await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
+  await window.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  const campaign = await waitForCampaign(window);
+  assert.equal(campaign.counts.submitted, 1, "La campagne bureau doit envoyer le formulaire fixture.");
+  assert.equal(fixtureSubmissions.length, 2, "Chaque candidature fixture doit être envoyée exactement une fois.");
+  assert.ok(fixtureSubmissions[1].includes(selectedResumeBytes), "La campagne doit reprendre le CV choisi.");
+  await window.getByText("Terminée", { exact: true }).waitFor();
+
   const userDatabase = join(userDataDir, "data", "anima-connect.sqlite");
   assert.ok((await stat(userDatabase)).isFile(), "La base doit être écrite dans le profil utilisateur temporaire.");
   await application.close();
@@ -221,15 +249,26 @@ try {
   const afterRestart = parseJson(await requestJson(restartedWindow, "/api/career/bootstrap"), 200);
   assert.equal(afterRestart.applications.find((item) => item.id === created.id)?.state, "submitted");
   assert.equal(afterRestart.resumes.length, 2);
+  const campaignsAfterRestart = parseJson(await requestJson(restartedWindow, "/api/career/campaigns"), 200);
+  assert.equal(campaignsAfterRestart.campaigns[0]?.state, "completed", "La campagne terminée doit rester persistée après redémarrage.");
+  assert.equal(campaignsAfterRestart.campaigns[0]?.counts.submitted, 1);
   await assertNoHttpListener(expectedPort);
 
   if (process.env.ANIMA_CAPTURE_DESKTOP_PREVIEW === "1") {
     await mkdir("artifacts", { recursive: true });
     await restartedWindow.screenshot({ path: "artifacts/anima-connect-desktop.png", timeout: 60_000 });
   }
-  console.log("Installé dans un profil temporaire : Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et données restaurées après redémarrage vérifiés ; aucun serveur HTTP détecté.");
+  console.log("Installé dans un profil temporaire : Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu, campagne persistée après redémarrage et données restaurées vérifiés ; aucun serveur HTTP détecté.");
 } catch (error) {
   smokeError = error;
+  if (diagnosticWindow) {
+    try {
+      await mkdir("artifacts", { recursive: true });
+      await diagnosticWindow.screenshot({ path: "artifacts/desktop-smoke-failure.png", timeout: 10_000 });
+      console.error("Capture d’échec : artifacts/desktop-smoke-failure.png");
+      console.error((await diagnosticWindow.locator("body").innerText()).slice(0, 2000));
+    } catch { /* preserve the original smoke failure */ }
+  }
 }
 
 const cleanupErrors = [];

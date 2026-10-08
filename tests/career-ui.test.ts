@@ -65,7 +65,7 @@ test("career UI completes a real browser application flow and survives reload", 
   await page.getByText("camille-alternatif.pdf").waitFor();
   await screenshot("02-profile");
 
-  await page.getByRole("button", { name: "Offres" }).click();
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
   await page.getByText("Ajouter une offre avec son lien").click();
   await page.getByLabel("URL de l’offre").fill(`${app.fixture.baseUrl}/simple`);
   await page.getByLabel("Intitulé").fill("Ingénieure plateforme");
@@ -192,7 +192,7 @@ test("career UI completes a real browser application flow and survives reload", 
       .getByLabel(`Sélectionner Lot ${batchIndex}`, { exact: true })
       .check();
     await page
-      .getByRole("button", { name: "Postuler au lot (1) ↗", exact: true })
+      .getByRole("button", { name: "Lancer une campagne · 1 offre(s) · plafond 10 ↗", exact: true })
       .click();
     const result = await waitFor(
       async () =>
@@ -207,7 +207,7 @@ test("career UI completes a real browser application flow and survives reload", 
     );
     assert.equal(result.state, "submitted", result.lastError);
     await page
-      .getByRole("button", { name: "Postuler au lot (0) ↗", exact: true })
+      .getByRole("button", { name: "Lancer une campagne · 0 offre(s) · plafond 10 ↗", exact: true })
       .waitFor();
   }
   assert.equal(
@@ -227,6 +227,120 @@ test("career UI completes a real browser application flow and survives reload", 
   await screenshot("07-prospecting");
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(failedRequests, []);
+});
+
+test("France Travail search launches a durable application campaign from the desktop UI", async (t) => {
+  const app = await startCareerTestServer({ mockFranceTravailSearch: true });
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+
+  const initialized = await app.json("/api/career/vault/initialize", {
+    passphrase: "fixture-passphrase-123",
+  });
+  assert.equal(initialized.response.status, 201);
+  const profileResponse = await app.json("/api/career/profile", profile(), "PUT");
+  assert.equal(profileResponse.response.status, 200);
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV principal",
+    filename: "cv-principal.pdf",
+    mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
+  const source = await app.json("/api/career/sources/france-travail", {
+    clientId: "fixture-client",
+    clientSecret: "fixture-secret",
+    scope: "fixture-scope",
+  });
+  assert.equal(source.response.status, 200);
+
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByLabel("Source d’offres").selectOption("france-travail");
+  await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
+  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+
+  const completed = await waitFor(async () => {
+    const { value } = await app.json("/api/career/campaigns");
+    return value.campaigns[0];
+  }, (campaign) => campaign?.state === "completed", 20_000);
+  assert.equal(completed.counts.total, 1);
+  assert.equal(completed.counts.submitted, 1);
+
+  const { value: snapshot } = await app.json("/api/career/bootstrap");
+  assert.equal(snapshot.jobs.length, 1);
+  assert.equal(snapshot.jobs[0].title, "Offre de test France Travail");
+  assert.equal(snapshot.applications.length, 1);
+  assert.equal(snapshot.applications[0].state, "submitted");
+  assert.ok(snapshot.applications[0].receipt?.reference);
+  assert.equal(app.fixture.submissions.length, 1);
+  assert.equal(app.fixture.submissions[0].fields.email, "camille@example.test");
+  await page.getByText("Terminée", { exact: true }).waitFor();
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.screenshot({ path: "artifacts/career-ui/08-france-travail-campaign.png", fullPage: true });
+  assert.deepEqual(pageErrors, []);
+});
+
+test("Arbeitnow France can discover and campaign for an offer without France Travail access", async (t) => {
+  const app = await startCareerTestServer({ mockArbeitnowSearch: true });
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const profileResponse = await app.json("/api/career/profile", profile(), "PUT");
+  assert.equal(profileResponse.response.status, 200);
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV principal", filename: "cv.pdf", mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
+  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  const completed = await waitFor(async () => {
+    const { value } = await app.json("/api/career/campaigns");
+    return value.campaigns[0];
+  }, (campaign) => campaign?.state === "completed", 20_000);
+  assert.equal(completed.counts.submitted, 1);
+  const { value: snapshot } = await app.json("/api/career/bootstrap");
+  assert.equal(snapshot.jobs[0].title, "Offre de test Arbeitnow France");
+  assert.equal(snapshot.applications[0].state, "submitted");
+  assert.equal(app.fixture.submissions.length, 1);
+  await page.getByRole("button", { name: "Détails" }).click();
+  await page.getByRole("button", { name: "Voir la candidature" }).waitFor();
+  await page.getByRole("button", { name: "Voir la candidature" }).click();
+  await page.locator(".cw-overlay").waitFor({ state: "visible" });
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.screenshot({ path: "artifacts/career-ui/09-arbeitnow-campaign.png", fullPage: true });
+  assert.deepEqual(pageErrors, []);
+});
+
+test("Arbeitnow search can save offers before a CV is added", async (t) => {
+  const app = await startCareerTestServer({ mockArbeitnowSearch: true });
+  t.after(() => app.close());
+  const profileResponse = await app.json("/api/career/profile", profile(), "PUT");
+  assert.equal(profileResponse.response.status, 200);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
+  await page.getByRole("button", { name: "Rechercher les offres" }).click();
+  await page.getByText(/offre\(s\) récupérée/).waitFor();
+  const { value: snapshot } = await app.json("/api/career/bootstrap");
+  assert.equal(snapshot.resumes.length, 0);
+  assert.equal(snapshot.jobs[0].title, "Offre de test Arbeitnow France");
+  assert.deepEqual(snapshot.applications, []);
+  const applyButton = page.getByRole("button", { name: "Trouver et candidater automatiquement" });
+  assert.equal(await applyButton.isDisabled(), true);
 });
 
 test("career UI resumes a paused application after saving a missing answer", async (t) => {

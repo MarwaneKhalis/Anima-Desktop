@@ -4,6 +4,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import type {
   Application, CareerProfile, JobOffer, MissingField, Receipt, Resume, RunMode, RunResult,
 } from "../src/shared/career.ts";
+import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForUrl, findApplyLink } from "./career-ats.ts";
 
 export interface CareerBrowserOptions { headless?: boolean; allowedTestOrigins?: string[] }
 type Control = { index: number; tag: string; type: string; label: string; name: string; key: string; required: boolean; value: string; checked: boolean; uploaded: boolean; options: string[] };
@@ -12,10 +13,11 @@ type BrowserRunInput = {
   application: Application; job: JobOffer; profile: CareerProfile;
   resume: { meta: Resume; bytes: Buffer }; mode: RunMode;
   getCredential: (origin: string) => { username: string; password: string } | null;
-  beforeSubmit: () => void; signal?: AbortSignal; fileFieldKey?: string;
+  beforeSubmit: () => void; signal?: AbortSignal; fileFieldKey?: string; closeOnNeedsInput?: boolean;
 };
 type BrowserSession = {
   input: BrowserRunInput; page: Page; flowOrigin: string; initialNavigation: boolean;
+  pendingAtsOrigin?: string;
   seen: Set<string>; loggedIn: boolean; resumeCount: number; initialValues: Map<string, string>;
   submittedClick: boolean;
   pausedPageBody?: string;
@@ -52,7 +54,7 @@ const knownValue = (key: string, p: CareerProfile): string | undefined => {
     [/^(full name|your name|nom complet)$/, [p.firstName, p.lastName].filter(Boolean).join(" ")],
     [/^(e mail|email|email address|adresse e mail|courriel)$/, p.email],
     [/^(phone|phone number|telephone|numero de telephone|mobile)$/, p.phone],
-    [/^(city|ville|current city)$/, p.city],
+    [/^(city|ville|current city|location city|current location)$/, p.city],
     [/^(country|pays)$/, p.country],
     [/^(address|street address|adresse)$/, p.address],
     [/^(postal code|zip code|code postal)$/, p.postalCode],
@@ -146,7 +148,8 @@ export class CareerBrowser {
   }
 
   private async finish(session: BrowserSession, outcome: RunResult): Promise<RunResult> {
-    if ((outcome.state === "needs_input" || outcome.state === "blocked") && this.isLive(session)) {
+    if (outcome.state === "needs_input" && session.input.closeOnNeedsInput) await this.close();
+    else if ((outcome.state === "needs_input" || outcome.state === "blocked") && this.isLive(session)) {
       const cs = await controls(session.page).catch(() => []);
       const pageSignature = session.page.url() + "|" + cs.map(c => c.name + ":" + c.key).join("|");
       for (const c of cs) session.initialValues.set(pageSignature + "|" + c.index + "|" + c.type + "|" + (c.name || c.key), controlValue(c));
@@ -159,226 +162,4 @@ export class CareerBrowser {
 
   async discover(url: string): Promise<{ offers: Omit<JobOffer, "id" | "discoveredAt" | "updatedAt">[]; note: string }> {
     safeUrl(url, this.testOrigins);
-    if (this.active || this.pausedSession) throw new Error("Un parcours navigateur est dÃ©jÃ  actif ou en attente.");
-    return { offers: [], note: "DÃ©couverte navigateur non prise en charge ; utilisez une page carriÃ¨re publique compatible." };
-  }
-
-  async run(input: BrowserRunInput): Promise<RunResult> {
-    if (this.active) return result("blocked", "Un autre parcours navigateur est dÃ©jÃ  actif.");
-    this.active = true;
-    if (this.pausedSession) {
-      if (this.isLive(this.pausedSession)) {
-        this.active = false;
-        return result("blocked", "Une candidature attend une intervention. Reprenez-la ou arrÃªtez le navigateur avant dâ€™en lancer une autre.");
-      }
-      await this.close();
-    }
-    let session: BrowserSession | undefined;
-    try {
-      const start = safeUrl(input.job.url, this.testOrigins);
-      await assertPublic(start, this.testOrigins);
-      this.browser = await chromium.launch({ headless: this.options.headless ?? false });
-      this.context = await this.browser.newContext({ acceptDownloads: false, viewport: { width: 1365, height: 900 } });
-      this.context.setDefaultTimeout(10_000);
-      this.context.setDefaultNavigationTimeout(20_000);
-      const page = await this.context.newPage();
-      session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false };
-      await this.context.route("**/*", async route => {
-        const request = route.request();
-        let url: URL;
-        try { url = new URL(request.url()); } catch { return route.abort(); }
-        if (url.origin !== session!.flowOrigin) {
-          if (session!.initialNavigation && request.isNavigationRequest() && request.redirectedFrom()) {
-            try { await assertPublic(url, this.testOrigins); session!.flowOrigin = url.origin; } catch { return route.abort(); }
-          } else return route.abort();
-        }
-        return route.continue();
-      });
-      await page.goto(start.href, { waitUntil: "domcontentloaded" });
-      session.initialNavigation = false;
-      session.flowOrigin = new URL(page.url()).origin;
-      return await this.finish(session, await this.drive(session));
-    } catch {
-      const outcome = result(session?.submittedClick ? "uncertain" : input.signal?.aborted ? "failed" : "blocked", session?.submittedClick ? "Lâ€™envoi a peut-Ãªtre eu lieu ; vÃ©rifiez manuellement avant toute nouvelle tentative." : input.signal?.aborted ? "Parcours interrompu avant lâ€™envoi." : "Le navigateur nâ€™a pas pu terminer ce formulaire.");
-      if (session) return await this.finish(session, outcome);
-      await this.close();
-      return outcome;
-    } finally { this.active = false; }
-  }
-
-  async resume(input: BrowserRunInput): Promise<RunResult> {
-    if (this.active) return result("blocked", "Un parcours navigateur est dÃ©jÃ  actif.");
-    const session = this.pausedSession;
-    if (!session || !this.isLive(session)) {
-      await this.close();
-      return result("blocked", "La session navigateur nâ€™est plus ouverte. Relancez le parcours depuis lâ€™offre.");
-    }
-    this.pausedSession = undefined;
-    this.active = true;
-    session.input = input;
-    session.resumeCount++;
-    try { return await this.finish(session, await this.drive(session)); }
-    catch {
-      const outcome = result(session.submittedClick ? "uncertain" : input.signal?.aborted ? "failed" : "blocked", session.submittedClick ? "Lâ€™envoi a peut-Ãªtre eu lieu ; vÃ©rifiez manuellement avant toute nouvelle tentative." : input.signal?.aborted ? "Parcours interrompu avant lâ€™envoi." : "La reprise du formulaire a Ã©chouÃ©.");
-      return await this.finish(session, outcome);
-    } finally { this.active = false; }
-  }
-
-  private async drive(session: BrowserSession): Promise<RunResult> {
-    const page = session.page;
-    const input = session.input;
-    for (let step = 0; step < 10; step++) {
-      if (input.signal?.aborted) return result("failed", "Parcours interrompu avant lâ€™envoi.");
-      if (new URL(page.url()).origin !== session.flowOrigin) return result("blocked", "Redirection vers une autre origine : action manuelle requise.");
-      const body = await page.locator("body").innerText().catch(() => "");
-      if (session.resumeCount > 0) {
-        const proof = await receipt(page, session.pausedPageBody || "");
-        if (proof) {
-          // A user may have submitted manually while solving an intervention; record the proof without replaying the form.
-          session.submittedClick = true;
-          input.beforeSubmit();
-          return result("submitted", "Candidature confirmÃ©e dans le navigateur.", [], proof);
-        }
-      }
-      const challenge = await interventionSignature(page, body);
-      if (challenge) {
-        return result("blocked", "VÃ©rification CAPTCHA ou MFA : effectuez-la dans le navigateur, puis reprenez la candidature.");
-      }
-      const cs = await controls(page);
-      const pageSignature = page.url() + "|" + cs.map(c => c.name + ":" + c.key).join("|");
-      for (const c of cs) {
-        const initialKey = pageSignature + "|" + c.index + "|" + c.type + "|" + (c.name || c.key);
-        if (!session.initialValues.has(initialKey)) session.initialValues.set(initialKey, controlValue(c));
-      }
-      const changedByUser = (c: Control) => {
-        const initialKey = pageSignature + "|" + c.index + "|" + c.type + "|" + (c.name || c.key);
-        return session.resumeCount > 0 && session.initialValues.get(initialKey) !== controlValue(c);
-      };
-      if (cs.some(c => c.type === "password")) {
-        if (session.loggedIn) return result("blocked", "Connexion non terminÃ©e ; intervention manuelle requise.");
-        const credential = input.getCredential(session.flowOrigin);
-        if (!credential) return result("blocked", "Compte requis pour cette origine ; enregistrez ses identifiants dans le coffre.");
-        const user = cs.find(loginField);
-        const pass = cs.find(c => c.type === "password");
-        const action = (await buttons(page)).filter(b => !b.disabled && loginButton(b.text));
-        if (!user || !pass || action.length !== 1) return result("blocked", "Formulaire de connexion ambigu.");
-        const loginControl = page.locator("input, select, textarea").nth(pass.index);
-        if (!await sameOriginForm(page, loginControl, session.flowOrigin)) return result("blocked", "Connexion vers une origine diffÃ©rente interdite.");
-        await page.locator("input, select, textarea").nth(user.index).fill(credential.username);
-        await page.locator("input, select, textarea").nth(pass.index).fill(credential.password);
-        await advance(page, page.locator('button, input[type="submit"]').nth(action[0].index));
-        session.loggedIn = true;
-        continue;
-      }
-      const missing: MissingField[] = [];
-      const explicitFor = (...labels: string[]) => {
-        for (const answers of [input.application.answers, input.profile.answers]) {
-          const match = Object.entries(answers).find(([answerKey]) => labels.some(label => tidy(answerKey) === tidy(label)));
-          if (match) return match[1];
-        }
-        return undefined;
-      };
-      const radioGroups = new Map<string, Control[]>();
-      for (const c of cs.filter(c => c.type === "radio")) {
-        const groupKey = tidy(c.name || c.key);
-        radioGroups.set(groupKey, [...(radioGroups.get(groupKey) || []), c]);
-      }
-      for (const [key, group] of radioGroups) {
-        const required = group.some(c => c.required);
-        const label = group[0].name || group[0].label || group[0].key;
-        const options = group.map(c => c.value || c.label).filter(Boolean);
-        const answer = explicitFor(group[0].name || group[0].key);
-        if (group.some(changedByUser)) {
-          if ((required || answer !== undefined) && !group.some(c => c.checked)) missing.push({ key, label, required, type: "select", options });
-          continue;
-        }
-        const desired = typeof answer === "boolean" ? (answer ? "yes" : "no") : typeof answer === "string" ? tidy(answer) : "";
-        const selected = desired ? group.find(c => tidy(c.value) === desired || tidy(c.label) === desired) : undefined;
-        if (selected) await page.locator("input, select, textarea").nth(selected.index).check();
-        else if ((required || answer !== undefined) && !group.some(c => c.checked && changedByUser(c))) missing.push({ key, label, required, type: "select", options });
-        else if (!required && answer === undefined && !group.some(changedByUser)) {
-          for (const c of group) await page.locator("input, select, textarea").nth(c.index).evaluate(el => { (el as HTMLInputElement).checked = false; (el as HTMLInputElement).disabled = true; });
-        }
-      }
-      for (const c of cs) {
-        if (c.type === "radio") continue;
-        const key = tidy(c.name || c.key);
-        if (!key || /honeypot|website hidden|do not fill|leave blank/i.test(key)) continue;
-        const loc = page.locator("input, select, textarea").nth(c.index);
-        if (c.type === "file") {
-          if (resumeField(c) || (input.fileFieldKey && tidy(input.fileFieldKey) === key)) await loc.setInputFiles({ name: input.resume.meta.filename, mimeType: input.resume.meta.mime, buffer: input.resume.bytes });
-          else if (c.required && !c.uploaded && !changedByUser(c)) missing.push({ key, label: c.label || c.key, required: true, type: "file" });
-          continue;
-        }
-        if (changedByUser(c)) {
-          if (c.required && ((c.type === "checkbox" && !c.checked) || (c.type !== "checkbox" && !c.value))) missing.push({ key, label: c.label || c.key, required: true, type: missingType(c), ...(c.tag === "select" ? { options: c.options } : {}) });
-          continue;
-        }
-        const aliases = new Set([key, tidy(c.label), tidy(c.key)]);
-        const explicit = explicitFor(...aliases);
-        const value = explicit === undefined ? knownValue(tidy(c.label || c.key), input.profile) : explicit;
-        if (c.type === "checkbox") {
-          if (typeof value === "boolean") {
-            if (value) await loc.check();
-            else {
-              await loc.uncheck().catch(() => {});
-              if (c.required) missing.push({ key, label: c.label || c.key, required: true, type: "boolean" });
-            }
-          }
-          else if (c.required && !(c.checked && changedByUser(c))) missing.push({ key, label: c.label || c.key, required: true, type: "boolean" });
-          else if (!changedByUser(c)) await loc.uncheck().catch(() => {});
-          continue;
-        }
-        if (c.tag === "select") {
-          const desired = typeof value === "boolean" ? (value ? "yes" : "no") : typeof value === "string" ? tidy(value) : "";
-          if (desired) {
-            const match = c.options.find(o => tidy(o) === desired);
-            if (match) await loc.selectOption({ label: match });
-            else missing.push({ key, label: c.label || c.key, required: c.required, type: "select", options: c.options });
-          } else if (c.required && !changedByUser(c)) missing.push({ key, label: c.label || c.key, required: true, type: "select", options: c.options });
-          else if (!c.required && !changedByUser(c)) {
-            const blank = c.options.find(o => !tidy(o));
-            if (blank !== undefined) await loc.selectOption({ label: blank });
-            else await loc.evaluate(el => { (el as HTMLSelectElement).disabled = true; });
-          }
-          continue;
-        }
-        if (typeof value === "string" && value) await loc.fill(value);
-        else if (c.required && !changedByUser(c)) missing.push({ key, label: c.label || c.key, required: true, type: missingType(c) });
-        else if (!c.required && c.value && !changedByUser(c)) await loc.fill("");
-      }
-      if (missing.length) return result("needs_input", "Renseignez les champs requis dans lâ€™application ou dans le navigateur, puis reprenez la candidature.", missing);
-      const actions = (await buttons(page)).filter(b => !b.disabled);
-      const finals = actions.filter(b => finalButton(b.text));
-      const nexts = actions.filter(b => nextButton(b.text));
-      if (finals.length > 1 || nexts.length > 1 || (finals.length && nexts.length)) return result("blocked", "Plusieurs actions possibles : sÃ©lection manuelle requise.");
-      if (nexts.length === 1) {
-        const nextControl = page.locator('button, input[type="submit"]').nth(nexts[0].index);
-        if (!await sameOriginForm(page, nextControl, session.flowOrigin)) return result("blocked", "Ã‰tape suivante vers une origine diffÃ©rente interdite.");
-        const fingerprint = page.url() + "|" + cs.map(c => c.key).join("|");
-        if (session.seen.has(fingerprint)) return result("blocked", "Le formulaire tourne en boucle.");
-        session.seen.add(fingerprint);
-        await advance(page, nextControl);
-        continue;
-      }
-      if (finals.length !== 1) return result("blocked", "Bouton final de candidature introuvable ou ambigu.");
-      const finalControl = page.locator('button, input[type="submit"]').nth(finals[0].index);
-      if (!await sameOriginForm(page, finalControl, session.flowOrigin)) return result("blocked", "Envoi vers une origine diffÃ©rente interdite.");
-      if (input.mode === "prepare") return result("ready", "Formulaire prÃªt Ã  Ãªtre envoyÃ©.");
-      if (input.signal?.aborted) return result("failed", "Parcours interrompu avant lâ€™envoi.");
-      const beforeText = await page.locator("body").innerText().catch(() => "");
-      // Persist the submitting marker before any final click so a retry cannot duplicate an uncertain send.
-      input.beforeSubmit();
-      session.submittedClick = true;
-      await finalControl.click();
-      await page.waitForLoadState("domcontentloaded").catch(() => {});
-      for (let retry = 0; retry < 10; retry++) {
-        const proof = await receipt(page, beforeText);
-        if (proof) return result("submitted", "Candidature confirmÃ©e.", [], proof);
-        await page.waitForTimeout(250);
-      }
-      return result("uncertain", "Le clic a eu lieu mais aucun reÃ§u vÃ©rifiable nâ€™est apparu.");
-    }
-    return result("blocked", "Le formulaire dÃ©passe dix Ã©tapes.");
-  }
-}
+    if (this.active || this.pausedSession) throw new Error("Un parcours navigateur est-|ïKh‘éì¶»§q«^vöÇ2‡vR“°Ð¢6öç7Böå7W÷'FVDG2Ò6&VW$G4f÷%W&Â‡6W76–öâæfÆ÷t÷&–v–â’ÓÒçVÆÃ°Ð¢6öç7BöäW‡Æ–6—EFW7D÷&–v–âÒF†—2çFW7D÷&–v–ç2æ†2‡6W76–öâæfÆ÷t÷&–v–â“°Ð¢–b‚öå7W÷'FVDG2bböäW‡Æ–6—EFW7D÷&–v–â’°Ð¢òòæWfW"÷VÆFRW'6öæÂFFöââ&&—G&'’6&VW"×6—FRf÷&ÒâvRÖ’öæÇ’föÆÆ÷ràÐ¢òòW‡Æ–6—BÂf—6–&ÆRÇ’Æ–æ²FòöæRöbF†RæÖVBV&Æ–2E2†÷7G2&÷fRàÐ¢–b†72æÆVæwF‚ÓÓÒ’°Ð¢6öç7BÇ’Òv—Bf–æDÇ”Æ–æ²‡vRÂF†—2çFW7D÷&–v–ç2“°Ð¢–b†Ç’ÓÓÒ&Ö&–wV÷W2"’&WGW&â&W7VÇB‚&&Æö6¶VB"Â%ÇW6–WW'2Æ–Vç2FR6æF–FGW&R6öçB÷76–&ÆW2¢<:–ÆV7F–öææW¢ÆR&6÷W'2ÖçVVÆÆVÖVçBâ"“°Ð¢–b†Ç’’°Ð¢–b‡6W76–öâç6VVâæ†2†Ç’æ‡&Vb’’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$ÆRÆ–VâFR6æF–FGW&Rf÷&ÖRVæR&÷V6ÆRâ"“°Ð¢6W76–öâç6VVâæFB†Ç’æ‡&Vb“°Ð¢–b†Ç’çfVæF÷"ÓÒ'FW7B"’6W76–öâçVæF–ætG4÷&–v–âÒæWrU$Â†Ç’æ‡&Vb’æ÷&–v–ã°Ð¢v—BGfæ6R‡vRÂvRæÆö6F÷"‚&¶‡&VeÒ"’æçF‚†Ç’æ–æFW‚’“°Ð¢6öçF–çVS°Ð¢ÐÐ¢ÐÐ¢&WGW&â&W7VÇB‚&&Æö6¶VB"Â$6R6—FR6'&œ:‡&Rî(	–W7B2&—2Vâ6†&vRâÆW2Föæì:–W2W'6öææVÆÆW2æR6W&öçB2G&ç6Ö—6W2:6WGFR÷&–v–æRâ"“°Ð¢ÐÐ¢6öç7BvU6–væGW&RÒvRçW&Â‚’²'Â"²72æÖ†2Óâ2ææÖR²#¢"²2æ¶W’’æ¦ö–â‚'Â"“°Ð¢f÷"†6öç7B2öb72’°Ð¢6öç7B–æ—F–Ä¶W’ÒvU6–væGW&R²'Â"²2æ–æFW‚²'Â"²2çG—R²'Â"²†2ææÖRÇÂ2æ¶W’“°Ð¢–b‚6W76–öâæ–æ—F–ÅfÇVW2æ†2†–æ—F–Ä¶W’’’6W76–öâæ–æ—F–ÅfÇVW2ç6WB†–æ—F–Ä¶W’Â6öçG&öÅfÇVR†2’“°Ð¢ÐÐ¢6öç7B6†ævVD'•W6W"Ò†3¢6öçG&öÂ’Óâ°Ð¢6öç7B–æ—F–Ä¶W’ÒvU6–væGW&R²'Â"²2æ–æFW‚²'Â"²2çG—R²'Â"²†2ææÖRÇÂ2æ¶W’“°Ð¢&WGW&â6W76–öâç&W7VÖT6÷VçBâbb6W76–öâæ–æ—F–ÅfÇVW2ævWB†–æ—F–Ä¶W’’ÓÒ6öçG&öÅfÇVR†2“°Ð¢Ó°Ð¢–b†72ç6öÖR†2Óâ2çG—RÓÓÒ'77v÷&B"’’°Ð¢–b‡6W76–öâæÆövvVD–â’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$6öææW†–öâæöâFW&Ö–ì:–R²–çFW'fVçF–öâÖçVVÆÆR&WV—6Râ"“°Ð¢–b‚öå7W÷'FVDG2bböäW‡Æ–6—EFW7D÷&–v–â’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$ÆR6öfg&Rî(	–W7B66W76–&ÆRVR÷W"VâE2W‡Æ–6—FVÖVçB&—2Vâ6†&vRâ"“°Ð¢6öç7B7&VFVçF–ÂÒ–çWBævWD7&VFVçF–Â‡6W76–öâæfÆ÷t÷&–v–â“°Ð¢–b‚7&VFVçF–Â’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$6ö×FR&WV—2÷W"6WGFR÷&–v–æR²Vç&Vv—7G&W¢6W2–FVçF–f–çG2Fç2ÆR6öfg&Râ"“°Ð¢6öç7BW6W"Ò72æf–æB†Æöv–äf–VÆB“°Ð¢6öç7B72Ò72æf–æB†2Óâ2çG—RÓÓÒ'77v÷&B"“°Ð¢6öç7B7F–öâÒ†v—B'WGFöç2‡vR’’æf–ÇFW"†"Óâ"æF—6&ÆVBbbÆöv–ä'WGFöâ†"çFW‡B’“°Ð¢–b‚W6W"ÇÂ72ÇÂ7F–öâæÆVæwF‚ÓÒ’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$f÷&×VÆ—&RFR6öææW†–öâÖ&–wRâ"“°Ð¢6öç7BÆöv–ä6öçG&öÂÒvRæÆö6F÷"‚&–çWBÂ6VÆV7BÂFW‡F&V"’æçF‚‡72æ–æFW‚“°Ð¢–b‚v—B6ÖT÷&–v–äf÷&Ò‡vRÂÆöv–ä6öçG&öÂÂ6W76–öâæfÆ÷t÷&–v–â’’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$6öææW†–öâfW'2VæR÷&–v–æRF–fl:—&VçFR–çFW&F—FRâ"“°Ð¢v—BvRæÆö6F÷"‚&–çWBÂ6VÆV7BÂFW‡F&V"’æçF‚‡W6W"æ–æFW‚’æf–ÆÂ†7&VFVçF–ÂçW6W&æÖR“°Ð¢v—BvRæÆö6F÷"‚&–çWBÂ6VÆV7BÂFW‡F&V"’æçF‚‡72æ–æFW‚’æf–ÆÂ†7&VFVçF–Âç77v÷&B“°Ð¢v—BGfæ6R‡vRÂvRæÆö6F÷"‚v'WGFöâÂ–çWE·G—SÒ'7V&Ö—B%Òr’æçF‚†7F–öå³Òæ–æFW‚’“°Ð¢6W76–öâæÆövvVD–âÒG'VS°Ð¢6öçF–çVS°Ð¢ÐÐ¢6öç7BÖ—76–æs¢Ö—76–ætf–VÆEµÒÒµÓ°Ð¢6öç7BW‡Æ–6—Df÷"Ò‚ââæÆ&VÇ3¢7G&–æuµÒ’Óâ°Ð¢f÷"†6öç7Bç7vW'2öb¶–çWBæÆ–6F–öâæç7vW'2Â–çWBç&öf–ÆRæç7vW'5Ò’°Ð¢6öç7BÖF6‚Òö&¦V7BæVçG&–W2†ç7vW'2’æf–æB‚…¶ç7vW$¶W•Ò’ÓâÆ&VÇ2ç6öÖR†Æ&VÂÓâF–G’†ç7vW$¶W’’ÓÓÒF–G’†Æ&VÂ’’“°Ð¢–b†ÖF6‚’&WGW&âÖF6…³Ó°Ð¢ÐÐ¢&WGW&âVæFVf–æVC°Ð¢Ó°Ð¢6öç7B&F–ôw&÷W2ÒæWrÖÇ7G&–ærÂ6öçG&öÅµÓâ‚“°Ð¢f÷"†6öç7B2öb72æf–ÇFW"†2Óâ2çG—RÓÓÒ'&F–ò"’’°Ð¢6öç7Bw&÷W¶W’ÒF–G’†2ææÖRÇÂ2æ¶W’“°Ð¢&F–ôw&÷W2ç6WB†w&÷W¶W’Â²âââ‡&F–ôw&÷W2ævWB†w&÷W¶W’’ÇÂµÒ’Â5Ò“°Ð¢ÐÐ¢f÷"†6öç7B¶¶W’Âw&÷WÒöb&F–ôw&÷W2’°Ð¢6öç7B&WV—&VBÒw&÷Wç6öÖR†2Óâ2ç&WV—&VB“°Ð¢6öç7BÆ&VÂÒw&÷W³ÒææÖRÇÂw&÷W³ÒæÆ&VÂÇÂw&÷W³Òæ¶W“°Ð¢6öç7B÷F–öç2Òw&÷WæÖ†2Óâ2çfÇVRÇÂ2æÆ&VÂ’æf–ÇFW"„&ööÆVâ“°Ð¢6öç7Bç7vW"ÒW‡Æ–6—Df÷"†w&÷W³ÒææÖRÇÂw&÷W³Òæ¶W’“°Ð¢–b†w&÷Wç6öÖR†6†ævVD'•W6W"’’°Ð¢–b‚‡&WV—&VBÇÂç7vW"ÓÒVæFVf–æVB’bbw&÷Wç6öÖR†2Óâ2æ6†V6¶VB’’Ö—76–ærçW6‚‡²¶W’ÂÆ&VÂÂ&WV—&VBÂG—S¢'6VÆV7B"Â÷F–öç2Ò“°Ð¢6öçF–çVS°Ð¢ÐÐ¢6öç7BFW6—&VBÒG—Vöbç7vW"ÓÓÒ&&ööÆVâ"ò†ç7vW"ò'–W2"¢&æò"’¢G—Vöbç7vW"ÓÓÒ'7G&–ær"òF–G’†ç7vW"’¢"#°Ð¢6öç7B6VÆV7FVBÒFW6—&VBòw&÷Wæf–æB†2ÓâF–G’†2çfÇVR’ÓÓÒFW6—&VBÇÂF–G’†2æÆ&VÂ’ÓÓÒFW6—&VB’¢VæFVf–æVC°Ð¢–b‡6VÆV7FVB’v—BvRæÆö6F÷"‚&–çWBÂ6VÆV7BÂFW‡F&V"’æçF‚‡6VÆV7FVBæ–æFW‚’æ6†V6²‚“°Ð¢VÇ6R–b‚‡&WV—&VBÇÂç7vW"ÓÒVæFVf–æVB’bbw&÷Wç6öÖR†2Óâ2æ6†V6¶VBbb6†ævVD'•W6W"†2’’’Ö—76–ærçW6‚‡²¶W’ÂÆ&VÂÂ&WV—&VBÂG—S¢'6VÆV7B"Â÷F–öç2Ò“°Ð¢VÇ6R–b‚&WV—&VBbbç7vW"ÓÓÒVæFVf–æVBbbw&÷Wç6öÖR†6†ævVD'•W6W"’’°Ð¢f÷"†6öç7B2öbw&÷W’v—BvRæÆö6F÷"‚&–çWBÂ6VÆV7BÂFW‡F&V"’æçF‚†2æ–æFW‚’æWfÇVFR†VÂÓâ²†VÂ2…DÔÄ–çWDVÆVÖVçB’æ6†V6¶VBÒfÇ6S²†VÂ2…DÔÄ–çWDVÆVÖVçB’æF—6&ÆVBÒG'VS²Ò“°Ð¢ÐÐ¢ÐÐ¢f÷"†6öç7B2öb72’°Ð¢–b†2çG—RÓÓÒ'&F–ò"’6öçF–çVS°Ð¢6öç7B¶W’ÒF–G’†2ææÖRÇÂ2æ¶W’“°Ð¢–b‚¶W’ÇÂö†öæW—÷GÇvV'6—FR†–FFVçÆFòæ÷Bf–ÆÇÆÆVfR&Ææ²ö’çFW7B†¶W’’’6öçF–çVS°Ð¢6öç7BÆö2ÒvRæÆö6F÷"‚&–çWBÂ6VÆV7BÂFW‡F&V"’æçF‚†2æ–æFW‚“°Ð¢–b†2çG—RÓÓÒ&f–ÆR"’°Ð¢–b‡&W7VÖTf–VÆB†2’ÇÂ†–çWBæf–ÆTf–VÆD¶W’bbF–G’†–çWBæf–ÆTf–VÆD¶W’’ÓÓÒ¶W’’’v—BÆö2ç6WD–çWDf–ÆW2‡²æÖS¢–çWBç&W7VÖRæÖWFæf–ÆVæÖRÂÖ–ÖUG—S¢–çWBç&W7VÖRæÖWFæÖ–ÖRÂ'VffW#¢–çWBç&W7VÖRæ'—FW2Ò“°Ð¢VÇ6R–b†2ç&WV—&VBbb2çWÆöFVBbb6†ævVD'•W6W"†2’’Ö—76–ærçW6‚‡²¶W’ÂÆ&VÃ¢2æÆ&VÂÇÂ2æ¶W’Â&WV—&VC¢G'VRÂG—S¢&f–ÆR"Ò“°Ð¢6öçF–çVS°Ð¢ÐÐ¢–b†6†ævVD'•W6W"†2’’°Ð¢–b†2ç&WV—&VBbb‚†2çG—RÓÓÒ&6†V6¶&÷‚"bb2æ6†V6¶VB’ÇÂ†2çG—RÓÒ&6†V6¶&÷‚"bb2çfÇVR’’’Ö—76–ærçW6‚‡²¶W’ÂÆ&VÃ¢2æÆ&VÂÇÂ2æ¶W’Â&WV—&VC¢G'VRÂG—S¢Ö—76–æuG—R†2’Ââââ†2çFrÓÓÒ'6VÆV7B"ò²÷F–öç3¢2æ÷F–öç2Ò¢·Ò’Ò“°Ð¢6öçF–çVS°Ð¢ÐÐ¢6öç7BÆ–6W2ÒæWr6WB…¶¶W’ÂF–G’†2æÆ&VÂ’ÂF–G’†2æ¶W’•Ò“°Ð¢6öç7BW‡Æ–6—BÒW‡Æ–6—Df÷"‚ââæÆ–6W2“°Ð¢6öç7BfÇVRÒW‡Æ–6—BÓÓÒVæFVf–æVBò¶æ÷våfÇVR‡F–G’†2æÆ&VÂÇÂ2æ¶W’’Â–çWBç&öf–ÆR’¢W‡Æ–6—C°Ð¢–b†2çG—RÓÓÒ&6†V6¶&÷‚"’°Ð¢–b‡G—VöbfÇVRÓÓÒ&&ööÆVâ"’°Ð¢–b‡fÇVR’v—BÆö2æ6†V6²‚“°Ð¢VÇ6R°Ð¢v—BÆö2çVæ6†V6²‚’æ6F6‚‚‚’Óâ·Ò“°Ð¢–b†2ç&WV—&VB’Ö—76–ærçW6‚‡²¶W’ÂÆ&VÃ¢2æÆ&VÂÇÂ2æ¶W’Â&WV—&VC¢G'VRÂG—S¢&&ööÆVâ"Ò“°Ð¢ÐÐ¢ÐÐ¢VÇ6R–b†2ç&WV—&VBbb†2æ6†V6¶VBbb6†ævVD'•W6W"†2’’’Ö—76–ærçW6‚‡²¶W’ÂÆ&VÃ¢2æÆ&VÂÇÂ2æ¶W’Â&WV—&VC¢G'VRÂG—S¢&&ööÆVâ"Ò“°Ð¢VÇ6R–b‚6†ævVD'•W6W"†2’’v—BÆö2çVæ6†V6²‚’æ6F6‚‚‚’Óâ·Ò“°Ð¢6öçF–çVS°Ð¢ÐÐ¢–b†2çFrÓÓÒ'6VÆV7B"’°Ð¢6öç7BFW6—&VBÒG—VöbfÇVRÓÓÒ&&ööÆVâ"ò‡fÇVRò'–W2"¢&æò"’¢G—VöbfÇVRÓÓÒ'7G&–ær"òF–G’‡fÇVR’¢"#°Ð¢–b†FW6—&VB’°Ð¢6öç7BÖF6‚Ò2æ÷F–öç2æf–æB†òÓâF–G’†ò’ÓÓÒFW6—&VB“°Ð¢–b†ÖF6‚’v—BÆö2ç6VÆV7D÷F–öâ‡²Æ&VÃ¢ÖF6‚Ò“°Ð¢VÇ6RÖ—76–ærçW6‚‡²¶W’ÂÆ&VÃ¢2æÆ&VÂÇÂ2æ¶W’Â&WV—&VC¢2ç&WV—&VBÂG—S¢'6VÆV7B"Â÷F–öç3¢2æ÷F–öç2Ò“°Ð¢ÒVÇ6R–b†2ç&WV—&VBbb6†ævVD'•W6W"†2’’Ö—76–ærçW6‚‡²¶W’ÂÆ&VÃ¢2æÆ&VÂÇÂ2æ¶W’Â&WV—&VC¢G'VRÂG—S¢'6VÆV7B"Â÷F–öç3¢2æ÷F–öç2Ò“°Ð¢VÇ6R–b‚2ç&WV—&VBbb6†ævVD'•W6W"†2’’°Ð¢6öç7B&Ææ²Ò2æ÷F–öç2æf–æB†òÓâF–G’†ò’“°Ð¢–b†&Ææ²ÓÒVæFVf–æVB’v—BÆö2ç6VÆV7D÷F–öâ‡²Æ&VÃ¢&Ææ²Ò“°Ð¢VÇ6Rv—BÆö2æWfÇVFR†VÂÓâ²†VÂ2…DÔÅ6VÆV7DVÆVÖVçB’æF—6&ÆVBÒG'VS²Ò“°Ð¢ÐÐ¢6öçF–çVS°Ð¢ÐÐ¢–b‡G—VöbfÇVRÓÓÒ'7G&–ær"bbfÇVR’v—BÆö2æf–ÆÂ‡fÇVR“°Ð¢VÇ6R–b†2ç&WV—&VBbb6†ævVD'•W6W"†2’’Ö—76–ærçW6‚‡²¶W’ÂÆ&VÃ¢2æÆ&VÂÇÂ2æ¶W’Â&WV—&VC¢G'VRÂG—S¢Ö—76–æuG—R†2’Ò“°Ð¢VÇ6R–b‚2ç&WV—&VBbb2çfÇVRbb6†ævVD'•W6W"†2’’v—BÆö2æf–ÆÂ‚""“°Ð¢ÐÐ¢–b†Ö—76–æræÆVæwF‚’&WGW&â&W7VÇB‚&æVVG5ö–çWB"Â%&Vç6V–væW¢ÆW26†×2&WV—2Fç2Î(	–Æ–6F–öâ÷RFç2ÆRæf–vFWW"ÂV—2&W&VæW¢Æ6æF–FGW&Râ"ÂÖ—76–ær“°Ð¢òòV&Æ–2E2¦ö"FWF–Ç2W7VÆÇ’W‡÷6RâÇ’Æ–æ²&Vf÷&RF†W’&VæFW"F†RÆ–6F–öàÐ¢òòf÷&ÒâföÆÆ÷rW†7FÇ’öæRf—6–&ÆRÆ–æ³²æWfW"wVW72'WGFöâ7F–öâ÷"ÆVfRF†RfVæF÷"àÐ¢–b‚†öå7W÷'FVDG2ÇÂöäW‡Æ–6—EFW7D÷&–v–â’bb72æÆVæwF‚ÓÓÒ’°Ð¢6öç7BÇ’Òv—Bf–æDÇ”Æ–æ²‡vRÂF†—2çFW7D÷&–v–ç2“°Ð¢–b†Ç’ÓÓÒ&Ö&–wV÷W2"’&WGW&â&W7VÇB‚&&Æö6¶VB"Â%ÇW6–WW'2Æ–Vç2FR6æF–FGW&R6öçB÷76–&ÆW2¢<:–ÆV7F–öææW¢ÆR&6÷W'2ÖçVVÆÆVÖVçBâ"“°Ð¢–b†Ç’’°Ð¢6öç7BF&vWDG2Ò6&VW$G4f÷%W&Â†Ç’æ‡&Vb“°Ð¢6öç7B7W'&VçDG2Ò6&VW$G4f÷%W&Â‡6W76–öâæfÆ÷t÷&–v–â“°Ð¢–b†Ç’çfVæF÷"ÓÒ'FW7B"bbF&vWDG2ÓÒ7W'&VçDG2’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$ÆRÆ–VâFR6æF–FGW&R6÷'BGRf÷W&æ—76WW"E2&—2Vâ6†&vRâ"“°Ð¢–b‡6W76–öâç6VVâæ†2†Ç’æ‡&Vb’’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$ÆRÆ–VâFR6æF–FGW&Rf÷&ÖRVæR&÷V6ÆRâ"“°Ð¢6W76–öâç6VVâæFB†Ç’æ‡&Vb“°Ð¢–b†Ç’çfVæF÷"ÓÒ'FW7B"’6W76–öâçVæF–ætG4÷&–v–âÒæWrU$Â†Ç’æ‡&Vb’æ÷&–v–ã°Ð¢v—BGfæ6R‡vRÂvRæÆö6F÷"‚&¶‡&VeÒ"’æçF‚†Ç’æ–æFW‚’“°Ð¢6öçF–çVS°Ð¢ÐÐ¢ÐÐ¢6öç7B7F–öç2Ò†v—B'WGFöç2‡vR’’æf–ÇFW"†"Óâ"æF—6&ÆVB“°Ð¢6öç7Bf–æÇ2Ò7F–öç2æf–ÇFW"†"Óâf–æÄ'WGFöâ†"çFW‡B’“°Ð¢6öç7BæW‡G2Ò7F–öç2æf–ÇFW"†"ÓâæW‡D'WGFöâ†"çFW‡B’“°Ð¢–b†f–æÇ2æÆVæwF‚âÇÂæW‡G2æÆVæwF‚âÇÂ†f–æÇ2æÆVæwF‚bbæW‡G2æÆVæwF‚’’&WGW&â&W7VÇB‚&&Æö6¶VB"Â%ÇW6–WW'27F–öç2÷76–&ÆW2¢<:–ÆV7F–öâÖçVVÆÆR&WV—6Râ"“°Ð¢–b†æW‡G2æÆVæwF‚ÓÓÒ’°Ð¢6öç7BæW‡D6öçG&öÂÒvRæÆö6F÷"‚v'WGFöâÂ–çWE·G—SÒ'7V&Ö—B%Òr’æçF‚†æW‡G5³Òæ–æFW‚“°Ð¢–b‚v—B6ÖT÷&–v–äf÷&Ò‡vRÂæW‡D6öçG&öÂÂ6W76–öâæfÆ÷t÷&–v–â’’&WGW&â&W7VÇB‚&&Æö6¶VB"Â,8—FR7V—fçFRfW'2VæR÷&–v–æRF–fl:—&VçFR–çFW&F—FRâ"“°Ð¢6öç7Bf–ævW'&–çBÒvRçW&Â‚’²'Â"²72æÖ†2Óâ2æ¶W’’æ¦ö–â‚'Â"“°Ð¢–b‡6W76–öâç6VVâæ†2†f–ævW'&–çB’’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$ÆRf÷&×VÆ—&RF÷W&æRVâ&÷V6ÆRâ"“°Ð¢6W76–öâç6VVâæFB†f–ævW'&–çB“°Ð¢v—BGfæ6R‡vRÂæW‡D6öçG&öÂ“°Ð¢6öçF–çVS°Ð¢ÐÐ¢–b†f–æÇ2æÆVæwF‚ÓÒ’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$&÷WFöâf–æÂFR6æF–FGW&R–çG&÷Wf&ÆR÷RÖ&–wRâ"“°Ð¢6öç7Bf–æÄ6öçG&öÂÒvRæÆö6F÷"‚v'WGFöâÂ–çWE·G—SÒ'7V&Ö—B%Òr’æçF‚†f–æÇ5³Òæ–æFW‚“°Ð¢–b‚v—B6ÖT÷&–v–äf÷&Ò‡vRÂf–æÄ6öçG&öÂÂ6W76–öâæfÆ÷t÷&–v–â’’&WGW&â&W7VÇB‚&&Æö6¶VB"Â$Vçfö’fW'2VæR÷&–v–æRF–fl:—&VçFR–çFW&F—FRâ"“°Ð¢–b†–çWBæÖöFRÓÓÒ'&W&R"’&WGW&â&W7VÇB‚'&VG’"Â$f÷&×VÆ—&R,:§B::§G&RVçf÷œ:’â"“°Ð¢–b†–çWBç6–væÃòæ&÷'FVB’&WGW&â&W7VÇB‚&f–ÆVB"Â%&6÷W'2–çFW'&ö×RfçBÎ(	–Vçfö’â"“°Ð¢6öç7B&Vf÷&UFW‡BÒv—BvRæÆö6F÷"‚&&öG’"’æ–ææW%FW‡B‚’æ6F6‚‚‚’Óâ""“°Ð¢òòW'6—7BF†R7V&Ö—GF–ærÖ&¶W"&Vf÷&Rç’f–æÂ6Æ–6²6ò&WG'’6ææ÷BGWÆ–6FRâVæ6W'F–â6VæBàÐ¢–çWBæ&Vf÷&U7V&Ö—B‚“°Ð¢6W76–öâç7V&Ö—GFVD6Æ–6²ÒG'VS°Ð¢v—Bf–æÄ6öçG&öÂæ6Æ–6²‚“°Ð¢v—BvRçv—Df÷$ÆöE7FFR‚&FöÖ6öçFVçFÆöFVB"’æ6F6‚‚‚’Óâ·Ò“°Ð¢f÷"†ÆWB&WG'’Ò²&WG'’Â²&WG'’²²’°Ð¢6öç7B&ööbÒv—B&V6V—B‡vRÂ&Vf÷&UFW‡B“°Ð¢–b‡&ööb’&WGW&â&W7VÇB‚'7V&Ö—GFVB"Â$6æF–FGW&R6öæf—&Ü:–Râ"ÂµÒÂ&ööb“°Ð¢v—BvRçv—Df÷%F–ÖV÷WBƒ#S“°Ð¢ÐÐ¢&WGW&â&W7VÇB‚'Væ6W'F–â"Â$ÆR6Æ–2WRÆ–WRÖ—2V7Vâ&\:wRl:—&–f–&ÆRî(	–W7B'Râ"“°Ð¢ÐÐ¢&WGW&â&W7VÇB‚&&Æö6¶VB"Â$ÆRf÷&×VÆ—&RL:—76RF—‚:—FW2â"“°Ð¢ÐÐ§ÐÐ

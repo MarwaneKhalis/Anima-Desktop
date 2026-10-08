@@ -60,6 +60,17 @@ export interface RunResult {
   missingFields: MissingField[]; message: string; receipt: Receipt | null;
 }
 export interface DiscoveryResult { jobs: JobOffer[]; note: string; }
+export interface OfferSearchCriteria {
+  keywords: string;
+  department?: string;
+  commune?: string;
+  contractType?: string;
+  limit?: number;
+}
+export interface FranceTravailConfigSummary { configured: boolean; scope?: string; updatedAt?: string; }
+export interface OfferSearchService {
+  search(criteria: OfferSearchCriteria): Promise<{ offers: Omit<JobOffer, 'id' | 'discoveredAt' | 'updatedAt'>[]; note: string }>;
+}
 export interface CareerDiscovery {
   discover(url: string): Promise<{ offers: Omit<JobOffer, 'id' | 'discoveredAt' | 'updatedAt'>[]; note: string }>;
 }

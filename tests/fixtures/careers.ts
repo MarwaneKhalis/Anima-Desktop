@@ -14,6 +14,7 @@ export interface CareerFixtures {
   readonly loginCount: number;
   readonly exfilCount: number;
   readonly unknownVisits: number;
+  readonly applyScriptVisits: number;
   resolveChallenge(): void;
   resolveMfa(): void;
   resolveUnknownAnswer(value: string): void;
@@ -56,6 +57,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   let loginCount = 0;
   let exfilCount = 0;
   let unknownVisits = 0;
+  let applyScriptVisits = 0;
   let unknownAnswer = "";
   let challengeSolved = false;
   let mfaSolved = false;
@@ -82,6 +84,14 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://fixture.invalid");
     const path = url.pathname;
+    if (path === "/assets/application-form.js") {
+      applyScriptVisits++;
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
+      // Mirrors the public ATS pattern: a job detail page's visible Apply link opens a
+      // same-vendor application page whose form is hydrated by a first-party JS bundle.
+      res.end(`document.querySelector('#application').innerHTML = ${JSON.stringify(simple("/submit"))};`);
+      return;
+    }
     if (path === "/challenge-state" || path === "/mfa-state" || path === "/unknown-answer-state") {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(path === "/challenge-state" ? (challengeSolved ? "solved" : "pending") : path === "/mfa-state" ? (mfaSolved ? "solved" : "pending") : unknownAnswer);
@@ -108,6 +118,12 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     }
     if (path === "/login") { page(res, `<form action="/login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" required></label><button type="submit">Sign in</button></form>`); return; }
     if (path === "/readonly-login") { page(res, `<form action="/login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" readonly required></label><button type="submit">Sign in</button></form>`); return; }
+    if (path === "/apply-link") { page(res, `<h1>Software Engineer</h1><a href="/apply-page">Apply for this job</a>`); return; }
+    if (path === "/ambiguous-apply") { page(res, `<h1>Software Engineer</h1><a href="/apply-page">Apply now</a><a href="/apply-page?source=secondary">Apply for this job</a>`); return; }
+    if (path === "/apply-page") { page(res, `<h1>Application</h1><main id="application"></main><script src="/assets/application-form.js"></script>`); return; }
+    if (path === "/lever-job") { page(res, `<main><h1>Product Engineer</h1><a href="/lever-job/apply">Apply for this job</a></main>`); return; }
+    if (path === "/lever-job/apply") { page(res, `<main><h1>Submit your application</h1><form action="/submit" method="post" enctype="multipart/form-data"><label>Resume/CV <input type="file" name="resume" required></label><label>Full name <input name="fullName" autocomplete="name" required></label><label>Email <input type="email" name="email" required></label><label>Phone <input type="tel" name="phone" required></label><label>Current location <input name="location"></label><label>LinkedIn URL <input type="url" name="urls[LinkedIn]"></label><button type="submit">Submit application</button></form></main>`); return; }
+    if (path === "/greenhouse-application") { page(res, `<main><h1>Apply for this Job</h1><form action="/submit" method="post" enctype="multipart/form-data"><label>First Name <input name="first_name" required></label><label>Last Name <input name="last_name" required></label><label>Email <input type="email" name="email" required></label><label>Phone <input type="tel" name="phone_number"></label><label>Resume/CV <input type="file" name="resume" required></label><label>Are you currently eligible to work in the United States? * <select name="custom_work_authorized" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><button type="submit">Submit application</button></form></main>`); return; }
     if (path === "/simple" || path === "/login-apply" || path === "/alternate") { page(res, simple("/submit")); return; }
     if (path === "/weird-cv") { page(res, `<form action="/submit" method="post" enctype="multipart/form-data">${identity}<span id="resume-label">Upload your CV</span><input aria-labelledby="resume-label" type="file" name="attachment" required><button type="submit">Send application</button></form>`); return; }
     if (path === "/portfolio") { page(res, `<form action="/submit" method="post" enctype="multipart/form-data">${identity}<label>Portfolio document <input type="file" name="portfolio" required></label><button type="submit">Send application</button></form>`); return; }
@@ -141,6 +157,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     get loginCount() { return loginCount; },
     get exfilCount() { return exfilCount; },
     get unknownVisits() { return unknownVisits; },
+    get applyScriptVisits() { return applyScriptVisits; },
     resolveChallenge: () => { challengeSolved = true; },
     resolveMfa: () => { mfaSolved = true; },
     resolveUnknownAnswer: value => { unknownAnswer = value; },

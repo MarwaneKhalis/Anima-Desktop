@@ -18,15 +18,20 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { LocalBrowser } from "./browser.ts";
 import { Store } from "./db.ts";
-import { CareerStore } from "./career-store.ts";
+import { CareerError, CareerStore } from "./career-store.ts";
 import { Vault } from "./vault.ts";
 import { CareerBrowser } from "./career-browser.ts";
 import { CareerRunner } from "./career-runner.ts";
 import { CareerAI } from "./career-ai.ts";
 import { handleCareerApi } from "./career-api.ts";
+import { createCareerCampaignRuntime } from "./career-campaign-runtime.ts";
+import { handleCareerCampaignApi } from "./career-campaign-api.ts";
 import { JobDiscovery } from "./job-discovery.ts";
+import { FranceTravailDiscovery } from "./france-travail-discovery.ts";
+import { ArbeitnowFranceDiscovery } from "./arbeitnow-france-discovery.ts";
 import { csvParse, csvStringify, makeSearchUrl } from "./domain.ts";
 import type { Prospect, SavedSearch, Template } from "../src/shared/types.ts";
+import type { OfferSearchService } from "../src/shared/career.ts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const dataDir = process.env.ANIMA_DATA_DIR
@@ -59,15 +64,42 @@ const careerBrowser = new CareerBrowser({
   headless: process.env.CAREER_HEADLESS === "1",
 });
 const discovery = new JobDiscovery(allowedTestOrigins);
+const testFranceTravailUrl = process.env.ANIMA_TEST_MODE === "1"
+  ? process.env.CAREER_TEST_FRANCE_TRAVAIL_URL
+  : undefined;
+const testOfferSearch: OfferSearchService | undefined = testFranceTravailUrl
+  ? {
+      search: async (criteria) => ({
+        offers: [{
+          url: testFranceTravailUrl,
+          title: "Offre de test France Travail",
+          company: "Entreprise de test",
+          location: "Paris",
+          description: "Offre synthétique pour test de bout en bout.",
+          sourceUrl: testFranceTravailUrl,
+        }],
+        note: `Résultat de test pour ${criteria.keywords}.`,
+      }),
+    }
+  : undefined;
+const testArbeitnowUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_ARBEITNOW_URL : undefined;
+const testPublicOfferSearch: OfferSearchService | undefined = testArbeitnowUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testArbeitnowUrl, title: "Offre de test Arbeitnow France", company: "Entreprise de test", location: "Paris, France", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://www.arbeitnow.fr" }], note: `Résultat de test pour ${criteria.keywords}.` }) }
+  : undefined;
 let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);
 let runner = new CareerRunner(careerStore, vault, careerBrowser);
 careerStore.recoverInterruptedRuns();
+let campaignRuntime = createCareerCampaignRuntime(careerStore, runner);
+void campaignRuntime.engine.recoverAfterRestart().catch((error) =>
+  console.error("Échec de reprise des campagnes de candidature :", error),
+);
 const demoCareerStore = new CareerStore(demoStore.db);
 const demoVault = new Vault(demoStore.db);
 const demoBrowser = new CareerBrowser();
 const demoRunner = new CareerRunner(demoCareerStore, demoVault, demoBrowser);
 demoCareerStore.seedDemo();
+const demoCampaignRuntime = createCareerCampaignRuntime(demoCareerStore, demoRunner);
 
 function respond(res: ServerResponse, status: number, value: unknown) {
   res.writeHead(status, {
@@ -184,6 +216,28 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   const demo = url.searchParams.get("demo") === "1";
   const store = demo ? demoStore : realStore;
   try {
+    const campaigns = demo ? demoCampaignRuntime : campaignRuntime;
+    if (
+      await handleCareerCampaignApi(req, res, url, {
+        careerStore: demo ? demoCareerStore : careerStore,
+        campaigns: campaigns.campaigns,
+        engine: campaigns.engine,
+        demo,
+          credentialExists: (id) => (demo ? demoVault : vault).listCredentials().some((credential) => credential.id === id),
+          closePausedRunnerFor: async (applicationId) => {
+            const selectedRunner = demo ? demoRunner : runner;
+            if (selectedRunner.pausedApplicationId() === applicationId) await selectedRunner.stop();
+          },
+        ensureRunnerAvailable: () => {
+          const selectedRunner = demo ? demoRunner : runner;
+          if (selectedRunner.isBusy() || selectedRunner.hasPausedSession())
+            throw new CareerError(409, "browser_busy", "Le navigateur traite déjà une candidature ou attend une intervention.");
+        },
+        onBackgroundError: (error, campaignId) =>
+          console.error(`Campagne ${campaignId} interrompue :`, error),
+      })
+    )
+      return;
     if (
       await handleCareerApi(req, res, url, {
         store: demo ? demoCareerStore : careerStore,
@@ -191,6 +245,10 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         ai: electronMode && !demo ? new CareerAI(careerStore, vault) : undefined,
         runner: demo ? demoRunner : runner,
         discovery,
+        offerSearch: demo
+          ? new FranceTravailDiscovery(demoVault)
+          : testOfferSearch || new FranceTravailDiscovery(vault),
+        publicOfferSearch: testPublicOfferSearch || new ArbeitnowFranceDiscovery(),
         demo,
         allowedTestOrigins,
       })
@@ -495,7 +553,9 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           )
         )
           throw new Error("Sauvegarde Anima Connect incomplète.");
+        campaignRuntime.engine.pauseAll();
         await runner.stop();
+        await campaignRuntime.engine.waitAll();
         vault.lock();
         await browser.close();
         realStore.close();
@@ -511,6 +571,10 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           vault = new Vault(realStore.db, careerOptions);
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
+          campaignRuntime = createCareerCampaignRuntime(careerStore, runner);
+          void campaignRuntime.engine.recoverAfterRestart().catch((error) =>
+            console.error("Échec de reprise des campagnes après restauration :", error),
+          );
         } catch (error) {
           copyFileSync(rollback, realPath);
           realStore = new Store(realPath);
@@ -518,6 +582,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           vault = new Vault(realStore.db, careerOptions);
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
+          campaignRuntime = createCareerCampaignRuntime(careerStore, runner);
           throw error;
         }
         respond(res, 200, { restored: true, safetyCopy: rollback });
@@ -539,8 +604,12 @@ if (server)
     console.log(`Anima Connect : http://127.0.0.1:${port}`),
   );
 async function shutdown() {
+  campaignRuntime.engine.pauseAll();
+  demoCampaignRuntime.engine.pauseAll();
   await runner.stop();
   await demoRunner.stop();
+  await campaignRuntime.engine.waitAll();
+  await demoCampaignRuntime.engine.waitAll();
   vault.lock();
   demoVault.lock();
   await browser.close();

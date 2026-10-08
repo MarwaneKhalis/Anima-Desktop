@@ -515,6 +515,23 @@ test("career HTTP API drives isolated real-store application runs", async (t) =>
       });
       assertOk(initialized.response, 201);
       assert.equal(initialized.value.unlocked, true);
+      const sourceSettings = await app.json("/api/career/sources/france-travail", {
+        clientId: "fixture-client-id",
+        clientSecret: "fixture-client-secret",
+        scope: "fixture-scope",
+      });
+      assertOk(sourceSettings.response, 200);
+      assert.equal(JSON.stringify(sourceSettings.value).includes("fixture-client-secret"), false);
+      const sourceSummary = await app.json("/api/career/sources/france-travail");
+      assert.equal(sourceSummary.value.configured, true);
+      assert.equal(JSON.stringify(sourceSummary.value).includes("fixture-client-id"), false);
+      const invalidSearch = await app.json("/api/career/sources/france-travail/search", {
+        keywords: "développeur",
+        commune: "7501",
+      });
+      assert.equal(invalidSearch.response.status, 400);
+      assert.equal(invalidSearch.value.code, "validation");
+      assert.equal((await app.json("/api/career/sources/france-travail", {}, "DELETE")).response.status, 200);
       const savedCredential = await app.json("/api/career/credentials", {
         origin: app.fixture.baseUrl,
         label: "Fixture",

@@ -17,7 +17,7 @@ DÃ©cision : extension du dÃ©pÃ´t existant, mÃªmes serveur et base locale, tables
 ## 2. Parcours livrÃ© et limites explicites
 
 1. **Mon profil** : identitÃ©, coordonnÃ©es, liens, expÃ©riences, Ã©tudes, compÃ©tences, langues, prÃ©fÃ©rences et rÃ©ponses explicitement renseignÃ©es. Plusieurs CV locaux, nommÃ©s, avec choix par candidature.
-2. **Offres** : enregistrer une URL d'offre ; dÃ©couvrir des offres depuis une page carriÃ¨re publique contenant des donnÃ©es `JobPosting` ou des liens d'offres reconnaissables ; filtrer les rÃ©sultats par texte et localisation ; dÃ©dupliquer par URL canonique. Un rÃ©sultat dÃ©couvert doit conserver titre, entreprise, URL et date de collecte. Si la page ne permet pas une extraction fiable, le dire et proposer l'ajout d'URL.
+2. **Offres** : rechercher sans URL dans le flux public Arbeitnow France, par mots-clÃ©s, commune et contrat ; les rÃ©sultats sont filtrÃ©s localement et dÃ©dupliquÃ©s. La recherche parcourt au plus cinq pages de 100 annonces et ne couvre donc pas tout le marchÃ©. France Travail est proposÃ© en option aux utilisateurs autorisÃ©s Ã  son API. L'import d'une URL directe, des boards Greenhouse/Lever et du JSON-LD `JobPosting` reste disponible en complÃ©ment. Chaque rÃ©sultat conserve sa source, son titre, son entreprise, son URL et sa date de collecte.
 3. **Candidature** : sÃ©lectionner l'offre et le CV ; prÃ©parer automatiquement : ouvrir, se connecter si nÃ©cessaire avec le compte du domaine, remplir les champs reconnus, tÃ©lÃ©charger le CV, identifier les questions restantes.
 4. **Envoyer** : un bouton explicite peut prÃ©parer puis soumettre en une action sur un formulaire pris en charge. Il autorise cette candidature et ce CV. La prÃ©paration seule ne clique jamais le bouton final. Aucun dialogue supplÃ©mentaire n'est nÃ©cessaire si les donnÃ©es et le formulaire sont connus.
 5. **Suivre** : reÃ§u vÃ©rifiable, Ã©vÃ©nements, statut mÃ©tier, date de relance et notes. Ajouter entretien, rÃ©ponse, refus et offre reÃ§ue depuis la fiche ; afficher la provenance manuelle de ces mises Ã  jour.
@@ -156,158 +156,10 @@ class Vault {
   listCredentials(): CredentialSummary[];
   saveCredential(input:{origin:string; label:string; username:string; password:string}): CredentialSummary;
   deleteCredential(id:string): void;
-  // Interne serveur uniquement. VÃ©rifie Ã©galitÃ© d'origine aprÃ¨s normalisation.
-  getCredential(id:string, origin:string): {username:string; password:string};
-}
-```
-
-Le moteur B expose :
-
-```ts
-interface CareerBrowserOptions { headless?:boolean; allowedTestOrigins?:string[]; }
-class CareerBrowser {
-  constructor(options?:CareerBrowserOptions);
-  discover(url:string): Promise<{offers:Omit<JobOffer,'id'|'discoveredAt'|'updatedAt'>[]; note:string}>;
-  run(input:{
-    application:Application; job:JobOffer; profile:CareerProfile;
-    resume:{meta:Resume; bytes:Buffer}; mode:RunMode;
-    // Ne demander le secret qu'aprÃ¨s identification de l'origine du formulaire login.
-    getCredential:(origin:string)=>{username:string; password:string}|null;
-    beforeSubmit:()=>void;
-    // Verrouillage/annulation invalide ce contexte ; ne pas soumettre aprÃ¨s cela.
-    signal?:AbortSignal;
-  }): Promise<RunResult>;
-  close(): Promise<void>;
-}
-class CareerRunner {
-  constructor(store:CareerStore, vault:Vault, browser:CareerBrowser);
-  start(id:string, mode:RunMode, credentialId?:string): Application;
-  isBusy(): boolean;
-  stop(): Promise<void>;
-}
-```
-
-`start` rejette immÃ©diatement si un autre run/dÃ©couverte utilise le contexte ; claim puis lance une promesse suivie d'un `catch` qui persiste un rÃ©sultat sÃ»r. Son rÃ©sultat HTTP est l'application `running`, jamais un succÃ¨s simulÃ©. `beforeSubmit` appelle `markSubmitting`; un Ã©chec postÃ©rieur devient `uncertain`. Le navigateur relit tous les champs et obstacles avant le clic final. `stop` annule et ferme le contexte ; la consÃ©quence d'une interruption dÃ©pend de la prÃ©sence du marqueur durable `submitting`.
-
-La dÃ©couverte navigateur et les runs partagent un verrou explicite. Ne pas permettre Ã  une dÃ©couverte de changer la page d'un run en cours. Une deuxiÃ¨me action concurrente renvoie 409. Variante acceptable : contextes distincts pour dÃ©couverte et candidature, tout en sÃ©rialisant les candidatures.
-
-Contrat complÃ©mentaire de dÃ©couverte, propriÃ©tÃ© de l'intÃ©grateur :
-
-```ts
-interface CareerDiscovery {
-  discover(url:string): Promise<{
-    offers:Omit<JobOffer,'id'|'discoveredAt'|'updatedAt'>[];
-    note:string;
-  }>;
-}
-```
-
-`server/job-discovery.ts` implÃ©mente les sources publiques Greenhouse et Lever Ã  partir d'une URL de board reconnue, plus JSON-LD `JobPosting` depuis une URL publique gÃ©nÃ©rique. Le client saisit une URL ; il ne fournit jamais une URL de proxy HTTP arbitraire. Le service valide les destinations et redirections, limite taille/temps/pagination, et conserve l'URL finale de candidature. Aucun besoin d'authentification pour ces adaptateurs publics. L'API persiste les `offers` via `CareerStore.saveJob` puis renvoie `DiscoveryResult`. Les fixtures JSON reproduisent chaque source ; les appels aux vrais boards sont des vÃ©rifications en lecture seule distinctes et ne sont pas nÃ©cessaires aux tests dÃ©terministes. `CareerBrowser.discover` reste un fallback facultatif ; sa prÃ©sence n'est pas nÃ©cessaire pour l'agent B si le service racine couvre les sources convenues.
-
-## 6. API HTTP exacte
-
-PrÃ©fixe `/api/career`. Toutes les rÃ©ponses JSON ont `Cache-Control: no-store`. Erreurs : `{error:string, code:string}` ; 400 validation, 403 origine, 404 absence, 409 conflit, 423 coffre verrouillÃ©, 413 taille excessive. Les routes nouvelles sont dÃ©lÃ©guÃ©es par `index.ts` Ã  `handleCareerApi(req,res,url,context): Promise<boolean>` ; `false` signifie route inconnue. Contexte A : `{store:CareerStore,vault:Vault,browser:CareerBrowser,runner:CareerRunner,discovery:CareerDiscovery,demo:boolean}`. L'interface structurelle `CareerDiscovery` est exportÃ©e depuis `src/shared/career.ts`, sans dÃ©pendance serveur. Les helpers JSON/rÃ©ponse sont privÃ©s au module ou fournis par root sans dÃ©pendance circulaire.
-
-| MÃ©thode et chemin relatif | EntrÃ©e | RÃ©ponse |
-|---|---|---|
-| GET `/bootstrap` | â€” | 200 `CareerSnapshot` |
-| PUT `/profile` | `CareerProfile` sans `updatedAt` | 200 `CareerProfile` |
-| POST `/resumes` | JSON `{name,filename,mime,base64}` | 201 `Resume` |
-| GET `/resumes/:id/download` | â€” | Binaire, Content-Disposition attachment |
-| DELETE `/resumes/:id` | â€” | 200 `{deleted:true}` |
-| POST `/vault/initialize` | `{passphrase}` | 201 `VaultStatus` |
-| POST `/vault/unlock` | `{passphrase}` | 200 `VaultStatus` |
-| POST `/vault/lock` | `{}` | 200 `VaultStatus`, stop navigateur avant rÃ©ponse |
-| POST `/credentials` | `{origin,label,username,password}` | 201 `CredentialSummary` |
-| DELETE `/credentials/:id` | â€” | 200 `{deleted:true}` |
-| POST `/jobs` | `{url,title,company,location,description?,sourceUrl?}` | 201 `JobOffer` |
-| POST `/discover` | `{url}` | 200 `DiscoveryResult`, offres persistÃ©es |
-| POST `/applications` | `{jobId,resumeId,prospectId?}` | 201 `Application` (200 si existante) |
-| GET `/applications/:id` | â€” | 200 `Application` |
-| PATCH `/applications/:id` | rÃ©ponses/champs publics ci-dessus | 200 `Application` |
-| POST `/applications/:id/run` | `{mode:'prepare'|'submit',credentialId?}` | 202 `Application` |
-| POST `/applications/:id/resolve` | `{resolution:'submitted'|'not_submitted',detail}` | 200 `Application` |
-
-La dÃ©mo utilise de fausses donnÃ©es isolÃ©es et refuse dÃ©couverte/navigation/envoi/stockage de secrets rÃ©els. Le frontend ne doit jamais transmettre un secret en query string, journaliser une requÃªte, conserver un secret dans localStorage ou garder le mot de passe aprÃ¨s succÃ¨s.
-
-Protection locale : API liÃ©e exclusivement Ã  loopback ; Host limitÃ© aux noms et ports locaux configurÃ©s ; Origin comparÃ©e exactement ; refuser `Sec-Fetch-Site: cross-site`. Les mutations carriÃ¨re exigent `X-Anima-Request: 1`, et JSON sauf tÃ©lÃ©chargement ; le navigateur malveillant externe ne peut envoyer ce header sans prÃ©flight acceptÃ©. Ne pas activer CORS gÃ©nÃ©ral. Les requÃªtes API serveur de test sans Origin exigent aussi ce header. Ajouter ce header au helper UI carriÃ¨re. VÃ©rifier la sÃ©curitÃ© avant l'analyse du corps. La liste des origines de test est une option constructeur contrÃ´lÃ©e par le harness, jamais une propriÃ©tÃ© JSON client ni un mode dÃ©mo.
-
-## 7. Stockage, coffre et restauration
-
-- Tables : `career_profile` singleton JSON, `career_resumes` mÃ©tadonnÃ©es et BLOB, `career_jobs` URL UNIQUE, `career_applications` job_id UNIQUE/FK, `career_events` FK/index, `career_vault` version/sel/vÃ©rificateur, `career_credentials` id/origin/label/username/ciphertext/nonce/tag. Les JSON sont des valeurs, jamais SQL interpolÃ©.
-- CV PDF/DOCX seulement, 10 MiB dÃ©codÃ©s maximum, cohÃ©rence extension/MIME/signature ; nom de tÃ©lÃ©chargement assaini, aucune utilisation du filename fourni comme chemin. Les octets SQLite assurent sauvegarde complÃ¨te et upload Playwright `{name,mimeType,buffer}` sans fichier temporaire supplÃ©mentaire. Le plafond JSON de cette route couvre le base64 et refuse l'excÃ¨s avant accumulation illimitÃ©e.
-- Coffre : dÃ©rivation `scrypt` avec sel alÃ©atoire de 16 octets, `N=32768,r=8,p=1,maxmem>=64MiB`, clÃ© 32 octets ; AES-256-GCM, nonce alÃ©atoire 12 octets par Ã©criture, tag 16 octets, donnÃ©es authentifiÃ©es comprenant version/id/origin. Chiffrer un vÃ©rificateur connu indÃ©pendant pour vÃ©rifier la phrase mÃªme si aucun compte n'existe.
-- Au repos aucun mot de passe, phrase secrÃ¨te ni clÃ© dans la base, fichier de configuration, logs ou frontend persistant. La clÃ© reste en mÃ©moire serveur et est Ã©crasÃ©e autant que possible au verrouillage ; un runtime JavaScript ne garantit pas l'effacement de toutes les copies mÃ©moire. Initialisation une seule fois ; phrase au moins 12 caractÃ¨res. Mauvaise phrase : erreur neutre sans altÃ©ration du coffre.
-- Le navigateur carriÃ¨re utilise un contexte Ã©phÃ©mÃ¨re, visible par dÃ©faut, distinct du profil LinkedIn persistant. Les cookies restent en mÃ©moire et sont supprimÃ©s Ã  sa fermeture ; reconnexion automatique avec le coffre dÃ©verrouillÃ© Ã  une prochaine visite. Ne pas Ã©crire `storageState` ou mots de passe au disque en clair.
-- Renseigner les credentials uniquement sur l'origine exacte enregistrÃ©e, jamais un suffixe de domaine, sous-domaine supposÃ© Ã©quivalent, iframe Ã©trangÃ¨re ou redirection non approuvÃ©e. La session dÃ©jÃ  connectÃ©e peut servir sans dÃ©chiffrage.
-- URLs mÃ©tier : HTTPS public ; refuser schÃ©mas dangereux, userinfo, adresses privÃ©es/loopback/link-local, adresses IPv6 privÃ©es et fragments comme identifiant. Conserver les paramÃ¨tres qui identifient rÃ©ellement une offre ; retirer seulement paramÃ¨tres marketing connus. Refuser changement d'origine durant un flux automatisÃ© tant qu'une prise en charge explicite n'existe pas. En tests, seule l'origine exacte du serveur fixture est autorisÃ©e.
-- Sauvegarde SQLite contient profil/CV et coffre chiffrÃ©. Ã€ la restauration : refuser un run actif, arrÃªter le navigateur, verrouiller et abandonner l'ancien coffre, reconstruire `Store`, `CareerStore`, `Vault`, `CareerRunner`, appliquer les migrations et rÃ©cupÃ©rer les runs interrompus. Les sauvegardes historiques sans tables carriÃ¨re doivent fonctionner. Ne jamais restaurer un objet coffre qui conserve la clÃ© de l'ancienne base.
-
-## 8. Moteur de formulaires et Ã©tats
-
-Correspondances dÃ©terministes via `label`, `aria-label`, `name`, `autocomplete` et `type`. Synonymes franÃ§ais/anglais prÃ©cis pour prÃ©nom, nom, email, tÃ©lÃ©phone, ville, profil LinkedIn et CV. Exclure champs cachÃ©s, dÃ©sactivÃ©s et honeypots ; laisser vides les questions inconnues, y compris optionnelles. Ne jamais remplir tout champ texte avec le rÃ©sumÃ© par dÃ©faut. VÃ©rifier `select` contre options existantes et remplir checkbox/radio seulement avec valeur explicite. Aucun clic gÃ©nÃ©rique sur le premier `button` ou premier `submit` d'une page.
-
-La fixture et le gÃ©nÃ©rique doivent partager les opÃ©rations standard. Le test ne doit pas rÃ©ussir grÃ¢ce Ã  une branche spÃ©ciale remplissant arbitrairement des sÃ©lecteurs rÃ©servÃ©s au test. Les rÃ¨gles de confirmation peuvent Ãªtre spÃ©cifiques Ã  un adaptateur si documentÃ©es ; le gÃ©nÃ©rique exige une preuve forte (message de rÃ©ception de candidature et/ou rÃ©fÃ©rence, absence du formulaire de soumission). Une URL changÃ©e, un clic rÃ©ussi ou HTTP 200 ne constituent pas une preuve suffisante.
-
-Les formulaires en plusieurs Ã©tapes font partie du pÃ©rimÃ¨tre : boutons intermÃ©diaires explicitement nommÃ©s Â« Suivant Â», Â« Continuer Â», Â« Next Â», Â« Continue Â», distinguÃ©s du bouton final de candidature. RÃ©inspecter champs et obstacles Ã  chaque Ã©tape ; maximum dix Ã©tapes, arrÃªt sur boucle ou ambiguÃ¯tÃ©. En mode prepare, les Ã©tapes intermÃ©diaires peuvent Ãªtre parcourues pour dÃ©couvrir toutes les questions, mais le bouton final demeure interdit. Tester un parcours identitÃ© â†’ CV/questions â†’ rÃ©capitulatif â†’ reÃ§u.
-
-SÃ©quence : valider URL â†’ dÃ©tecter obstacle â†’ identifier formulaire/login â†’ vÃ©rifier origine â†’ connexion si compte disponible â†’ dÃ©tecter obstacle â†’ remplir coordonnÃ©es/rÃ©ponses â†’ uploader CV â†’ relever les manquants â†’ relire formulaire/validation â†’ ready, ou marqueur `submitting` avant clic â†’ chercher reÃ§u â†’ submitted/uncertain. Limiter les Ã©tapes/pages et le dÃ©lai total ; une page non prise en charge devient `blocked` avec raison.
-
-Transitions autorisÃ©es :
-
-```text
-draft / ready / needs_input / blocked / failed -> running
-running -> ready | needs_input | blocked | failed
-running -> submitting -> submitted | uncertain
-running interrompu avant soumission -> failed
-submitting interrompu -> uncertain
-uncertain -> submitted (vÃ©rification manuelle)
-uncertain -> draft (vÃ©rification explicite non-envoi)
-```
-
-Modifier CV/rÃ©ponses/profil invalide une prÃ©paration prÃ©cÃ©dente. Aucun envoi ne se contente d'un ancien `ready` ; il inspecte de nouveau la page et utilise un snapshot du profil/CV/rÃ©ponses au dÃ©but du run. Interdire modification/suppression de donnÃ©es d'une candidature pendant son run. `submittedAt` et Ã©vÃ©nement envoyÃ© sont crÃ©Ã©s dans une seule transaction et une seule fois. Les changements de `outcome` ne suppriment pas l'historique d'envoi.
-
-Les reÃ§us/Ã©vÃ©nements stockent un texte bref, assaini, sans formulaire complet, secret ou capture login. Conserver la rÃ©fÃ©rence et URL nÃ©cessaires Ã  la vÃ©rification, sans jetons de session dans l'URL. Tous les messages d'erreur Playwright sont traduits/sanitisÃ©s ; ne pas enregistrer les objets de requÃªte, Ã©lÃ©ments remplis ou traces contenant un password.
-
-## 9. UI et indicateurs
-
-Navigation carriÃ¨re compacte : **Tableau de bord Â· Offres Â· Candidatures Â· Mon profil** ; les fonctions LinkedIn demeurent accessibles. Le profil contient les onglets/champs CV et comptes, Ã©tat verrouillÃ© visible, action verrouiller. Afficher des Ã©crans vides avec une action utile, erreurs prÃ¨s du champ, Ã©tat occupÃ© et progression du run par polling pendant activitÃ©.
-
-Fiche offre : titre, entreprise, lieu, source, CV choisi, boutons Â« PrÃ©parer Â» et Â« Envoyer ma candidature Â». Une soumission explicite autorise le run complet ; un obstacle expose exactement la question manquante ou l'action attendue. La fiche candidature affiche Ã©tat d'automatisation distinct du rÃ©sultat mÃ©tier, reÃ§u ou dÃ©claration manuelle, Ã©vÃ©nements, relance et notes. Double clic et refresh ne doublent pas l'envoi.
-
-Politique d'automatisation utilisateur : le clic Â« Envoyer ma candidature Â» constitue l'autorisation de connexion/remplissage/envoi pour l'offre et le CV visibles. Pour un lot, l'utilisateur sÃ©lectionne une liste finie d'offres et le CV, puis lance Â« Envoyer les N candidatures Â». L'UI appelle sÃ©quentiellement le mÃªme endpoint `run` en mode submit et attend la fin de chaque candidature ; une erreur incertaine ou un obstacle de sÃ©curitÃ© arrÃªte le lot. Les questions manquantes placent la candidature dans les actions requises sans inventer de rÃ©ponse. Le lot ne s'Ã©tend pas automatiquement Ã  de nouvelles offres dÃ©couvertes ; aucun envoi en arriÃ¨re-plan aprÃ¨s fermeture/rechargement sans nouvelle action. La file initiale UI et son pÃ©rimÃ¨tre doivent rester visibles. Les secrets ne sont jamais copiÃ©s dans cette file. Cette politique livre un vÃ©ritable mode d'envoi automatique autorisÃ©, sans imposer une confirmation individuelle aprÃ¨s chaque prÃ©paration rÃ©ussie.
-
-Le dashboard agrÃ¨ge : offres sauvegardÃ©es, candidatures, envois confirmÃ©s, actions requises, entretiens, offres reÃ§ues, refus ; les cartes LinkedIn rÃ©utilisent les projections existantes. `submitted` = candidatures distinctes ayant un `submittedAt` ou Ã©vÃ©nement de confirmation validÃ©, conservÃ© aprÃ¨s changement de statut ; `needsAttention` = needs_input/blocked/uncertain/failed ; entretiens/offres/refus = Ã©tats mÃ©tier courants, indiquÃ©s comme tels. ActivitÃ© rÃ©cente = union chronologique d'Ã©vÃ©nements candidature et prospects avec catÃ©gorie et lien. Aucune courbe ni chiffre de dÃ©monstration dans le mode rÃ©el.
-
-## 10. Validation exÃ©cutable avant livraison
-
-Harness `node:test` + Playwright existant ; aucune dÃ©pendance Ã  un vrai compte, entreprise ou service externe. Serveur fixture sur un port loopback alÃ©atoire, contexte navigateur isolÃ© et `headless:true` pour CI ; interdit d'appeler des portails externes dans les tests. Les fixtures exposent des compteurs serveur et les donnÃ©es rÃ©ellement reÃ§ues, pas uniquement des assertions DOM.
-
-| ScÃ©nario fixture/test | Preuve exigÃ©e |
-|---|---|
-| DÃ©couverte | Page `/jobs` contenant deux offres JSON-LD/liens, filtre et sauvegarde ; second import ne crÃ©e aucun doublon |
-| PrÃ©paration | Formulaire standard FR/EN, profil rempli, bon CV reÃ§u dans le contrÃ´le upload ; Ã©tat ready, compteur POST candidature = 0 |
-| Soumission | POST reÃ§u exactement une fois avec email/nom et octets/hash du CV sÃ©lectionnÃ© ; rÃ©fÃ©rence visible, Ã©tat submitted et Ã©vÃ©nement unique |
-| Plusieurs Ã©tapes | IdentitÃ© puis CV/questions puis rÃ©capitulatif ; prepare atteint le rÃ©capitulatif sans POST final ; submit termine avec rÃ©fÃ©rence |
-| Lot autorisÃ© | Deux offres sÃ©lectionnÃ©es donnent deux reÃ§us, aucune troisiÃ¨me offre envoyÃ©e ; uncertain/security bloque les suivantes |
-| Login automatique | `/apply` redirige vers `/login`, identifiants fixture chiffrÃ©s, connexion puis retour candidature ; seconde visite/session rÃ©authentifiÃ©e fonctionne sans saisie utilisateur |
-| Multi-CV | Deux contenus distincts ; candidature B envoie le CV B, jamais le premier par dÃ©faut |
-| Question manquante | Permis de travail obligatoire inconnu ; needs_input et zÃ©ro soumission ; rÃ©ponse explicite enregistrÃ©e puis run rÃ©ussi |
-| Question sensible optionnelle | Champ origine/handicap inconnu reste vide et n'est pas inventÃ© |
-| Choix/consentement | Checkbox obligatoire sans rÃ©ponse explicite bloque ; faux boolÃ©en est respectÃ© ; option select inexistante bloque |
-| CAPTCHA/MFA | Page/iframe de contrÃ´le : blocked avant remplissage/soumission, aucun bypass ni rÃ©pÃ©tition |
-| RÃ©ponse incertaine | Serveur accepte POST puis n'affiche aucun reÃ§u ; uncertain, un seul POST ; deuxiÃ¨me run refusÃ©, y compris aprÃ¨s redÃ©marrage |
-| Concurrence | Deux appels start simultanÃ©s : un seul acceptÃ© ; navigateur/dÃ©couverte ne dÃ©tournent pas la page en cours |
-| Origine hostile | Redirection login vers autre origine/iframe Ã©trangÃ¨re : aucun mot de passe rempli/envoyÃ© ; URL privÃ©e et Host/Origin incorrects rejetÃ©s |
-| Coffre | Mauvaise phrase et ciphertext/tag altÃ©rÃ© refusÃ©s ; lock interdit dÃ©chiffrage ; base et JSON/logs ne contiennent ni password ni passphrase |
-| Reprise/restauration | Enregistrement submitting puis nouveau Store donne uncertain ; sauvegarde/restauration conserve CV et historique ; ancien coffre reste inutilisable aprÃ¨s restauration |
-| RÃ©gression CRM | Neuf tests historiques passent, recherches/import/dÃ©doublonnage et file LinkedIn restent opÃ©rationnels |
-| UI rÃ©elle | Via navigateur local : crÃ©er profil, uploader deux CV, sauvegarder compte fixture, dÃ©couvrir offre, prÃ©parer/envoyer, voir reÃ§u/dashboard puis reload ; inspecter console et erreurs rÃ©seau |
-
-Commandes de livraison : `pnpm test`, `pnpm build`, puis test navigateur intÃ©grÃ© rÃ©ellement exÃ©cutÃ© avec Chromium. Les tests peuvent utiliser l'exÃ©cutable Node absolu si pnpm est absent, mais consigner la commande exacte. Si le navigateur manque, installer le runtime Playwright selon l'autorisation de l'utilisateur ; ne jamais convertir un test navigateur requis en test ignorÃ© et annoncer la rÃ©ussite.
-
-Les sorties de tests doivent distinguer les scÃ©narios exÃ©cutÃ©s, les limites connues et toute couverture absente. L'absence d'erreur TypeScript ne remplace pas l'essai de bout en bout.
-
-## 11. Revue et publication
-
-Avant commit : revue croisÃ©e sur validations d'entrÃ©e, injection DOM, origine, secrets, Ã©tat durable avant clic et absence de double soumission ; correction de tous problÃ¨mes bloquants. Inspection du diff et fichiers staged pour exclure `data/`, CV rÃ©els, credentials, captures ou logs privÃ©s. Ne pas Ã©craser les fichiers dÃ©jÃ  staged de l'utilisateur ; conserver l'historique/branche existants avant changements de branche. Publier dans le dÃ©pÃ´t Anima-Connect existant selon le mandat utilisateur ; attacher toute PR crÃ©Ã©e au chat. Livraison accompagnÃ©e de la commande Windows de dÃ©marrage, URL locale, bilan des tests et pÃ©rimÃ¨tre exact des formulaires pris en charge.
+  // Interne serveur uniquement. VÃ©rifie Ã©galitÃ© d'ovçM-¢G§²ÚîÆ­yØÜÜÚX›H]H™\œ›İZ[YÙHÈ[ˆ[[YH˜]˜TØÜš\™HØ\˜[]\È	ÙY™˜XÙ[Y[Hİ]\È\ÈÛÜY\Èpê[[Ú\™Kˆ[š]X[\Ø][Ûˆ[™HÙ][H›Ú\ÈÈ˜\ÙH]H[Ú[œÈLˆØ\˜Xİ0ê™\ËˆX]]˜Z\ÙH˜\ÙHˆ\œ™]\ˆ™]]™HØ[œÈ[0ê\˜][ÛˆHÛÙ™œ™K‚‹HH˜]šYØ]]\ˆØ\œšpê™H][\ÙH[ˆÛÛ^H0ê\0ê[pê™Kš\ÚX›H\ˆ0êY˜]]\İ[˜İH›Ùš[[šÙY[ˆ\œÚ\İ[ˆ\ÈÛÛÚÚY\È™\İ[[ˆpê[[Ú\™H]ÛÛİ\š[pê\È0èØH™\›Y]\™HÈ™XÛÛ›™^[Ûˆ]]ÛX]\]YH]™XÈHÛÙ™œ™H0ê]™\œ›İZ[0êH0è[™H›ØÚZ[™Hš\Ú]Kˆ™H\È0êXÜš\™HİÜ˜YÙTİ]XİH[İÈH\ÜÙH]H\Ü]YH[ˆÛZ\‹‚‹H™[œÙZYÛ™\ˆ\ÈÜ™Y[X[È[š\]Y[Y[İ\ˆ	ÛÜšYÚ[™H^XİH[œ™YÚ\İ°êYK˜[XZ\È[ˆİY™š^HHÛXZ[™KÛİ\ËYÛXZ[™Hİ\ÜğêH0ê\]Z]˜[[Yœ˜[YH0ê]˜[™ğê™HİH™Y\™Xİ[Ûˆ›Ûˆ\›İ]°êYKˆHÙ\ÜÚ[Ûˆ0êZ°èÛÛ›™Xİ0êYH]]Ù\š\ˆØ[œÈ0êXÚY™œ˜YÙK‚‹HT“Èpê]Y\ˆˆÈX›XÈÈ™Y\Ù\ˆØÚ0ê[X\È[™Ù\™]^\Ù\š[™›ËY™\ÜÙ\Èš]°êY\ËÛÛÜ˜XÚËÛ[šË[ØØ[Y™\ÜÙ\ÈTˆš]°êY\È]œ˜YÛY[ÈÛÛ[YHY[YšX[ˆÛÛœÙ\™\ˆ\È\˜[pê™\È]ZHY[YšY[°êY[[Y[[™HÙ™œ™HÈ™]\™\ˆÙ][[Y[\˜[pê™\ÈX\šÙ][™ÈÛÛ›\Ëˆ™Y\Ù\ˆÚ[™Ù[Y[	ÛÜšYÚ[™H\˜[[ˆ›^]]ÛX]\ğêH[]Iİ[™Hš\ÙH[ˆÚ\™ÙH^XÚ]H‰Ù^\İH\Ëˆ[ˆ\İËÙ][H	ÛÜšYÚ[™H^XİHHÙ\™]\ˆš^\™H\İ]]Üš\ğêYK‚‹HØ]]™YØ\™HÔS]HÛÛY[›Ùš[ĞÕˆ]ÛÙ™œ™HÚY™œ°êKˆ0àH™\İ]\˜][Ûˆˆ™Y\Ù\ˆ[ˆ[ˆXİY‹\œ°ê\ˆH˜]šYØ]]\‹™\œ›İZ[\ˆ]X˜[™Û›™\ˆ	Ø[˜ÚY[ˆÛÙ™œ™K™XÛÛœİZ\™HİÜ™XØ\™Y\”İÜ™X˜][Ø\™Y\”[›™\˜\\]Y\ˆ\ÈZYÜ˜][ÛœÈ]°êXİ\0ê\™\ˆ\È[œÈ[\œ›Û\\Ëˆ\ÈØ]]™YØ\™\È\İÜš\]Y\ÈØ[œÈX›\ÈØ\œšpê™HÚ]™[›Û˜İ[Û›™\‹ˆ™H˜[XZ\È™\İ]\™\ˆ[ˆØš™]ÛÙ™œ™H]ZHÛÛœÙ\™HHÛ0êHH	Ø[˜ÚY[›™H˜\ÙK‚‚ˆÈÈˆ[İ]\ˆH›Ü›][Z\™\È]0ê]]Â‚ÛÜœ™\ÜÛ™[˜Ù\È0ê]\›Z[š\İ\ÈšXHX™[\šXK[X™[˜[YX]]ØÛÛ\]X]\XˆŞ[›Û[Y\Èœ˜[°éØZ\ËØ[™ÛZ\È°êXÚ\Èİ\ˆ°ê[›ÛK›ÛK[XZ[0ê[0ê\Û™Kš[K›Ùš[[šÙY[ˆ]Õ‹ˆ^Û\™HÚ[\ÈØXÚ0ê\Ë0ê\ØXİ]°ê\È]Û™^\İÈÈZ\ÜÙ\ˆšY\È\È]Y\İ[ÛœÈ[˜ÛÛ›Y\ËHÛÛ\š\ÈÜ[Û›™[\Ëˆ™H˜[XZ\È™[\\ˆİ]Ú[\^H]™XÈH°ê\İ[pêH\ˆ0êY˜]]ˆ°ê\šYšY\ˆÙ[XİÛÛ™HÜ[ÛœÈ^\İ[\È]™[\\ˆÚXÚØ›ŞÜ˜Y[ÈÙ][[Y[]™XÈ˜[]\ˆ^XÚ]Kˆ]Xİ[ˆÛXÈğê[°ê\š\]YHİ\ˆH™[ZY\ˆ]Û˜İH™[ZY\ˆİX›Z]	İ[™HYÙK‚‚“Hš^\™H]Hğê[°ê\š\]YHÚ]™[\YÙ\ˆ\ÈÜ0ê\˜][ÛœÈİ[™\™ˆH\İ™HÚ]\È°ê]\ÜÚ\ˆÜ°è˜ÙH0è[™Hœ˜[˜ÚHÜ0êXÚX[H™[\\ÜØ[\˜š]˜Z\™[Y[\Èğê[Xİ]\œÈ°ê\Ù\°ê\È]H\İˆ\È°êÛ\ÈHÛÛ™š\›X][Ûˆ]]™[0ê™HÜ0êXÚYš\]Y\È0è[ˆY\]]\ˆÚHØİ[Y[0êY\ÈÈHğê[°ê\š\]YH^YÙH[™H™]]™H›ÜH
+Y\ÜØYÙHH°êXÙ\[ÛˆHØ[™Y]\™H]ÛİH°êY°ê\™[˜ÙKXœÙ[˜ÙHH›Ü›][Z\™HHÛİ[Z\ÜÚ[ÛŠKˆ[™HT“Ú[™ğêYK[ˆÛXÈ°ê]\ÜÚHİHŒ™HÛÛœİ]Y[\È[™H™]]™HİY™š\Ø[K‚‚“\È›Ü›][Z\™\È[ˆ\ÚY]\œÈ0ê]\\È›Û\YHH0ê\š[pê™Hˆ›İ]ÛœÈ[\›pêYXZ\™\È^XÚ][Y[›Û[pê\È0ªÈİZ]˜[0®Ë0ªÈÛÛ[Y\ˆ0®Ë0ªÈ™^0®Ë0ªÈÛÛ[YH0®Ë\İ[™İpê\ÈH›İ]Ûˆš[˜[HØ[™Y]\™Kˆ°êZ[œÜXİ\ˆÚ[\È]ØœİXÛ\È0èÚ\]YH0ê]\HÈX^[][H^0ê]\\Ë\œ°êİ\ˆ›İXÛHİH[XšYİpëİ0êKˆ[ˆ[ÙH™\\™K\È0ê]\\È[\›pêYXZ\™\È]]™[0ê™H\˜Ûİ\Y\Èİ\ˆ0êXÛİ]œš\ˆİ]\È\È]Y\İ[ÛœËXZ\ÈH›İ]Ûˆš[˜[[Y]\™H[\™]ˆ\İ\ˆ[ˆ\˜Ûİ\œÈY[]0êH8¡¤ˆÕ‹Ü]Y\İ[ÛœÈ8¡¤ˆ°êXØ\][]Yˆ8¡¤ˆ™péİK‚‚”ğê\]Y[˜ÙHˆ˜[Y\ˆT“8¡¤ˆ0ê]Xİ\ˆØœİXÛH8¡¤ˆY[YšY\ˆ›Ü›][Z\™KÛÙÚ[ˆ8¡¤ˆ°ê\šYšY\ˆÜšYÚ[™H8¡¤ˆÛÛ›™^[ÛˆÚHÛÛ\H\ÜÛšX›H8¡¤ˆ0ê]Xİ\ˆØœİXÛH8¡¤ˆ™[\\ˆÛÛÜ™Û›°êY\ËÜ°ê\ÛœÙ\È8¡¤ˆ\ØY\ˆÕˆ8¡¤ˆ™[]™\ˆ\ÈX[œ]X[È8¡¤ˆ™[\™H›Ü›][Z\™Kİ˜[Y][Ûˆ8¡¤ˆ™XYKİHX\œ]Y]\ˆİX›Z][™Ø]˜[ÛXÈ8¡¤ˆÚ\˜Ú\ˆ™péİH8¡¤ˆİX›Z]Yİ[˜Ù\Z[‹ˆ[Z]\ˆ\È0ê]\\ËÜYÙ\È]H0ê[ZHİ[È[™HYÙH›Ûˆš\ÙH[ˆÚ\™ÙH]šY[›ØÚÙY]™XÈ˜Z\ÛÛ‹‚‚•˜[œÚ][ÛœÈ]]Üš\ğêY\È‚‚˜^™˜YÈ™XYHÈ™YY×Ú[œ]È›ØÚÙYÈ˜Z[YOˆ[›š[™Âœ[›š[™ÈOˆ™XYH™YY×Ú[œ]›ØÚÙY˜Z[Yœ[›š[™ÈOˆİX›Z][™ÈOˆİX›Z]Y[˜Ù\Z[‚œ[›š[™È[\œ›Û\H]˜[Ûİ[Z\ÜÚ[ÛˆOˆ˜Z[YœİX›Z][™È[\œ›Û\HOˆ[˜Ù\Z[‚[˜Ù\Z[ˆOˆİX›Z]Y
+°ê\šYšXØ][ÛˆX[Y[JB[˜Ù\Z[ˆOˆ˜Y
+°ê\šYšXØ][Ûˆ^XÚ]H›Û‹Y[›ÚJB˜‚“[ÙYšY\ˆÕ‹Ü°ê\ÛœÙ\ËÜ›Ùš[[˜[YH[™H°ê\\˜][Ûˆ°êXğêY[Kˆ]Xİ[ˆ[›ÚH™HÙHÛÛ[H	İ[ˆ[˜ÚY[ˆ™XYXÈ[[œÜXİHH›İ]™X]HHYÙH]][\ÙH[ˆÛ˜\ÚİH›Ùš[ĞÕ‹Ü°ê\ÛœÙ\È]H0êX]H[‹ˆ[\™\™H[ÙYšXØ][Û‹Üİ\™\ÜÚ[ÛˆHÛ›°êY\È	İ[™HØ[™Y]\™H[™[ÛÛˆ[‹ˆİX›Z]Y]]0ê]°ê[™[Y[[›ŞpêHÛÛÜ°êpê\È[œÈ[™HÙ][H˜[œØXİ[Ûˆ][™HÙ][H›Ú\Ëˆ\ÈÚ[™Ù[Y[ÈHİ]ÛÛYX™Hİ\š[Y[\È	Ú\İÜš\]YH	Ù[›ÚK‚‚“\È™péİ\Ëğê]°ê[™[Y[ÈİØÚÙ[[ˆ^Hœ™Y‹\ÜØZ[šKØ[œÈ›Ü›][Z\™HÛÛ\]ÙXÜ™]İHØ\\™HÙÚ[‹ˆÛÛœÙ\™\ˆH°êY°ê\™[˜ÙH]T“°êXÙ\ÜØZ\™\È0èH°ê\šYšXØ][Û‹Ø[œÈ™]ÛœÈHÙ\ÜÚ[Ûˆ[œÈ	ÕT“ˆİ\È\ÈY\ÜØYÙ\È	Ù\œ™]\ˆ^]ÜšYÚÛÛ˜YZ]ËÜØ[š]\ğê\ÈÈ™H\È[œ™YÚ\İ™\ˆ\ÈØš™]ÈH™\]pêK0ê[0ê[Y[È™[\\ÈİH˜XÙ\ÈÛÛ[˜[[ˆ\ÜİÛÜ™‚‚ˆÈÈKˆRH][™XØ]]\œÂ‚“˜]šYØ][ÛˆØ\œšpê™HÛÛ\XİHˆ
+Š•X›X]HH›Ü™0­ÈÙ™œ™\È0­ÈØ[™Y]\™\È0­È[Ûˆ›Ùš[
+ŠˆÈ\È›Û˜İ[ÛœÈ[šÙY[ˆ[Y]\™[XØÙ\ÜÚX›\ËˆH›Ùš[ÛÛY[\ÈÛ™Û]ËØÚ[\ÈÕˆ]ÛÛ\\Ë0ê]]™\œ›İZ[0êHš\ÚX›KXİ[Ûˆ™\œ›İZ[\‹ˆY™šXÚ\ˆ\È0êXÜ˜[œÈšY\È]™XÈ[™HXİ[Ûˆ][K\œ™]\œÈ°êÈHÚ[\0ê]]ØØİ\0êH]›ÙÜ™\ÜÚ[ÛˆH[ˆ\ˆÛ[™È[™[Xİ]š]0êK‚‚‘šXÚHÙ™œ™Hˆ]™K[™\š\ÙKY]KÛİ\˜ÙKÕˆÚÚ\ÚK›İ]ÛœÈ0ªÈ°ê\\™\ˆ0®È]0ªÈ[›ŞY\ˆXHØ[™Y]\™H0®Ëˆ[™HÛİ[Z\ÜÚ[Ûˆ^XÚ]H]]Üš\ÙHH[ˆÛÛ\]È[ˆØœİXÛH^ÜÙH^Xİ[Y[H]Y\İ[ÛˆX[œ]X[HİH	ØXİ[Ûˆ][™YKˆHšXÚHØ[™Y]\™HY™šXÚH0ê]]	Ø]]ÛX]\Ø][Ûˆ\İ[˜İH°ê\İ[]pê]Y\‹™péİHİH0êXÛ\˜][ÛˆX[Y[K0ê]°ê[™[Y[Ë™[[˜ÙH]›İ\ËˆİX›HÛXÈ]™Yœ™\Ú™HİX›[\È	Ù[›ÚK‚‚”Û]\]YH	Ø]]ÛX]\Ø][Ûˆ][\Ø]]\ˆˆHÛXÈ0ªÈ[›ŞY\ˆXHØ[™Y]\™H0®ÈÛÛœİ]YH	Ø]]Üš\Ø][ÛˆHÛÛ›™^[Û‹Ü™[\\ÜØYÙKÙ[›ÚHİ\ˆ	ÛÙ™œ™H]HÕˆš\ÚX›\Ëˆİ\ˆ[ˆİ	İ][\Ø]]\ˆğê[Xİ[Û›™H[™H\İHš[šYH	ÛÙ™œ™\È]HÕ‹Z\È[˜ÙH0ªÈ[›ŞY\ˆ\ÈˆØ[™Y]\™\È0®Ëˆ	ÕRH\[Hğê\]Y[Y[[Y[Hpê›YH[™Ú[[˜[ˆ[ÙHİX›Z]]][™Hš[ˆHÚ\]YHØ[™Y]\™HÈ[™H\œ™]\ˆ[˜Ù\Z[™HİH[ˆØœİXÛHHğêXİ\š]0êH\œ°êHHİˆ\È]Y\İ[ÛœÈX[œ]X[\ÈXÙ[HØ[™Y]\™H[œÈ\ÈXİ[ÛœÈ™\]Z\Ù\ÈØ[œÈ[™[\ˆH°ê\ÛœÙKˆHİ™HÉğê][™\È]]ÛX]\]Y[Y[0èH›İ]™[\ÈÙ™œ™\È0êXÛİ]™\\ÈÈ]Xİ[ˆ[›ÚH[ˆ\œšpê™K\[ˆ\°êÈ™\›Y]\™KÜ™XÚ\™Ù[Y[Ø[œÈ›İ]™[HXİ[Û‹ˆHš[H[š]X[HRH]ÛÛˆ0ê\š[pê™HÚ]™[™\İ\ˆš\ÚX›\Ëˆ\ÈÙXÜ™]È™HÛÛ˜[XZ\ÈÛÜpê\È[œÈÙ]Hš[KˆÙ]HÛ]\]YH]œ™H[ˆ°ê\š]X›H[ÙH	Ù[›ÚH]]ÛX]\]YH]]Üš\ğêKØ[œÈ[\ÜÙ\ˆ[™HÛÛ™š\›X][Ûˆ[™]šYY[H\°êÈÚ\]YH°ê\\˜][Ûˆ°ê]\ÜÚYK‚‚“H\Ú›Ø\™YÜ°êÙHˆÙ™œ™\ÈØ]]™YØ\™0êY\ËØ[™Y]\™\Ë[›Ú\ÈÛÛ™š\›pê\ËXİ[ÛœÈ™\]Z\Ù\Ë[™]Y[œËÙ™œ™\È™péİY\Ë™Y\ÈÈ\ÈØ\\È[šÙY[ˆ°ê]][\Ù[\È›Ú™Xİ[ÛœÈ^\İ[\ËˆİX›Z]YHØ[™Y]\™\È\İ[˜İ\È^X[[ˆİX›Z]Y]İH0ê]°ê[™[Y[HÛÛ™š\›X][Ûˆ˜[Y0êKÛÛœÙ\°êH\°êÈÚ[™Ù[Y[Hİ]]È™YYĞ][[Û˜H™YY×Ú[œ]Ø›ØÚÙYİ[˜Ù\Z[‹Ù˜Z[YÈ[™]Y[œËÛÙ™œ™\ËÜ™Y\ÈH0ê]]Èpê]Y\ˆÛİ\˜[Ë[™\]pê\ÈÛÛ[YH[ËˆXİ]š]0êH°êXÙ[HH[š[ÛˆÚ›Û›ÛÙÚ\]YH	ğê]°ê[™[Y[ÈØ[™Y]\™H]›ÜÜXİÈ]™XÈØ]0êYÛÜšYH]Y[‹ˆ]Xİ[™HÛİ\˜™HšHÚY™œ™HH0ê[[Ûœİ˜][Ûˆ[œÈH[ÙH°êY[‚‚ˆÈÈLˆ˜[Y][Ûˆ^0êXİ]X›H]˜[]œ˜Z\ÛÛ‚‚’\›™\ÜÈ›ÙN\İ
+È^]ÜšYÚ^\İ[È]Xİ[™H0ê\[™[˜ÙH0è[ˆœ˜ZHÛÛ\K[™\š\ÙHİHÙ\šXÙH^\›™KˆÙ\™]\ˆš^\™Hİ\ˆ[ˆÜÛÜ˜XÚÈ[0êX]Ú\™KÛÛ^H˜]šYØ]]\ˆ\ÛÛ0êH]XY\ÜÎYXİ\ˆÒHÈ[\™]	Ø\[\ˆ\ÈÜZ[È^\›™\È[œÈ\È\İËˆ\Èš^\™\È^ÜÙ[\ÈÛÛ\]\œÈÙ\™]\ˆ]\ÈÛ›°êY\È°êY[[Y[™péİY\Ë\È[š\]Y[Y[\È\ÜÙ\[ÛœÈÓK‚‚ŸØğê[˜\š[Èš^\™Kİ\İ™]]™H^YğêYHŸKK_KK_Ÿ0êXÛİ]™\HYÙHÚ›ØœØÛÛ[˜[]^Ù™œ™\È”ÓÓ‹SÛY[œËš[™H]Ø]]™YØ\™HÈÙXÛÛ™[\Ü™HÜ°êYH]Xİ[ˆİX›ÛˆŸ°ê\\˜][Ûˆ›Ü›][Z\™Hİ[™\™”‹ÑS‹›Ùš[™[\K›ÛˆÕˆ™péİH[œÈHÛÛ°íH\ØYÈ0ê]]™XYKÛÛ\]\ˆÔÕØ[™Y]\™HHŸÛİ[Z\ÜÚ[ÛˆÔÕ™péİH^Xİ[Y[[™H›Ú\È]™XÈ[XZ[Û›ÛH]Øİ]ËÚ\ÚHÕˆğê[Xİ[Û›°êHÈ°êY°ê\™[˜ÙHš\ÚX›K0ê]]İX›Z]Y]0ê]°ê[™[Y[[š\]YHŸ\ÚY]\œÈ0ê]\\ÈY[]0êHZ\ÈÕ‹Ü]Y\İ[ÛœÈZ\È°êXØ\][]YˆÈ™\\™H]Z[H°êXØ\][]YˆØ[œÈÔÕš[˜[ÈİX›Z]\›Z[™H]™XÈ°êY°ê\™[˜ÙHŸİ]]Üš\ğêH]^Ù™œ™\Èğê[Xİ[Û›°êY\ÈÛ›™[]^™péİ\Ë]Xİ[™H›Ú\ÚpêYHÙ™œ™H[›ŞpêYHÈ[˜Ù\Z[‹ÜÙXİ\š]H›Ü]YH\ÈİZ]˜[\ÈŸÙÚ[ˆ]]ÛX]\]YHØ\X™Y\šYÙH™\œÈÛÙÚ[˜Y[YšX[Èš^\™HÚY™œ°ê\ËÛÛ›™^[ÛˆZ\È™]İ\ˆØ[™Y]\™HÈÙXÛÛ™Hš\Ú]KÜÙ\ÜÚ[Ûˆ°êX]][YšpêYH›Û˜İ[Û›™HØ[œÈØZ\ÚYH][\Ø]]\ˆŸ][KPÕˆ]^ÛÛ[\È\İ[˜İÈÈØ[™Y]\™Hˆ[›ÚYHHÕˆ‹˜[XZ\ÈH™[ZY\ˆ\ˆ0êY˜]]Ÿ]Y\İ[ÛˆX[œ]X[H\›Z\ÈH˜]˜Z[Ø›YØ]Ú\™H[˜ÛÛ›HÈ™YY×Ú[œ]]°ê\›ÈÛİ[Z\ÜÚ[ÛˆÈ°ê\ÛœÙH^XÚ]H[œ™YÚ\İ°êYHZ\È[ˆ°ê]\ÜÚHŸ]Y\İ[ÛˆÙ[œÚX›HÜ[Û›™[HÚ[\ÜšYÚ[™KÚ[™XØ\[˜ÛÛ›H™\İHšYH]‰Ù\İ\È[™[0êHŸÚÚ^ØÛÛœÙ[[Y[ÚXÚØ›ŞØ›YØ]Ú\™HØ[œÈ°ê\ÛœÙH^XÚ]H›Ü]YHÈ˜]^›ÛÛ0êY[ˆ\İ™\ÜXİ0êHÈÜ[ÛˆÙ[Xİ[™^\İ[H›Ü]YHŸĞTÒKÓQHYÙKÚYœ˜[YHHÛÛ°íHˆ›ØÚÙY]˜[™[\\ÜØYÙKÜÛİ[Z\ÜÚ[Û‹]Xİ[ˆ\\ÜÈšH°ê\0ê]][ÛˆŸ°ê\ÛœÙH[˜Ù\Z[™HÙ\™]\ˆXØÙ\HÔÕZ\È‰ØY™šXÚH]Xİ[ˆ™péİHÈ[˜Ù\Z[‹[ˆÙ][ÔÕÈ]^pêYH[ˆ™Y\ğêKHÛÛ\š\È\°êÈ™Y0ê[X\œ˜YÙHŸÛÛ˜İ\œ™[˜ÙH]^\[Èİ\Ú[][[°ê\Èˆ[ˆÙ][XØÙ\0êHÈ˜]šYØ]]\‹Ù0êXÛİ]™\H™H0ê]İ\›™[\ÈHYÙH[ˆÛİ\œÈŸÜšYÚ[™HÜİ[H™Y\™Xİ[ÛˆÙÚ[ˆ™\œÈ]]™HÜšYÚ[™KÚYœ˜[YH0ê]˜[™ğê™Hˆ]Xİ[ˆ[İH\ÜÙH™[\KÙ[›ŞpêHÈT“š]°êYH]ÜİÓÜšYÚ[ˆ[˜ÛÜœ™XİÈ™Z™]0ê\ÈŸÛÙ™œ™HX]]˜Z\ÙH˜\ÙH]Ú\\^İYÈ[0ê\°êH™Y\ğê\ÈÈØÚÈ[\™]0êXÚY™œ˜YÙHÈ˜\ÙH]”ÓÓ‹ÛÙÜÈ™HÛÛY[›™[šH\ÜİÛÜ™šH\ÜÜ˜\ÙHŸ™\š\ÙKÜ™\İ]\˜][Ûˆ[œ™YÚ\İ™[Y[İX›Z][™ÈZ\È›İ]™X]HİÜ™HÛ›™H[˜Ù\Z[ˆÈØ]]™YØ\™KÜ™\İ]\˜][ÛˆÛÛœÙ\™HÕˆ]\İÜš\]YHÈ[˜ÚY[ˆÛÙ™œ™H™\İH[][\ØX›H\°êÈ™\İ]\˜][ÛˆŸ°êYÜ™\ÜÚ[ÛˆÔ“H™]Yˆ\İÈ\İÜš\]Y\È\ÜÙ[™XÚ\˜Ú\ËÚ[\ÜÙ0êYİX›Û›˜YÙH]š[H[šÙY[ˆ™\İ[Ü0ê\˜][Û›™[ÈŸRH°êY[HšXH˜]šYØ]]\ˆØØ[ˆÜ°êY\ˆ›Ùš[\ØY\ˆ]^Õ‹Ø]]™YØ\™\ˆÛÛ\Hš^\™K0êXÛİ]œš\ˆÙ™œ™K°ê\\™\‹Ù[›ŞY\‹›Ú\ˆ™péİKÙ\Ú›Ø\™Z\È™[ØYÈ[œÜXİ\ˆÛÛœÛÛH]\œ™]\œÈ°ê\ÙX]H‚ÛÛ[X[™\ÈH]œ˜Z\ÛÛˆˆœH\İœHZ[Z\È\İ˜]šYØ]]\ˆ[0êYÜ°êH°êY[[Y[^0êXİ]0êH]™XÈÚ›ÛZ][Kˆ\È\İÈ]]™[][\Ù\ˆ	Ù^0êXİ]X›H›ÙHXœÛÛHÚHœH\İXœÙ[XZ\ÈÛÛœÚYÛ™\ˆHÛÛ[X[™H^XİKˆÚHH˜]šYØ]]\ˆX[œ]YK[œİ[\ˆH[[YH^]ÜšYÚÙ[Ûˆ	Ø]]Üš\Ø][ÛˆH	İ][\Ø]]\ˆÈ™H˜[XZ\ÈÛÛ™\\ˆ[ˆ\İ˜]šYØ]]\ˆ™\]Z\È[ˆ\İYÛ›Ü°êH][››Û˜Ù\ˆH°ê]\ÜÚ]K‚‚“\ÈÛÜY\ÈH\İÈÚ]™[\İ[™İY\ˆ\ÈØğê[˜\š[ÜÈ^0êXİ]0ê\Ë\È[Z]\ÈÛÛ›Y\È]İ]HÛİ]™\\™HXœÙ[Kˆ	ØXœÙ[˜ÙH	Ù\œ™]\ˆ\TØÜš\™H™[\XÙH\È	Ù\ÜØZHH›İ][ˆ›İ]‚‚ˆÈÈLKˆ™]YH]X›XØ][Û‚‚]˜[ÛÛ[Z]ˆ™]YHÜ›Ú\ğêYHİ\ˆ˜[Y][ÛœÈ	Ù[°êYK[š™Xİ[ÛˆÓKÜšYÚ[™KÙXÜ™]Ë0ê]]\˜X›H]˜[ÛXÈ]XœÙ[˜ÙHHİX›HÛİ[Z\ÜÚ[ÛˆÈÛÜœ™Xİ[ÛˆHİ\È›Ø›0êY\È›Ü]X[Ëˆ[œÜXİ[ÛˆHY™ˆ]šXÚY\œÈİYÙYİ\ˆ^Û\™H]KØÕˆ°êY[ËÜ™Y[X[ËØ\\™\ÈİHÙÜÈš]°ê\Ëˆ™H\È0êXÜ˜\Ù\ˆ\ÈšXÚY\œÈ0êZ°èİYÙYH	İ][\Ø]]\ˆÈÛÛœÙ\™\ˆ	Ú\İÜš\]YKØœ˜[˜ÚH^\İ[È]˜[Ú[™Ù[Y[ÈHœ˜[˜ÚKˆX›Y\ˆ[œÈH0ê\0í[š[XKPÛÛ›™Xİ^\İ[Ù[ÛˆHX[™]][\Ø]]\ˆÈ]XÚ\ˆİ]HˆÜ°êpêYH]HÚ]ˆ]œ˜Z\ÛÛˆXØÛÛ\YÛ°êYHHHÛÛ[X[™HÚ[™İÜÈH0ê[X\œ˜YÙKT“ØØ[Kš[[ˆ\È\İÈ]0ê\š[pê™H^Xİ\È›Ü›][Z\™\Èš\È[ˆÚ\™ÙK‚

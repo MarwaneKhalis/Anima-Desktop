@@ -38,6 +38,52 @@ test("preparation fills standard form but sends no application", async () => {
   const { outcome, marker } = await run("/simple", "prepare");
   assert.equal(outcome.state, "ready"); assert.equal(marker, 0); assert.equal(fx.submissions.length, count);
 });
+test("follows one visible Apply link and waits for its first-party form script", async () => {
+  const count = fx.submissions.length;
+  const scripts = fx.applyScriptVisits;
+  const prepared = await run("/apply-link", "prepare");
+  assert.equal(prepared.outcome.state, "ready");
+  assert.equal(prepared.marker, 0);
+  assert.equal(fx.applyScriptVisits, scripts + 1);
+  assert.equal(fx.submissions.length, count);
+
+  const submitted = await run("/apply-link", "submit");
+  assert.equal(submitted.outcome.state, "submitted");
+  assert.equal(fx.submissions.length, count + 1);
+  assert.equal(fx.submissions.at(-1)?.fields.email, profile.email);
+  assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+});
+test("ambiguous Apply links stop before any profile data or CV is sent", async () => {
+  const count = fx.submissions.length;
+  const { outcome, marker } = await run("/ambiguous-apply", "submit");
+  assert.equal(outcome.state, "blocked");
+  assert.match(outcome.message, /Plusieurs liens/);
+  assert.equal(marker, 0);
+  assert.equal(fx.submissions.length, count);
+});
+test("Lever-style full-name form and Greenhouse-style custom questions use safe field matching", async () => {
+  const beforeLever = fx.submissions.length;
+  const lever = await run("/lever-job", "submit");
+  assert.equal(lever.outcome.state, "submitted");
+  assert.equal(fx.submissions.length, beforeLever + 1);
+  assert.equal(fx.submissions.at(-1)?.fields.fullName, "Ada Lovelace");
+  assert.equal(fx.submissions.at(-1)?.fields.email, profile.email);
+  assert.equal(fx.submissions.at(-1)?.fields.location, profile.city);
+  assert.equal(fx.submissions.at(-1)?.fields["urls[LinkedIn]"], "");
+  assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+
+  const beforeGreenhouse = fx.submissions.length;
+  const paused = await run("/greenhouse-application", "submit");
+  assert.equal(paused.outcome.state, "needs_input");
+  assert.match(paused.outcome.missingFields[0]?.label || "", /eligible to work/i);
+  assert.equal(paused.marker, 0);
+  assert.equal(fx.submissions.length, beforeGreenhouse);
+  const answered = await run("/greenhouse-application", "submit", { answers: { custom_work_authorized: "No" } });
+  assert.equal(answered.outcome.state, "submitted");
+  assert.equal(fx.submissions.at(-1)?.fields.first_name, profile.firstName);
+  assert.equal(fx.submissions.at(-1)?.fields.last_name, profile.lastName);
+  assert.equal(fx.submissions.at(-1)?.fields.custom_work_authorized, "No");
+});
 test("submission sends exactly one POST and selected resume bytes", async () => {
   const count = fx.submissions.length;
   const { outcome, marker } = await run("/simple", "submit");
@@ -271,6 +317,31 @@ test("runner rejects parallel runs and never repeats uncertain submission", asyn
   store.recoverInterruptedRuns();
   assert.throws(() => new CareerRunner(store, vault, browser()).start(first.id, "submit"));
   assert.equal(fx.submissions.length, count + 1);
+  db.db.close();
+});
+test("runner uses the selected account for an ATS origin when multiple accounts are saved", async () => {
+  const db = new Store(":memory:");
+  const atsOrigin = new URL(fx.atsUrl).origin;
+  const store = new CareerStore(db.db, { allowedTestOrigins: [new URL(fx.baseUrl).origin, atsOrigin] });
+  const vault = new Vault(db.db, { allowedTestOrigins: [new URL(fx.baseUrl).origin, atsOrigin] });
+  store.saveProfile(profile);
+  const resume = store.saveResume({ name: "CV", filename: "cv.pdf", mime: "application/pdf", bytes: bytesA });
+  const offer = store.saveJob({ url: `${atsOrigin}/ats-apply`, title: "Engineer", company: "Fixture", location: "Paris" });
+  const application = store.createApplication({ jobId: offer.id, resumeId: resume.id });
+  vault.initialize("a sufficiently long test passphrase");
+  vault.saveCredential({ origin: atsOrigin, label: "Other", username: "wrong@example.test", password: "wrong-secret" });
+  const selected = vault.saveCredential({ origin: atsOrigin, label: "Selected", username: "ats@example.test", password: "ats-secret" });
+  const selectedAccountBrowser = new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin, atsOrigin] });
+  const runner = new CareerRunner(store, vault, selectedAccountBrowser);
+  const loginsBefore = fx.loginCount, submissionsBefore = fx.submissions.length;
+  runner.start(application.id, "submit", selected.id);
+  const deadline = Date.now() + 30_000;
+  while (runner.isBusy() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(store.getApplication(application.id).state, "submitted");
+  assert.equal(fx.loginCount, loginsBefore + 1);
+  assert.equal(fx.submissions.length, submissionsBefore + 1);
+  assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+  await runner.stop();
   db.db.close();
 });
 test("runner retains a paused attempt and resumes it with newly saved answers", async () => {

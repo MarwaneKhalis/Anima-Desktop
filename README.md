@@ -16,25 +16,25 @@ _Aperçu avec des données de test._
 2. Ouvrez le fichier et suivez l’installation.
 3. Lancez **Anima Connect** depuis le menu Démarrer ou le raccourci du bureau.
 
-L’installateur est prévu pour Windows 10/11 64 bits et une installation par utilisateur. Node.js, Chrome et un serveur web ne sont pas nécessaires. Les données restent sur cet ordinateur. Une connexion Internet est nécessaire pour consulter des offres et ouvrir les sites carrière.
+L’installateur est prévu pour Windows 10/11 64 bits et une installation par utilisateur. Node.js, Chrome et un serveur web ne sont pas nécessaires. L’application enregistre ses données dans le profil Windows local ; un export ou une sauvegarde que vous enregistrez ailleurs peut quitter cet ordinateur. Une connexion Internet est nécessaire pour consulter des offres et ouvrir les sites carrière.
 
 > **À propos de Windows SmartScreen :** les versions actuelles ne sont pas signées par un certificat éditeur. Windows peut afficher un avertissement au premier lancement.
 
 ## Ce que l’application fait
 
 - **Centralise le profil et plusieurs CV** pour réutiliser les bonnes informations selon le poste.
-- **Rassemble des offres** ajoutées par URL ou importées depuis des pages carrière prises en charge, avec dédoublonnage.
-- **Prépare et remplit les formulaires** de sites carrière compatibles. Vous pouvez préparer sans envoyer ou lancer l’envoi depuis la fiche de candidature.
+- **Recherche des offres automatiquement** dans le flux public Arbeitnow France, sans compte ni clé API, avec filtres, dédoublonnage et lien vers la source. France Travail reste disponible avec des identifiants API habilités.
+- **Lance une campagne de candidatures** depuis les offres trouvées ou enregistrées. Les formulaires reconnus Greenhouse et Lever peuvent être remplis et envoyés; le CV et le compte carrière sélectionné sont associés à la campagne.
 - **Suit les candidatures** : état, reçu, questions restantes, notes et relances.
 - **Met en pause les parcours** qui demandent une réponse, un CAPTCHA ou une vérification MFA ; vous reprenez ensuite dans la session ouverte.
 - **Suit la prospection** et les échanges LinkedIn. Les invitations et messages LinkedIn restent envoyés manuellement.
 - **Propose un assistant IA optionnel** : configurez un fournisseur compatible OpenAI, testez-le et générez un brouillon de lettre à relire. L’IA ne soumet pas de candidature.
 
-L’automatisation fonctionne sur les formulaires HTML qu’elle reconnaît. Les comptes à créer, SSO, questions inconnues, CAPTCHA/MFA et parcours propriétaires peuvent demander une action manuelle. La compatibilité n’est pas garantie sur tous les sites.
+La recherche Arbeitnow parcourt au plus cinq pages récentes par recherche et ne représente pas tout le marché français. L’envoi automatique fonctionne seulement sur les formulaires Greenhouse et Lever reconnus. Les comptes à créer, SSO, questions inconnues, CAPTCHA/MFA et autres parcours propriétaires demandent une action manuelle; une campagne se met en pause quand le navigateur rencontre un blocage. Vérifiez les résultats et réponses avant de lancer une campagne.
 
 ## Données et confidentialité
 
-La base de candidatures, le profil, les CV et le navigateur carrière sont conservés dans le dossier utilisateur Windows. Les mots de passe des comptes carrière et la clé API IA sont chiffrés dans le coffre de l’application. Le profil et les fichiers CV sont stockés localement, mais ne sont pas eux-mêmes chiffrés par l’application.
+La base de candidatures, le profil, les CV et le navigateur carrière sont conservés dans le dossier utilisateur Windows. Les mots de passe des comptes carrière et la clé API IA sont chiffrés dans le coffre de l’application. Le profil, les réponses, les notes et les CV ne sont pas chiffrés par l’application. La sauvegarde SQLite contient ces données en clair : gardez-la dans un dossier de confiance et chiffrez-la vous-même avant de la placer dans un espace partagé ou synchronisé. Le chiffrement du disque Windows et le verrouillage de session ajoutent une protection contre la perte de l’appareil.
 
 Le fournisseur IA ne reçoit des informations professionnelles qu’après une action explicite de génération. Les champs structurés de coordonnées et les fichiers CV ne sont pas transmis ; les textes libres du profil ou de l’offre peuvent toutefois contenir des données personnelles. Consultez [les détails sur les données envoyées](docs/AI_PROVIDER.md).
 
