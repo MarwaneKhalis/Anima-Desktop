@@ -32,6 +32,8 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($process.ExitCode)." }
           $installedExe = Join-Path $installDir "Anima Connect.exe"
           if (!(Test-Path -LiteralPath $installedExe)) { throw "Installed executable was not found: $installedExe" }
+          $installAcl = (icacls $installDir | Out-String)
+          if ($installAcl -notmatch '(?i)S-1-15-2-1|ALL APPLICATION PACKAGES') { throw "Installed app directory is missing the Chromium sandbox read permission: $installAcl" }
           $env:ANIMA_DESKTOP_EXECUTABLE = $installedExe
           pnpm desktop:smoke
           if ($LASTEXITCODE -ne 0) { throw "Installed app smoke test failed with exit code $LASTEXITCODE." }
@@ -46,3 +48,4 @@ jobs:
             release/*.exe
           retention-days: 30
           if-no-files-found: ignore
+
