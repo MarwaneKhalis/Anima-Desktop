@@ -302,6 +302,7 @@ test("Arbeitnow France can discover and campaign for an offer without France Tra
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
   await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
   const completed = await waitFor(async () => {
@@ -349,6 +350,7 @@ test("automatic campaign submits the highest-ranked offer first when capped", as
   });
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
   await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
   await page.getByLabel("Plafond d’envoi par campagne").selectOption("1");
@@ -376,6 +378,7 @@ test("Arbeitnow search can save offers before a CV is added", async (t) => {
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
   await page.getByRole("button", { name: "Rechercher les offres" }).click();
   await page.getByText(/offre\(s\) récupérée/).waitFor();
@@ -385,6 +388,36 @@ test("Arbeitnow search can save offers before a CV is added", async (t) => {
   assert.deepEqual(snapshot.applications, []);
   const applyButton = page.getByRole("button", { name: "Trouver et candidater automatiquement" });
   assert.equal(await applyButton.isDisabled(), true);
+});
+
+test("default public search aggregates available sources in one desktop workflow", async (t) => {
+  const app = await startCareerTestServer({ mockAllPublicSearch: true });
+  t.after(() => app.close());
+  const searchProfile = profile();
+  searchProfile.preferences.titles = ["Ingénieure logiciel"];
+  assert.equal((await app.json("/api/career/profile", searchProfile, "PUT")).response.status, 200);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  const source = page.getByLabel("Source d’offres");
+  assert.equal(await source.inputValue(), "all");
+  assert.equal(await page.getByLabel("Métier(s) ou mot(s)-clé(s)").inputValue(), "Ingénieure logiciel");
+  await page.getByRole("button", { name: "Rechercher les offres" }).click();
+  await page.getByRole("heading", { name: "Offre de test Arbeitnow France" }).waitFor();
+  await page.getByRole("heading", { name: "Offre de test Jobicy France" }).waitFor();
+  await page.getByRole("heading", { name: "Offre de test Remote OK" }).waitFor();
+  const { value: snapshot } = await app.json("/api/career/bootstrap");
+  assert.equal(snapshot.jobs.length, 3);
+  assert.deepEqual(new Set(snapshot.jobs.map((job: { sourceUrl: string }) => job.sourceUrl)), new Set([
+    "https://www.arbeitnow.fr/",
+    "https://jobicy.com/jobs/test",
+    "https://remoteok.com/remote-jobs/test",
+  ]));
+  assert.deepEqual(pageErrors, []);
 });
 
 test("Jobicy search starts a desktop application campaign without a pasted job URL", async (t) => {
@@ -405,6 +438,7 @@ test("Jobicy search starts a desktop application campaign without a pasted job U
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
   const offerLimit = page.getByLabel("Nombre d’offres à examiner");
+  await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await offerLimit.selectOption("450");
   await page.getByLabel("Source d’offres").selectOption("jobicy");
   assert.equal(await offerLimit.inputValue(), "200", "Jobicy's UI limit matches its 200-offer page cap");
@@ -446,6 +480,7 @@ test("Remote OK search keeps source attribution and starts a desktop application
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
   const offerLimit = page.getByLabel("Nombre d’offres à examiner");
+  await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await offerLimit.selectOption("450");
   await page.getByLabel("Source d’offres").selectOption("remoteok");
   assert.equal(await offerLimit.inputValue(), "200", "Remote OK's UI limit matches its feed cap");

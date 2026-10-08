@@ -31,6 +31,7 @@ import { FranceTravailDiscovery } from "./france-travail-discovery.ts";
 import { ArbeitnowFranceDiscovery } from "./arbeitnow-france-discovery.ts";
 import { JobicyRemoteDiscovery } from "./jobicy-remote-discovery.ts";
 import { RemoteOkDiscovery } from "./remoteok-discovery.ts";
+import { PublicOfferAggregator } from "./public-offer-aggregator.ts";
 import { csvParse, csvStringify, makeSearchUrl } from "./domain.ts";
 import type { Prospect, SavedSearch, Template } from "../src/shared/types.ts";
 import type { OfferSearchService } from "../src/shared/career.ts";
@@ -96,6 +97,14 @@ const testRemoteOkUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER
 const testRemoteOkOfferSearch: OfferSearchService | undefined = testRemoteOkUrl
   ? { search: async (criteria) => ({ offers: [{ url: testRemoteOkUrl, title: "Offre de test Remote OK", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://remoteok.com/remote-jobs/test" }], note: `Résultat de test Remote OK pour ${criteria.keywords}.` }) }
   : undefined;
+const publicOfferSearch = testPublicOfferSearch || new ArbeitnowFranceDiscovery();
+const jobicyOfferSearch = testJobicyOfferSearch || new JobicyRemoteDiscovery();
+const remoteOkOfferSearch = testRemoteOkOfferSearch || new RemoteOkDiscovery();
+const allPublicOfferSearch = new PublicOfferAggregator([
+  { name: "Arbeitnow", service: publicOfferSearch },
+  { name: "Jobicy", service: jobicyOfferSearch },
+  { name: "Remote OK", service: remoteOkOfferSearch },
+], allowedTestOrigins);
 let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);
 let runner = new CareerRunner(careerStore, vault, careerBrowser);
@@ -258,9 +267,10 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         offerSearch: demo
           ? new FranceTravailDiscovery(demoVault)
           : testOfferSearch || new FranceTravailDiscovery(vault),
-        publicOfferSearch: testPublicOfferSearch || new ArbeitnowFranceDiscovery(),
-        jobicyOfferSearch: testJobicyOfferSearch || (demo ? undefined : new JobicyRemoteDiscovery()),
-        remoteOkOfferSearch: testRemoteOkOfferSearch || (demo ? undefined : new RemoteOkDiscovery()),
+        publicOfferSearch: demo && !testPublicOfferSearch ? undefined : publicOfferSearch,
+        jobicyOfferSearch: demo && !testJobicyOfferSearch ? undefined : jobicyOfferSearch,
+        remoteOkOfferSearch: demo && !testRemoteOkOfferSearch ? undefined : remoteOkOfferSearch,
+        allPublicOfferSearch: demo ? undefined : allPublicOfferSearch,
         demo,
         allowedTestOrigins,
       })
