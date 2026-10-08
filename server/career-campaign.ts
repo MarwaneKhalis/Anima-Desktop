@@ -180,7 +180,24 @@ export class CareerCampaignStore {
     return this.tx(() => {
       const campaign = this.get(id), counts = this.counts(id);
       if (campaign.state === "limit_reached" && counts.pending && counts.submitted + counts.running < campaign.maxSubmissions) {
-#Ž6¶‰žËkºwµçncertain')").get(id) as Row).n);
+        this.db.prepare("UPDATE career_campaigns SET state='paused',start_requested=0,updated_at=? WHERE id=?")
+          .run(stamp(), id);
+      }
+      return this.get(id);
+    });
+  }
+  setState(id: string, state: CampaignState): Campaign { this.db.prepare("UPDATE career_campaigns SET state=?,updated_at=? WHERE id=?").run(state, stamp(), id); return this.get(id); }
+  activateRequested(id: string): Campaign {
+    return this.tx(() => { const c = this.get(id); if (!c.startRequested || !["queued", "paused", "running"].includes(c.state)) throw new Error("Cette campagne ne peut pas dÃ©marrer."); return this.setState(id, "running"); });
+  }
+  /** Atomically reserves one submission slot as well as one worker slot. Uncertain items
+   * permanently consume a slot until a human resolves them outside the campaign engine. */
+  claimNext(id: string, concurrency: number): CampaignItem | null {
+    return this.tx(() => {
+      const c = this.get(id);
+      if (c.state !== "running" || !c.startRequested) return null;
+      const active = Number((this.db.prepare("SELECT COUNT(*) n FROM career_campaign_items WHERE campaign_id=? AND state='running'").get(id) as Row).n);
+      const reserved = Number((this.db.prepare("SELECT COUNT(*) n FROM career_campaign_items WHERE campaign_id=? AND state IN ('running','submitted','uncertain')").get(id) as Row).n);
       if (active >= concurrency || reserved >= c.maxSubmissions) return null;
       const row = this.db.prepare("SELECT * FROM career_campaign_items WHERE campaign_id=? AND state='pending' ORDER BY created_at,id LIMIT 1").get(id) as Row | undefined;
       if (!row) return null;

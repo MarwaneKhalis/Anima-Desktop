@@ -482,7 +482,1402 @@ export default function App({ initialTab = "accueil", demoMode, embedded = false
             <span className="online-dot" /> <strong>Local & privé</strong>
             <p>Vos données restent sur cet ordinateur.</p>
           </div>
-          <button className="demo-switch" onClicu��w����k�w��le message est parti. Choisissez ensuite «
+          <button className="demo-switch" onClick={() => switchDemo(!demo)}>
+            <span>{demo ? "● Mode démo actif" : "○ Activer le mode démo"}</span>
+            <span>→</span>
+          </button>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <div className="breadcrumb">
+            Espace personnel <span>/</span> {title}
+          </div>
+          <div className="top-actions">
+            <span className="today">
+              {new Date().toLocaleDateString("fr-FR", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+              })}
+            </span>
+            <span className="avatar">AC</span>
+          </div>
+        </header>
+        <div className="content">
+          {demo && (
+            <div className="demo-banner">
+              <strong>Mode démo</strong> — Les noms et profils sont fictifs. Les
+              actions LinkedIn sont désactivées.{" "}
+              <button onClick={() => switchDemo(false)}>
+                Revenir à ma base
+              </button>
+            </div>
+          )}
+          {error && (
+            <div role="alert" className="alert error">
+              <span>!</span>
+              <p>{error}</p>
+              <button onClick={() => setError("")}>Fermer</button>
+            </div>
+          )}
+          {notice && (
+            <div role="status" className="alert success">
+              <span>✓</span>
+              <p>{notice}</p>
+              <button onClick={() => setNotice("")}>Fermer</button>
+            </div>
+          )}
+          {tab === "accueil" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">TABLEAU DE BORD</div>
+                  <h1>
+                    Bonjour, bienvenue sur Anima Connect{" "}
+                    <span className="wave">✳</span>
+                  </h1>
+                  <p>
+                    Une vue claire de vos recherches, contacts et prochaines
+                    étapes.
+                  </p>
+                </div>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setTab("recherches");
+                    setSelectedSearch(blankSearch());
+                    setFilterDrafts(filterText(EMPTY_FILTERS));
+                  }}
+                >
+                  ＋ Nouvelle recherche
+                </button>
+              </div>
+              <div className="metrics">
+                {[
+                  ["Profils trouvés", counts.found, "◉"],
+                  ["Qualifiés", counts.qualified, "◇"],
+                  ["Invitations envoyées", counts.invited, "↗"],
+                  ["Acceptées", counts.accepted, "✓"],
+                  ["Réponses", counts.replies, "↩"],
+                  ["Rendez-vous", counts.meetings, "▣"],
+                ].map(([label, value, icon]) => (
+                  <div className="metric" key={label}>
+                    <div className="metric-icon">{icon}</div>
+                    <strong>{value}</strong>
+                    <span>{label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="dashboard-grid">
+                <section className="panel">
+                  <div className="section-head">
+                    <div>
+                      <h2>Prochaines actions</h2>
+                      <p>Les contacts à suivre en priorité</p>
+                    </div>
+                    <button
+                      className="text-link"
+                      onClick={() => setTab("prospects")}
+                    >
+                      Voir les prospects →
+                    </button>
+                  </div>
+                  {reminders.length ? (
+                    reminders.map((p) => (
+                      <button
+                        className="reminder"
+                        key={p.id}
+                        onClick={() => openProspect(p.id)}
+                      >
+                        <span className="person-avatar">
+                          {(p.firstName[0] || "?") + (p.lastName[0] || "")}
+                        </span>
+                        <span>
+                          <strong>{fullName(p)}</strong>
+                          <small>{p.nextAction}</small>
+                        </span>
+                        <em>{date(p.nextActionAt)}</em>
+                      </button>
+                    ))
+                  ) : (
+                    <Empty
+                      icon="◷"
+                      title="Aucun rappel pour le moment"
+                      body="Ajoutez une prochaine action sur une fiche prospect."
+                    />
+                  )}
+                </section>
+                <section className="panel">
+                  <div className="section-head">
+                    <div>
+                      <h2>Activité récente</h2>
+                      <p>Vos dernières avancées</p>
+                    </div>
+                    <button
+                      className="text-link"
+                      onClick={() => setTab("activite")}
+                    >
+                      Tout voir →
+                    </button>
+                  </div>
+                  {data.activity.slice(0, 5).length ? (
+                    data.activity.slice(0, 5).map((e) => (
+                      <button
+                        className="activity-item"
+                        key={e.id}
+                        onClick={() => openProspect(e.prospectId)}
+                      >
+                        <span className="activity-dot" />
+                        <span>
+                          <strong>{e.prospectName}</strong>
+                          <small>{e.detail}</small>
+                        </span>
+                        <time>{date(e.happenedAt)}</time>
+                      </button>
+                    ))
+                  ) : (
+                    <Empty
+                      icon="◷"
+                      title="L’activité apparaîtra ici"
+                      body="Créez une recherche ou ajoutez un prospect pour commencer."
+                    />
+                  )}
+                </section>
+              </div>
+              <section className="panel quick-panel">
+                <div>
+                  <div className="eyebrow">DÉMARRAGE RAPIDE</div>
+                  <h2>
+                    De la recherche à la conversation, sans rien perdre de vue.
+                  </h2>
+                  <p>
+                    Enregistrez vos critères, repérez les profils, préparez vos
+                    messages et suivez chaque échange.
+                  </p>
+                </div>
+                <div className="quick-steps">
+                  <button onClick={() => setTab("recherches")}>
+                    <span>01</span> Créer une recherche <b>→</b>
+                  </button>
+                  <button onClick={() => setTab("prospects")}>
+                    <span>02</span> Suivre les prospects <b>→</b>
+                  </button>
+                  <button onClick={() => setTab("file")}>
+                    <span>03</span> Préparer un envoi <b>→</b>
+                  </button>
+                </div>
+              </section>
+            </>
+          )}
+          {tab === "recherches" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">DÉCOUVERTE</div>
+                  <h1>Recherches enregistrées</h1>
+                  <p>
+                    Gardez vos critères et l’URL LinkedIn que vous avez ajustée.
+                  </p>
+                </div>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setSelectedSearch(blankSearch());
+                    setFilterDrafts(filterText(EMPTY_FILTERS));
+                    setCandidateList(null);
+                  }}
+                >
+                  ＋ Nouvelle recherche
+                </button>
+              </div>
+              <div className="search-layout">
+                <section className="panel search-list">
+                  <div className="section-head">
+                    <h2>
+                      Vos recherches{" "}
+                      <span className="count-pill">{data.searches.length}</span>
+                    </h2>
+                  </div>
+                  {data.searches.length ? (
+                    data.searches.map((s) => (
+                      <button
+                        key={s.id}
+                        className={`search-list-item ${selectedSearch.id === s.id ? "selected" : ""}`}
+                        onClick={() => {
+                          setSelectedSearch(structuredClone(s));
+                          setFilterDrafts(filterText(s.filters));
+                          setCandidateList(null);
+                        }}
+                      >
+                        <span className="search-icon">⌕</span>
+                        <span>
+                          <strong>{s.name}</strong>
+                          <small>
+                            {[...s.filters.titles, ...s.filters.locations]
+                              .slice(0, 3)
+                              .join(" · ") || "Critères libres"}
+                          </small>
+                        </span>
+                        <span>→</span>
+                      </button>
+                    ))
+                  ) : (
+                    <Empty
+                      icon="⌕"
+                      title="Aucune recherche"
+                      body="Créez votre première recherche pour commencer."
+                    />
+                  )}
+                </section>
+                <section className="panel editor">
+                  <div className="section-head">
+                    <div>
+                      <h2>
+                        {selectedSearch.id
+                          ? "Modifier la recherche"
+                          : "Nouvelle recherche"}
+                      </h2>
+                      <p>
+                        Ces critères servent de mémo ; affinez les filtres sur
+                        LinkedIn.
+                      </p>
+                    </div>
+                    {selectedSearch.id && (
+                      <button
+                        className="secondary small"
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            const copy = await post<SavedSearch>(
+                              `/searches/${selectedSearch.id}/duplicate`,
+                              {},
+                            );
+                            setSelectedSearch(copy);
+                            setFilterDrafts(filterText(copy.filters));
+                          }, "Recherche dupliquée.")
+                        }
+                      >
+                        Dupliquer
+                      </button>
+                    )}
+                  </div>
+                  <div className="form-grid">
+                    <label className="span-2">
+                      Nom de la recherche
+                      <input
+                        value={selectedSearch.name}
+                        onChange={(e) =>
+                          setSelectedSearch({
+                            ...selectedSearch,
+                            name: e.target.value,
+                          })
+                        }
+                        placeholder="Ex. CTO — France"
+                      />
+                    </label>
+                    {(
+                      [
+                        ["titles", "Intitulés de poste"],
+                        ["keywords", "Mots-clés"],
+                        ["locations", "Pays, régions ou villes"],
+                        ["schools", "Écoles / anciens élèves"],
+                        ["companies", "Entreprises actuelles"],
+                        ["industries", "Secteurs"],
+                      ] as [keyof typeof filterDrafts, string][]
+                    ).map(([key, label]) => (
+                      <label key={key}>
+                        {label}
+                        <input
+                          value={filterDrafts[key]}
+                          onChange={(e) =>
+                            setFilterDrafts({
+                              ...filterDrafts,
+                              [key]: e.target.value,
+                            })
+                          }
+                          placeholder="Séparez les valeurs par une virgule"
+                        />
+                      </label>
+                    ))}
+                    <label>
+                      Niveau d’expérience
+                      <input
+                        value={selectedSearch.filters.experience}
+                        onChange={(e) =>
+                          setSelectedSearch({
+                            ...selectedSearch,
+                            filters: {
+                              ...selectedSearch.filters,
+                              experience: e.target.value,
+                            },
+                          })
+                        }
+                        placeholder="Ex. senior"
+                      />
+                    </label>
+                    <label>
+                      URL de recherche LinkedIn
+                      <input
+                        value={selectedSearch.linkedinUrl}
+                        onChange={(e) =>
+                          setSelectedSearch({
+                            ...selectedSearch,
+                            linkedinUrl: e.target.value,
+                          })
+                        }
+                        placeholder="https://www.linkedin.com/search/results/people/…"
+                      />
+                    </label>
+                    <label className="span-2">
+                      Notes
+                      <textarea
+                        rows={3}
+                        value={selectedSearch.notes}
+                        onChange={(e) =>
+                          setSelectedSearch({
+                            ...selectedSearch,
+                            notes: e.target.value,
+                          })
+                        }
+                        placeholder="Contexte, angle d’approche…"
+                      />
+                    </label>
+                  </div>
+                  <div className="button-row">
+                    <button
+                      className="primary"
+                      disabled={busy || !selectedSearch.name.trim()}
+                      onClick={saveSearch}
+                    >
+                      Enregistrer la recherche
+                    </button>
+                    {selectedSearch.id && (
+                      <>
+                        <button
+                          className="secondary"
+                          disabled={busy || demo}
+                          onClick={() =>
+                            run(async () => {
+                              await post("/browser/search", {
+                                searchId: selectedSearch.id,
+                              });
+                            }, "Navigateur ouvert. Ajustez les filtres dans LinkedIn, puis revenez importer les profils visibles.")
+                          }
+                        >
+                          Ouvrir dans LinkedIn ↗
+                        </button>
+                        <button
+                          className="secondary"
+                          disabled={busy || demo}
+                          onClick={() =>
+                            run(async () => {
+                              const s = await post<SavedSearch>(
+                                "/browser/associate",
+                                { searchId: selectedSearch.id },
+                              );
+                              setSelectedSearch(s);
+                            }, "URL courante associée à cette recherche.")
+                          }
+                        >
+                          Associer l’URL courante
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <div className="hint-box">
+                    Les filtres LinkedIn et la page peuvent changer.
+                    L’application ouvre une recherche par mots-clés ; terminez
+                    les filtres sur LinkedIn, puis enregistrez l’URL courante.
+                    Aucun profil n’est importé automatiquement.
+                  </div>
+                  {selectedSearch.id && (
+                    <div className="import-zone">
+                      <div>
+                        <h3>Importer les profils visibles</h3>
+                        <p>
+                          La page « Personnes » ou le profil doit être ouvert
+                          dans le navigateur local. Relisez les champs avant
+                          l’import.
+                        </p>
+                      </div>
+                      <button
+                        className="primary subtle"
+                        disabled={busy || demo}
+                        onClick={() =>
+                          run(async () => {
+                            const result = await api<{
+                              candidates: Candidate[];
+                              note: string;
+                            }>("/browser/visible");
+                            setCandidateList(
+                              result.candidates.map((c) => ({
+                                ...c,
+                                selected: true,
+                              })),
+                            );
+                            setCandidateNote(result.note);
+                          }, "Profils visibles chargés pour vérification.")
+                        }
+                      >
+                        Lire la page courante
+                      </button>
+                    </div>
+                  )}
+                  {candidateList && (
+                    <div className="candidate-section">
+                      <h3>{candidateList.length} profil(s) proposé(s)</h3>
+                      <p>{candidateNote}</p>
+                      {candidateList.length ? (
+                        candidateList.map((c, i) => (
+                          <div className="candidate" key={i}>
+                            <label className="candidate-check">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(c.selected)}
+                                onChange={(e) =>
+                                  setCandidateList(
+                                    candidateList.map((item, n) =>
+                                      n === i
+                                        ? {
+                                            ...item,
+                                            selected: e.target.checked,
+                                          }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                              />{" "}
+                              Importer
+                            </label>
+                            <div className="form-grid">
+                              <label>
+                                Prénom
+                                <input
+                                  value={c.firstName}
+                                  onChange={(e) =>
+                                    setCandidateList(
+                                      candidateList.map((item, n) =>
+                                        n === i
+                                          ? {
+                                              ...item,
+                                              firstName: e.target.value,
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </label>
+                              <label>
+                                Nom
+                                <input
+                                  value={c.lastName}
+                                  onChange={(e) =>
+                                    setCandidateList(
+                                      candidateList.map((item, n) =>
+                                        n === i
+                                          ? {
+                                              ...item,
+                                              lastName: e.target.value,
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </label>
+                              <label className="span-2">
+                                URL du profil
+                                <input
+                                  value={c.linkedinUrl}
+                                  onChange={(e) =>
+                                    setCandidateList(
+                                      candidateList.map((item, n) =>
+                                        n === i
+                                          ? {
+                                              ...item,
+                                              linkedinUrl: e.target.value,
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </label>
+                              {(
+                                [
+                                  "title",
+                                  "company",
+                                  "location",
+                                  "school",
+                                ] as const
+                              ).map((key) => (
+                                <label key={key}>
+                                  {
+                                    {
+                                      title: "Poste",
+                                      company: "Entreprise",
+                                      location: "Lieu",
+                                      school: "École",
+                                    }[key]
+                                  }
+                                  <input
+                                    value={c[key]}
+                                    onChange={(e) =>
+                                      setCandidateList(
+                                        candidateList.map((item, n) =>
+                                          n === i
+                                            ? { ...item, [key]: e.target.value }
+                                            : item,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                            {c.visibleText && (
+                              <small className="visible-text">
+                                Texte visible : {c.visibleText}
+                              </small>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <Empty
+                          icon="⌕"
+                          title="Aucun profil visible détecté"
+                          body="Faites défiler la page LinkedIn, ouvrez un profil ou ajoutez-le manuellement ci-dessous."
+                        />
+                      )}
+                      <div className="button-row">
+                        <button
+                          className="secondary"
+                          onClick={() =>
+                            setCandidateList([
+                              ...candidateList,
+                              {
+                                linkedinUrl: "",
+                                firstName: "",
+                                lastName: "",
+                                title: "",
+                                company: "",
+                                location: "",
+                                school: "",
+                                selected: true,
+                              },
+                            ])
+                          }
+                        >
+                          ＋ Ajouter manuellement
+                        </button>
+                        <button
+                          className="primary"
+                          disabled={busy}
+                          onClick={importCandidates}
+                        >
+                          Importer les profils sélectionnés
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {selectedSearch.id && !candidateList && (
+                    <button
+                      className="text-link manual-link"
+                      onClick={() =>
+                        setCandidateList([
+                          {
+                            linkedinUrl: "",
+                            firstName: "",
+                            lastName: "",
+                            title: "",
+                            company: "",
+                            location: "",
+                            school: "",
+                            selected: true,
+                          },
+                        ])
+                      }
+                    >
+                      ＋ Ajouter un prospect manuellement à cette recherche
+                    </button>
+                  )}
+                </section>
+              </div>
+            </>
+          )}
+          {tab === "prospects" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">CARNET DE CONTACTS</div>
+                  <h1>Vos prospects</h1>
+                  <p>
+                    Retrouvez chaque personne et l’historique de vos échanges.
+                  </p>
+                </div>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setTab("recherches");
+                    setSelectedSearch(blankSearch());
+                    setFilterDrafts(filterText(EMPTY_FILTERS));
+                  }}
+                >
+                  ＋ Ajouter via une recherche
+                </button>
+              </div>
+              <section className="panel list-panel">
+                <div className="filters">
+                  <input
+                    className="search-input"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="⌕  Rechercher un nom, poste, entreprise…"
+                  />
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="">Tous les statuts</option>
+                    {STATUSES.map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                  >
+                    <option value="">Toutes les recherches</option>
+                    {data.searches.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={tagFilter}
+                    onChange={(e) => setTagFilter(e.target.value)}
+                    placeholder="Tag"
+                  />
+                  <input
+                    type="date"
+                    value={dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value)}
+                    title="Ajouté depuis"
+                  />
+                  <select
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value)}
+                  >
+                    <option value="recent">Plus récents</option>
+                    <option value="name">Nom A–Z</option>
+                    <option value="company">Entreprise A–Z</option>
+                  </select>
+                </div>
+                <div className="list-summary">
+                  {filtered.length} prospect(s) affiché(s)
+                </div>
+                {filtered.length ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Prospect</th>
+                          <th>Poste & entreprise</th>
+                          <th>Lieu</th>
+                          <th>Statut</th>
+                          <th>Ajouté le</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((p) => (
+                          <tr key={p.id} onClick={() => openProspect(p.id)}>
+                            <td>
+                              <div className="table-person">
+                                <span className="person-avatar">
+                                  {(p.firstName[0] || "?") +
+                                    (p.lastName[0] || "")}
+                                </span>
+                                <span>
+                                  <strong>{fullName(p)}</strong>
+                                  <small>
+                                    {p.linkedinUrl
+                                      ? "Profil LinkedIn lié"
+                                      : "Sans URL LinkedIn"}
+                                  </small>
+                                </span>
+                              </div>
+                            </td>
+                            <td>
+                              <strong>{p.title || "—"}</strong>
+                              <small className="cell-sub">
+                                {p.company || "Entreprise non renseignée"}
+                              </small>
+                            </td>
+                            <td>{p.location || "—"}</td>
+                            <td>
+                              <span
+                                className={`status ${statusClass(p.status)}`}
+                              >
+                                {p.status}
+                              </span>
+                            </td>
+                            <td>{date(p.createdAt)}</td>
+                            <td className="row-arrow">→</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <Empty
+                    icon="♧"
+                    title="Aucun prospect trouvé"
+                    body="Essayez d’ajuster vos filtres ou importez des profils depuis une recherche."
+                  />
+                )}
+              </section>
+            </>
+          )}
+          {tab === "pipeline" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">SUIVI VISUEL</div>
+                  <h1>Pipeline</h1>
+                  <p>
+                    Chaque colonne correspond à un statut. Ouvrez une carte pour
+                    la faire avancer.
+                  </p>
+                </div>
+                <span className="count-pill large">
+                  {data.prospects.length} contacts
+                </span>
+              </div>
+              <div className="kanban">
+                {STATUSES.map((s) => {
+                  const people = data.prospects.filter((p) => p.status === s);
+                  return (
+                    <section className="kanban-column" key={s}>
+                      <div className="kanban-head">
+                        <span className={`status-dot ${statusClass(s)}`} />
+                        <strong>{s}</strong>
+                        <span>{people.length}</span>
+                      </div>
+                      {people.length ? (
+                        people.map((p) => (
+                          <button
+                            className="kanban-card"
+                            key={p.id}
+                            onClick={() => openProspect(p.id)}
+                          >
+                            <span className="person-avatar">
+                              {(p.firstName[0] || "?") + (p.lastName[0] || "")}
+                            </span>
+                            <strong>{fullName(p)}</strong>
+                            <small>{p.title || "Poste non renseigné"}</small>
+                            <small>{p.company || "—"}</small>
+                            {p.nextAction && <em>◷ {p.nextAction}</em>}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="kanban-empty">Aucun contact</div>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {tab === "file" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">ENVOI CONTRÔLÉ</div>
+                  <h1>File d’actions</h1>
+                  <p>
+                    Relisez chaque cible et le texte, puis effectuez l’action
+                    dans le navigateur visible.
+                  </p>
+                </div>
+                <div className="button-row">
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      run(
+                        async () => {
+                          await post("/queue/pause", {
+                            paused: !data.settings.queuePaused,
+                          });
+                        },
+                        data.settings.queuePaused
+                          ? "File reprise."
+                          : "File mise en pause.",
+                      )
+                    }
+                  >
+                    {data.settings.queuePaused
+                      ? "▷ Reprendre"
+                      : "Ⅱ Mettre en pause"}
+                  </button>
+                  <button
+                    className="secondary danger-text"
+                    disabled={
+                      busy || !data.queue.some((q) => q.state === "pending")
+                    }
+                    onClick={() =>
+                      run(async () => {
+                        await post("/queue/cancel-pending", {});
+                      }, "Actions en attente annulées.")
+                    }
+                  >
+                    Annuler les attentes
+                  </button>
+                </div>
+              </div>
+              <div className="queue-note">
+                <strong>
+                  {data.settings.queuePaused
+                    ? "File en pause"
+                    : "Aucun envoi automatique"}
+                </strong>
+                <span>
+                  Limite : {data.settings.invitationsToday}/
+                  {data.settings.invitationLimit} invitations aujourd’hui.
+                  Chaque action demande une vérification et une confirmation
+                  séparées.
+                </span>
+              </div>
+              <div className="queue-list">
+                {data.queue.length ? (
+                  data.queue.map((q) => (
+                    <section className="panel queue-card" key={q.id}>
+                      <div className="queue-card-head">
+                        <div className="table-person">
+                          <span className="person-avatar">
+                            {q.prospectName
+                              .split(" ")
+                              .map((x) => x[0])
+                              .slice(0, 2)
+                              .join("")}
+                          </span>
+                          <span>
+                            <strong>{q.prospectName}</strong>
+                            <small>
+                              {q.kind === "invitation"
+                                ? "Invitation"
+                                : "Message de suivi"}{" "}
+                              · {dateTime(q.createdAt)}
+                            </small>
+                          </span>
+                        </div>
+                        <span
+                          className={`status ${q.state === "uncertain" ? "red" : q.state === "sent" ? "green" : "amber"}`}
+                        >
+                          {
+                            {
+                              pending: "En attente",
+                              open: "Profil ouvert",
+                              sent: "Envoi confirmé",
+                              uncertain: "À vérifier",
+                              cancelled: "Annulée",
+                            }[q.state]
+                          }
+                        </span>
+                      </div>
+                      {demo ? (
+                        <span className="profile-link">{q.linkedinUrl}</span>
+                      ) : (
+                        <a
+                          className="profile-link"
+                          href={q.linkedinUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {q.linkedinUrl} ↗
+                        </a>
+                      )}
+                      <div className="message-preview">{q.content}</div>
+                      {q.error && <p className="queue-error">{q.error}</p>}
+                      <div className="button-row">
+                        {["pending", "open"].includes(q.state) && (
+                          <>
+                            <button
+                              className="primary"
+                              disabled={
+                                busy || demo || data.settings.queuePaused
+                              }
+                              onClick={() =>
+                                run(async () => {
+                                  await post(`/queue/${q.id}/open`, {});
+                                }, "Profil ouvert. Effectuez vous-même l’action sur LinkedIn, puis confirmez ici uniquement après l’avoir vérifiée.")
+                              }
+                            >
+                              Ouvrir le profil ↗
+                            </button>
+                            {q.state === "open" && (
+                              <button
+                                className="secondary"
+                                onClick={() => {
+                                  setConfirmItem(q);
+                                  setConfirmChecked(false);
+                                }}
+                              >
+                                J’ai effectué l’envoi
+                              </button>
+                            )}
+                            <button
+                              className="secondary danger-text"
+                              disabled={busy}
+                              onClick={() =>
+                                run(async () => {
+                                  await post(`/queue/${q.id}/uncertain`, {
+                                    reason:
+                                      "Résultat signalé comme incertain par l’utilisateur",
+                                  });
+                                }, "File arrêtée. Vérifiez l’état dans LinkedIn avant toute reprise.")
+                              }
+                            >
+                              Envoi incertain
+                            </button>
+                            <button
+                              className="text-link"
+                              disabled={busy}
+                              onClick={() => {
+                                if (
+                                  q.state === "open" &&
+                                  !window.confirm(
+                                    "Avez-vous vérifié sur LinkedIn que rien n’a été envoyé ?",
+                                  )
+                                )
+                                  return;
+                                run(async () => {
+                                  await post(`/queue/${q.id}/cancel`, {
+                                    verifiedNotSent: q.state === "open",
+                                  });
+                                }, "Action annulée.");
+                              }}
+                            >
+                              Annuler
+                            </button>
+                          </>
+                        )}
+                        {q.state === "uncertain" && (
+                          <>
+                            <button
+                              className="secondary"
+                              onClick={() => {
+                                setConfirmItem(q);
+                                setConfirmChecked(false);
+                              }}
+                            >
+                              Vérifié : envoyé
+                            </button>
+                            <button
+                              className="secondary"
+                              disabled={busy}
+                              onClick={() =>
+                                run(async () => {
+                                  await post(`/queue/${q.id}/cancel`, {
+                                    verifiedNotSent: true,
+                                  });
+                                }, "Action vérifiée non envoyée et annulée. La file peut reprendre.")
+                              }
+                            >
+                              Vérifié : non envoyé
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </section>
+                  ))
+                ) : (
+                  <div className="panel">
+                    <Empty
+                      icon="▷"
+                      title="La file est vide"
+                      body="Créez un brouillon sur une fiche prospect, relisez-le et ajoutez-le ici."
+                    />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          {tab === "modeles" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">PERSONNALISATION</div>
+                  <h1>Modèles de messages</h1>
+                  <p>
+                    Utilisez des variables pour préparer un brouillon propre à
+                    chaque prospect.
+                  </p>
+                </div>
+                <button
+                  className="primary"
+                  onClick={() =>
+                    setTemplateEdit({
+                      id: "",
+                      name: "",
+                      kind: "invitation",
+                      content: "",
+                      createdAt: "",
+                    })
+                  }
+                >
+                  ＋ Nouveau modèle
+                </button>
+              </div>
+              <div className="template-grid">
+                {data.templates.map((t) => (
+                  <section className="panel template-card" key={t.id}>
+                    <div className="template-top">
+                      <span className="template-icon">✎</span>
+                      <span
+                        className={`status ${t.kind === "invitation" ? "amber" : "blue"}`}
+                      >
+                        {t.kind === "invitation" ? "Invitation" : "Suivi"}
+                      </span>
+                    </div>
+                    <h2>{t.name}</h2>
+                    <p>{t.content}</p>
+                    <button
+                      className="secondary"
+                      onClick={() => setTemplateEdit(structuredClone(t))}
+                    >
+                      Modifier le modèle
+                    </button>
+                  </section>
+                ))}
+              </div>
+              <div className="hint-box variable-hint">
+                Variables disponibles : <code>{"{prenom}"}</code>{" "}
+                <code>{"{nom}"}</code> <code>{"{poste}"}</code>{" "}
+                <code>{"{entreprise}"}</code> <code>{"{ecole}"}</code>{" "}
+                <code>{"{localisation}"}</code>. Vérifiez le brouillon généré si
+                un champ manque.
+              </div>
+              {templateEdit && (
+                <div className="modal-backdrop">
+                  <div className="modal">
+                    <button
+                      className="close"
+                      onClick={() => setTemplateEdit(null)}
+                    >
+                      ×
+                    </button>
+                    <h2>
+                      {templateEdit.id
+                        ? "Modifier le modèle"
+                        : "Nouveau modèle"}
+                    </h2>
+                    <label>
+                      Nom
+                      <input
+                        value={templateEdit.name}
+                        onChange={(e) =>
+                          setTemplateEdit({
+                            ...templateEdit,
+                            name: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Type
+                      <select
+                        value={templateEdit.kind}
+                        onChange={(e) =>
+                          setTemplateEdit({
+                            ...templateEdit,
+                            kind: e.target.value as Template["kind"],
+                          })
+                        }
+                      >
+                        <option value="invitation">Invitation</option>
+                        <option value="suivi">Message de suivi</option>
+                      </select>
+                    </label>
+                    <label>
+                      Texte
+                      <textarea
+                        rows={7}
+                        value={templateEdit.content}
+                        onChange={(e) =>
+                          setTemplateEdit({
+                            ...templateEdit,
+                            content: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <div className="button-row">
+                      <button
+                        className="secondary"
+                        onClick={() => setTemplateEdit(null)}
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        className="primary"
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            if (templateEdit.id)
+                              await put(
+                                `/templates/${templateEdit.id}`,
+                                templateEdit,
+                              );
+                            else await post("/templates", templateEdit);
+                            setTemplateEdit(null);
+                          }, "Modèle enregistré.")
+                        }
+                      >
+                        Enregistrer
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {tab === "activite" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">HISTORIQUE</div>
+                  <h1>Activité</h1>
+                  <p>
+                    Une trace chronologique des ajouts, statuts, notes et envois
+                    confirmés.
+                  </p>
+                </div>
+              </div>
+              <section className="panel activity-panel">
+                {data.activity.length ? (
+                  data.activity.map((e) => (
+                    <button
+                      className="activity-row"
+                      key={e.id}
+                      onClick={() => openProspect(e.prospectId)}
+                    >
+                      <span className="timeline-marker" />
+                      <span>
+                        <strong>{e.prospectName}</strong>
+                        <small>{e.detail}</small>
+                      </span>
+                      <time>{dateTime(e.happenedAt)}</time>
+                    </button>
+                  ))
+                ) : (
+                  <Empty
+                    icon="◷"
+                    title="Aucune activité"
+                    body="Les changements apparaîtront ici automatiquement."
+                  />
+                )}
+              </section>
+            </>
+          )}
+          {tab === "parametres" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">CONFIGURATION LOCALE</div>
+                  <h1>Paramètres</h1>
+                  <p>
+                    Contrôlez la limite d’invitations, les données et votre
+                    navigateur local.
+                  </p>
+                </div>
+              </div>
+              <div className="settings-grid">
+                <section className="panel settings-card">
+                  <h2>Limite quotidienne</h2>
+                  <p>
+                    Une invitation confirmée compte pour la journée de cet
+                    ordinateur.
+                  </p>
+                  <div className="limit-row">
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={limit}
+                      onChange={(e) => setLimit(Number(e.target.value))}
+                    />
+                    <span>invitations par jour</span>
+                    <button
+                      className="primary"
+                      disabled={busy}
+                      onClick={() =>
+                        run(async () => {
+                          await post("/settings", { invitationLimit: limit });
+                        }, "Limite enregistrée.")
+                      }
+                    >
+                      Enregistrer
+                    </button>
+                  </div>
+                  <small>
+                    {data.settings.invitationsToday} invitation(s) confirmée(s)
+                    aujourd’hui.
+                  </small>
+                </section>
+                <section className="panel settings-card">
+                  <h2>Export & sauvegarde</h2>
+                  <p>
+                    Enregistrez vos prospects en CSV ou toutes vos données en
+                    base SQLite.
+                  </p>
+                  <small>
+                    La sauvegarde SQLite inclut les profils, CV, candidatures et
+                    notes sans chiffrement. Gardez-la dans un emplacement de
+                    confiance.
+                  </small>
+                  <div className="button-row">
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        download("/export.csv", "anima-connect-prospects.csv")
+                      }
+                    >
+                      Exporter CSV ↓
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        download("/backup", "anima-connect-sauvegarde.sqlite")
+                      }
+                    >
+                      Sauvegarder la base ↓
+                    </button>
+                  </div>
+                </section>
+                <section className="panel settings-card">
+                  <h2>Importer un CSV</h2>
+                  <p>
+                    Colonnes reconnues : linkedinUrl, firstName, lastName,
+                    title, company, location, school, status, tags, notes,
+                    nextAction.
+                  </p>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      await run(async () => {
+                        const result = await post<{
+                          total: number;
+                          created: number;
+                          possibleDuplicates: number;
+                        }>("/import.csv", { csv: await file.text() });
+                        setNotice(
+                          `${result.total} lignes lues, ${result.created} nouvelles fiches, ${result.possibleDuplicates} doublons possibles.`,
+                        );
+                      });
+                      e.target.value = "";
+                    }}
+                  />
+                </section>
+                <section className="panel settings-card">
+                  <h2>Restaurer une sauvegarde</h2>
+                  <p>
+                    La base actuelle est copiée localement avant restauration.
+                    Utilisez un fichier .sqlite créé par Anima Connect.
+                  </p>
+                  <input
+                    type="file"
+                    accept=".sqlite,application/vnd.sqlite3"
+                    disabled={demo}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (
+                        !window.confirm(
+                          `Restaurer cette sauvegarde ? Une copie de la base actuelle sera gardée ${window.anima ? "dans le dossier de données local" : "dans data/"} avant remplacement.`,
+                        )
+                      )
+                        return;
+                      await run(async () => {
+                        const response = await apiFetch(`/api/restore?demo=0`, {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/octet-stream",
+                          },
+                          body: await file.arrayBuffer(),
+                        });
+                        const payload = await response.json();
+                        if (!response.ok) throw new Error(payload.error);
+                      }, "Sauvegarde restaurée.");
+                      e.target.value = "";
+                    }}
+                  />
+                </section>
+                <section className="panel settings-card span-2">
+                  <h2>Navigateur local</h2>
+                  <p>
+                    {window.anima ? (
+                      "Chromium est inclus avec l’application. "
+                    ) : (
+                      <>
+                        Au premier usage, installez Chromium avec{" "}
+                        <code>npx playwright install chromium</code>.{" "}
+                      </>
+                    )}
+                    Ouvrez une recherche depuis « Recherches ». Connectez-vous
+                    vous-même à LinkedIn dans cette fenêtre ; Anima Connect ne
+                    demande ni ne conserve votre mot de passe. Le profil de
+                    navigation reste sur cet ordinateur.
+                  </p>
+                </section>
+              </div>
+            </>
+          )}
+          {tab === "erreurs" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">ASSISTANCE</div>
+                  <h1>Aide & erreurs</h1>
+                  <p>
+                    Quelques repères pour reprendre une action en toute
+                    confiance.
+                  </p>
+                </div>
+              </div>
+              <div className="help-grid">
+                <section className="panel">
+                  <h2>Je ne vois aucun profil à importer</h2>
+                  <p>
+                    Vérifiez que le navigateur local affiche une page de
+                    résultats « Personnes » ou un profil ouvert. Faites défiler
+                    la page pour afficher les cartes voulues, puis cliquez de
+                    nouveau sur « Lire la page courante ». Vous pouvez toujours
+                    ajouter un prospect manuellement.
+                  </p>
+                </section>
+                <section className="panel">
+                  <h2>LinkedIn affiche un contrôle</h2>
+                  <p>
+                    L’action s’arrête. Reprenez la main dans la fenêtre
+                    LinkedIn. Ne contournez pas les contrôles ; revenez ensuite
+                    dans l’application.
+                  </p>
+                </section>
+                <section className="panel">
+                  <h2>Envoi incertain</h2>
+                  <p>
+                    La file se met en pause. Vérifiez sur LinkedIn si
+                    l’invitation ou le message est parti. Choisissez ensuite «
                     Vérifié : envoyé » ou « Vérifié : non envoyé » pour garder
                     une trace fiable.
                   </p>
