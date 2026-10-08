@@ -404,7 +404,10 @@ test("Jobicy search starts a desktop application campaign without a pasted job U
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  const offerLimit = page.getByLabel("Nombre d’offres à examiner");
+  await offerLimit.selectOption("450");
   await page.getByLabel("Source d’offres").selectOption("jobicy");
+  assert.equal(await offerLimit.inputValue(), "200", "Jobicy's UI limit matches its 200-offer page cap");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
   await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
   await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();

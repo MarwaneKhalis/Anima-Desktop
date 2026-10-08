@@ -83,7 +83,7 @@ Ces sources ne couvrent pas tout le marché. L’interface
 conserve le lien vers la source et le lien de retour demandé par Arbeitnow.
 `FranceTravailDiscovery` reste disponible en option pour les personnes disposant d’identifiants
 habilités ; la recherche publique n’en dépend pas. L’envoi automatique est limité aux formulaires
-Greenhouse, Lever et Ashby reconnus. Les autres sites, redirections non prises en charge, CAPTCHA/MFA
+Greenhouse, Lever, Ashby et Recruitee reconnus. Les autres sites, redirections non prises en charge, CAPTCHA/MFA
 et questions sans réponse nécessitent une intervention humaine et peuvent mettre la campagne en pause.
 
 `server/career-campaign-api.ts` expose `handleCareerCampaignApi` avant l’API carrière. Il reçoit

@@ -2,20 +2,28 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForHostname, careerAtsForUrl } from "../server/career-ats.ts";
 
-test("only the explicit public Greenhouse, Lever, and Ashby job-board hosts are ATS destinations", () => {
+test("only explicit public Greenhouse, Lever, Ashby, and Recruitee hosts are ATS destinations", () => {
   assert.equal(careerAtsForHostname("boards.greenhouse.io"), "greenhouse");
   assert.equal(careerAtsForHostname("job-boards.greenhouse.io"), "greenhouse");
   assert.equal(careerAtsForHostname("boards.eu.greenhouse.io"), "greenhouse");
   assert.equal(careerAtsForHostname("jobs.lever.co"), "lever");
   assert.equal(careerAtsForHostname("jobs.eu.lever.co"), "lever");
   assert.equal(careerAtsForHostname("jobs.ashbyhq.com"), "ashby");
+  assert.equal(careerAtsForHostname("recruiteedemo.recruitee.com"), "recruitee");
+  assert.equal(careerAtsForHostname("jbinternationalpharmacy.s.recruitee.com"), "recruitee");
   assert.equal(careerAtsForUrl("https://jobs.ashbyhq.com/acme/123/application"), "ashby");
+  assert.equal(careerAtsForUrl("https://acme.recruitee.com/o/software-engineer"), "recruitee");
   assert.equal(careerAtsForUrl("https://boards.greenhouse.io/acme/jobs/123"), "greenhouse");
   assert.equal(careerAtsForHostname("greenhouse.io.evil.example"), null);
   assert.equal(careerAtsForHostname("jobs.lever.co.evil.example"), null);
   assert.equal(careerAtsForHostname("boards.greenhouse.com"), null);
   assert.equal(careerAtsForHostname("jobs.ashbyhq.com.evil.example"), null);
   assert.equal(careerAtsForHostname("ashbyhq.com"), null);
+  assert.equal(careerAtsForHostname("recruitee.com"), null);
+  assert.equal(careerAtsForHostname("acme.recruitee.com.evil.example"), null);
+  assert.equal(careerAtsForHostname("evilrecruitee.com"), null);
+  assert.equal(careerAtsForHostname("acme.evil.recruitee.com"), null);
+  assert.equal(careerAtsForHostname("s.recruitee.com"), null);
 });
 
 test("cross-origin ATS allowances are limited to passive GET assets on named vendor origins", () => {
@@ -31,6 +39,12 @@ test("cross-origin ATS allowances are limited to passive GET assets on named ven
   assert.equal(allowsCareerAtsResource({ ...request, to: "https://evil.example/form.js" }), false);
   assert.equal(allowsCareerAtsResource({ ...request, to: "http://job-boards.greenhouse.io/assets/form.js" }), false);
   assert.equal(allowsCareerAtsResource({ ...request, kind: "document" }), false);
+  const recruiteeAsset = { from: "https://acme.recruitee.com/o/role", to: "https://acme.s.recruitee.com/assets/form.css", method: "GET", kind: "stylesheet" as const };
+  assert.equal(allowsCareerAtsResource(recruiteeAsset), true);
+  assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, kind: "xhr" }), false);
+  assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, method: "POST", kind: "fetch" }), false);
+  assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://acme.recruitee.com/api/offers/role/candidates", kind: "xhr" }), false, "cross-origin candidate API requests are not inferred or enabled");
+  assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://evil.example/pixel.png", kind: "image" }), false);
 });
 
 test("cross-origin document navigation needs an explicit Apply target or same-vendor redirect", () => {
@@ -39,6 +53,7 @@ test("cross-origin document navigation needs an explicit Apply target or same-ve
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://boards.greenhouse.io/acme/jobs/12/apply", pendingAtsOrigin: "https://boards.greenhouse.io" }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://jobs.lever.co/acme/id/apply", pendingAtsOrigin: "https://jobs.lever.co" }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://jobs.ashbyhq.com/acme/id/application", pendingAtsOrigin: "https://jobs.ashbyhq.com" }), true);
+  assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://acme.recruitee.com/o/software-engineer/apply", pendingAtsOrigin: "https://acme.recruitee.com" }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://evil.example/apply", pendingAtsOrigin: "https://evil.example" }), false);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", redirected: true }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://jobs.lever.co/acme/id/apply", redirected: true }), false);

@@ -1,18 +1,21 @@
 import type { Page } from "playwright";
 
-export type CareerAts = "greenhouse" | "lever" | "ashby";
+export type CareerAts = "greenhouse" | "lever" | "ashby" | "recruitee";
 export type ResourceKind = "document" | "stylesheet" | "image" | "media" | "font" | "script" | "texttrack" | "xhr" | "fetch" | "eventsource" | "websocket" | "manifest" | "other";
 
 const GREENHOUSE_PAGES = new Set(["boards.greenhouse.io", "job-boards.greenhouse.io", "boards.eu.greenhouse.io"]);
 const LEVER_PAGES = new Set(["jobs.lever.co", "jobs.eu.lever.co"]);
 const ASHBY_PAGES = new Set(["jobs.ashbyhq.com"]);
 const GREENHOUSE_STATIC = new Set(["static.greenhouse.io"]);
+const RECRUITEE_TENANT = /^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.s)?\.recruitee\.com$/;
 
 export function careerAtsForHostname(hostname: string): CareerAts | null {
   const host = hostname.toLowerCase().replace(/\.$/, "");
   if (GREENHOUSE_PAGES.has(host)) return "greenhouse";
   if (LEVER_PAGES.has(host)) return "lever";
   if (ASHBY_PAGES.has(host)) return "ashby";
+  const recruiteeTenant = RECRUITEE_TENANT.exec(host)?.[1];
+  if (recruiteeTenant && recruiteeTenant !== "s") return "recruitee";
   return null;
 }
 
