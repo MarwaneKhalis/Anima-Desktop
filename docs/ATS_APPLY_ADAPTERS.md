@@ -2,7 +2,7 @@
 
 ## Périmètre actuel
 
-Le navigateur sait ouvrir les parcours publics Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters et Teamtailor, suivre un unique lien de candidature visible, attendre les scripts de formulaire chargés depuis l’ATS, puis appliquer les règles de remplissage déjà utilisées par l’application.
+Le navigateur sait ouvrir les parcours publics Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday, suivre un unique lien de candidature visible, attendre les scripts de formulaire chargés depuis l’ATS, puis appliquer les règles de remplissage déjà utilisées par l’application.
 
 - Greenhouse : `boards.greenhouse.io`, `job-boards.greenhouse.io`, `boards.eu.greenhouse.io`.
 - Lever : `jobs.lever.co`, `jobs.eu.lever.co`.
@@ -11,6 +11,7 @@ Le navigateur sait ouvrir les parcours publics Greenhouse, Lever, Ashby, Recruit
 - Workable : `apply.workable.com` et `entreprise.workable.com`.
 - SmartRecruiters : `jobs.smartrecruiters.com` et `careers.smartrecruiters.com`.
 - Teamtailor : hôtes carrière hébergés sous `entreprise.teamtailor.com` (un sous-domaine d’entreprise).
+- Workday : hôtes d’entreprise `entreprise.wdN.myworkdayjobs.com` (un sous-domaine d’entreprise et un numéro de centre de données).
 
 Le flux officiel Recruitee expose l’URL de la page d’offre et l’URL de candidature (`apply_url`) ;
 sa documentation d’API confirme aussi le domaine carrière de l’entreprise. L’application suit le
@@ -38,15 +39,22 @@ qui demande une clé d’accès. Les domaines carrière personnalisés des emplo
 [documentation française sur le formulaire de candidature](https://support.teamtailor.com/fr/articles/4855801-redirigez-votre-site-carriere)
 et la [documentation API Teamtailor](https://docs.teamtailor.com/).
 
+Workday héberge des pages d’offres publiques et des formulaires externes sur ses sites carrière. La navigation reste sur
+l’hôte Workday exact de l’entreprise; les étapes standard « Apply » et « Save and Continue » sont traitées comme une
+progression, jamais comme un envoi final. Les champs obligatoires personnalisés, la création de compte, les validations
+de sécurité et les sections qui ne correspondent pas au profil font mettre le parcours en pause. Voir le [guide Workday
+sur les modèles de candidature](https://doc.workday.com/admin-guide/en-us/human-capital-management/recruiting/job-applications/ijz1499291475964.html)
+et un [exemple de page carrière publique Workday](https://workday.wd5.myworkdayjobs.com/en-US/Workday/job/USAVAReston/Software-Development-Engineer--US-Federal-_JR-0105439).
+
 Les liens vers des formulaires hébergés ailleurs, les domaines personnalisés et les formulaires génériques ne reçoivent aucune donnée du profil. Les contrôles externes sont bloqués, sauf ressources passives en GET sous l’origine ATS exacte et CSS/polices Greenhouse sous `/assets/` sur `static.greenhouse.io`, sans chaîne de requête. Les scripts, pixels, POST, XHR, fetch et documents tiers sont bloqués.
 
 ## Formulaires observés en lecture seule
 
-Les résultats publics indexés de pages Greenhouse montrent les champs First Name, Last Name, Email, Phone, Resume/CV, puis des questions propres à chaque employeur. Les pages de candidature Lever montrent Resume/CV, Full name, Email, Phone, parfois Current company, liens, questions sur mesure et une action Submit application. Ashby, Recruitee, Workable, SmartRecruiters et Teamtailor utilisent également des formulaires variables selon l’employeur. Certains parcours présentent un CAPTCHA ou une vérification anti-robot.
+Les résultats publics indexés de pages Greenhouse montrent les champs First Name, Last Name, Email, Phone, Resume/CV, puis des questions propres à chaque employeur. Les pages de candidature Lever montrent Resume/CV, Full name, Email, Phone, parfois Current company, liens, questions sur mesure et une action Submit application. Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday utilisent également des formulaires variables selon l’employeur. Certains parcours présentent un CAPTCHA ou une vérification anti-robot.
 
 Exemples publics consultés : [formulaire Greenhouse Study.com](https://boards.greenhouse.io/embed/job_app?token=4126095008), [formulaire Greenhouse Opendoor](https://boards.greenhouse.io/embed/job_app?token=4572025006), [formulaire Lever Match Group](https://jobs.lever.co/matchgroup/4b304f3c-a2fd-426c-8988-727a5e16bd26/apply) et [formulaire de démonstration Lever](https://jobs.lever.co/leverdemo-8/c737ad83-0a87-4472-9ec3-1813ca12f7fa).
 
-La lecture directe des pages d’exemple a renvoyé une erreur 404 ou une protection anti-robot. Les tests utilisent donc des fixtures Playwright synthétiques reproduisant seulement les structures visibles et courantes ci-dessus; elles ne sont pas des copies du DOM privé ou d’un compte employeur. Pour Ashby, la fixture couvre le lien Apply depuis une offre Jobicy, le CAPTCHA, les réponses requises inconnues et l’envoi confirmé. Pour Recruitee, Workable, SmartRecruiters et Teamtailor, les fixtures valident le lien public, la pause sur question inconnue, la préparation sans envoi et l’envoi confirmé. La fixture Teamtailor utilise un libellé personnalisé et l’URL documentée `/applications/new`. Aucun dossier réel n’a été envoyé.
+La lecture directe de la page Teamtailor a confirmé le bouton public « Postuler », mais l’outil de consultation n’a pas pu charger son formulaire. Les tests utilisent des fixtures Playwright synthétiques; elles ne sont pas des copies du DOM privé ou d’un compte employeur. Ashby couvre le lien Apply, CAPTCHA, réponses requises et reçu; Recruitee, Workable, SmartRecruiters et Teamtailor couvrent le lien public, l’arrêt sur question, la préparation sans envoi et l’envoi confirmé. Teamtailor exerce aussi le libellé personnalisé et l’URL documentée `/applications/new`. Workday exerce le lien Apply, le formulaire multi-étapes, « Save and Continue », la question inconnue et l’envoi confirmé. Aucun dossier réel n’a été envoyé.
 
 ## Arrêts de sécurité et limites
 

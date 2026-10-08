@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForHostname, careerAtsForUrl } from "../server/career-ats.ts";
 
-test("only explicit public Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, and Teamtailor hosts are ATS destinations", () => {
+test("only explicit public Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor, and Workday hosts are ATS destinations", () => {
   assert.equal(careerAtsForHostname("boards.greenhouse.io"), "greenhouse");
   assert.equal(careerAtsForHostname("job-boards.greenhouse.io"), "greenhouse");
   assert.equal(careerAtsForHostname("boards.eu.greenhouse.io"), "greenhouse");
@@ -16,12 +16,15 @@ test("only explicit public Greenhouse, Lever, Ashby, Recruitee, Workable, SmartR
   assert.equal(careerAtsForHostname("jobs.smartrecruiters.com"), "smartrecruiters");
   assert.equal(careerAtsForHostname("careers.smartrecruiters.com"), "smartrecruiters");
   assert.equal(careerAtsForHostname("boost-1743083678.teamtailor.com"), "teamtailor");
+  assert.equal(careerAtsForHostname("workday.wd5.myworkdayjobs.com"), "workday");
+  assert.equal(careerAtsForHostname("example-bank.wd12.myworkdayjobs.com"), "workday");
   assert.equal(careerAtsForUrl("https://jobs.ashbyhq.com/acme/123/application"), "ashby");
   assert.equal(careerAtsForUrl("https://acme.recruitee.com/o/software-engineer"), "recruitee");
   assert.equal(careerAtsForUrl("https://apply.workable.com/j/61D02B30F2"), "workable");
   assert.equal(careerAtsForUrl("https://scalesource.workable.com/jobs/3949357/candidates/new"), "workable");
   assert.equal(careerAtsForUrl("https://jobs.smartrecruiters.com/smartrecruiters/74944235-experienced-seo-consultant"), "smartrecruiters");
   assert.equal(careerAtsForUrl("https://boost-1743083678.teamtailor.com/jobs/7779078-role/applications/new"), "teamtailor");
+  assert.equal(careerAtsForUrl("https://workday.wd5.myworkdayjobs.com/en-US/Workday/job/USAVAReston/Engineer_R-1/apply"), "workday");
   assert.equal(careerAtsForUrl("https://boards.greenhouse.io/acme/jobs/123"), "greenhouse");
   assert.equal(careerAtsForHostname("greenhouse.io.evil.example"), null);
   assert.equal(careerAtsForHostname("jobs.lever.co.evil.example"), null);
@@ -40,6 +43,9 @@ test("only explicit public Greenhouse, Lever, Ashby, Recruitee, Workable, SmartR
   assert.equal(careerAtsForHostname("teamtailor.com"), null);
   assert.equal(careerAtsForHostname("a.b.teamtailor.com"), null);
   assert.equal(careerAtsForHostname("acme.teamtailor.com.evil.example"), null);
+  assert.equal(careerAtsForHostname("myworkdayjobs.com"), null);
+  assert.equal(careerAtsForHostname("acme.wd5.myworkdayjobs.com.evil.example"), null);
+  assert.equal(careerAtsForHostname("one.two.wd5.myworkdayjobs.com"), null);
   assert.equal(careerAtsForHostname("acme.evil.recruitee.com"), null);
   assert.equal(careerAtsForHostname("s.recruitee.com"), null);
 });
@@ -80,6 +86,12 @@ test("cross-origin ATS allowances are limited to passive GET assets on named ven
   assert.equal(allowsCareerAtsResource({ ...teamtailorAsset, method: "POST", kind: "fetch" }), false);
   assert.equal(allowsCareerAtsResource({ ...teamtailorAsset, to: "https://other-company.teamtailor.com/assets/app.js" }), false, "Teamtailor resources stay on the exact tenant origin");
   assert.equal(allowsCareerAtsResource({ ...teamtailorAsset, to: "https://acme.teamtailor.com:444/assets/app.js" }), false, "Teamtailor resources stay on the exact scheme, host, and port");
+  const workdayAsset = { from: "https://example.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://example.wd5.myworkdayjobs.com/assets/app.js", method: "GET", kind: "script" as const };
+  assert.equal(allowsCareerAtsResource(workdayAsset), true);
+  assert.equal(allowsCareerAtsResource({ ...workdayAsset, kind: "xhr" }), false);
+  assert.equal(allowsCareerAtsResource({ ...workdayAsset, method: "POST", kind: "fetch" }), false);
+  assert.equal(allowsCareerAtsResource({ ...workdayAsset, to: "https://other.wd5.myworkdayjobs.com/assets/app.js" }), false, "Workday resources stay on the exact tenant origin");
+  assert.equal(allowsCareerAtsResource({ ...workdayAsset, to: "https://example.wd5.myworkdayjobs.com:444/assets/app.js" }), false, "Workday resources stay on the exact scheme, host, and port");
 });
 
 test("cross-origin document navigation needs an explicit Apply target or same-vendor redirect", () => {
@@ -96,6 +108,9 @@ test("cross-origin document navigation needs an explicit Apply target or same-ve
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://acme.teamtailor.com/jobs/123-role", to: "https://acme.teamtailor.com/jobs/123-role/applications/new", pendingAtsOrigin: "https://acme.teamtailor.com" }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://acme.teamtailor.com/jobs/123-role", to: "https://other-company.teamtailor.com/jobs/123-role/applications/new", pendingAtsOrigin: "https://acme.teamtailor.com", redirected: true }), false, "cross-tenant Teamtailor redirects are blocked");
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://acme.teamtailor.com/jobs/123-role", to: "https://acme.teamtailor.com:444/jobs/123-role/applications/new", pendingAtsOrigin: "https://acme.teamtailor.com", redirected: true }), false, "cross-origin Teamtailor redirects are blocked");
+  assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com" }), true);
+  assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://other.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com", redirected: true }), false, "cross-tenant Workday redirects are blocked");
+  assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://workday.wd5.myworkdayjobs.com:444/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com", redirected: true }), false, "cross-origin Workday redirects are blocked");
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://evil.example/apply", pendingAtsOrigin: "https://evil.example" }), false);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", redirected: true }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://jobs.lever.co/acme/id/apply", redirected: true }), false);

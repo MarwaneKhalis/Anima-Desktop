@@ -208,6 +208,36 @@ test("Teamtailor documented application URL is followed even when the Apply butt
     assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
   } finally { await submit.close(); }
 });
+test("Workday multi-step form pauses for unknown answers and handles Save and Continue without an early POST", async () => {
+  const allowedTestOrigins = [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin];
+  const before = fx.submissions.length;
+  let marker = 0;
+  const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}) => inputFor(
+    "/jobicy-workday", mode, { answers }, () => { marker++; },
+  );
+
+  const preparation = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const missing = await preparation.run(makeInput("prepare"));
+    assert.equal(missing.state, "needs_input");
+    assert.match(missing.missingFields[0]?.label || "", /work in France/i);
+    assert.equal(fx.submissions.length, before);
+    const ready = await preparation.resume(makeInput("prepare", { wd_work_france: "Yes" }));
+    assert.equal(ready.state, "ready");
+    assert.equal(fx.submissions.length, before, "prepare never posts to the Workday fixture");
+  } finally { await preparation.close(); }
+
+  const submit = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const submitted = await submit.run(makeInput("submit", { wd_work_france: "Yes" }));
+    assert.equal(submitted.state, "submitted");
+    assert.equal(marker, 1);
+    assert.equal(fx.submissions.length, before + 1);
+    assert.equal(fx.submissions.at(-1)?.fields.firstName, profile.firstName);
+    assert.equal(fx.submissions.at(-1)?.fields.wd_work_france, "Yes");
+    assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+  } finally { await submit.close(); }
+});
 test("Jobicy-discovered offer follows visible Apply links to a simulated Ashby form and waits for confirmation", async () => {
   const discovery = new JobicyRemoteDiscovery(async () => Response.json({ jobs: [{
     url: "https://www.jobicy.com/jobs/remote-software-engineer",

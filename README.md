@@ -26,13 +26,13 @@ L’installateur est prévu pour Windows 10/11 64 bits et une installation par u
 
 - **Centralise le profil et plusieurs CV** pour réutiliser les bonnes informations selon le poste.
 - **Recherche les offres automatiquement** en choisissant le flux public Arbeitnow France ou Jobicy (offres distantes indiquant France, Europe/EMEA ou partout), sans URL à copier-coller ni clé API. Les résultats sont filtrés et dédupliqués. France Travail reste disponible avec des identifiants API habilités.
-- **Lance une campagne de candidatures** depuis les offres trouvées ou enregistrées. Les formulaires reconnus Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters et Teamtailor peuvent être remplis et envoyés; le CV et le compte carrière sélectionné sont associés à la campagne.
+- **Lance une campagne de candidatures** depuis les offres trouvées ou enregistrées. Les formulaires reconnus Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday peuvent être remplis et envoyés; le CV et le compte carrière sélectionné sont associés à la campagne.
 - **Suit les candidatures** : état, reçu, questions restantes, notes et relances.
 - **Met en pause les parcours** qui demandent une réponse, un CAPTCHA ou une vérification MFA ; vous reprenez ensuite dans la session ouverte.
 - **Suit la prospection** et les échanges LinkedIn. Les invitations et messages LinkedIn restent envoyés manuellement.
 - **Propose un assistant IA optionnel** : configurez un fournisseur compatible OpenAI, testez-le et générez un brouillon de lettre à relire. L’IA ne soumet pas de candidature.
 
-Arbeitnow parcourt au plus cinq pages récentes par recherche (450 résultats maximum); Jobicy fournit au plus 200 offres distantes publiées dans les sept derniers jours dont la zone déclarée inclut France, Europe/EMEA ou partout, et actualise son flux au maximum une fois par heure. Ces sources ne représentent pas tout le marché. L’envoi automatique fonctionne seulement sur les formulaires reconnus Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters et Teamtailor. Les comptes à créer, SSO, questions inconnues, CAPTCHA/MFA et autres parcours propriétaires demandent une action manuelle; une campagne se met en pause quand le navigateur rencontre un blocage. Vérifiez les résultats et réponses avant de lancer une campagne.
+Arbeitnow parcourt au plus cinq pages récentes par recherche (450 résultats maximum); Jobicy fournit au plus 200 offres distantes publiées dans les sept derniers jours dont la zone déclarée inclut France, Europe/EMEA ou partout, et actualise son flux au maximum une fois par heure. Ces sources ne représentent pas tout le marché. L’envoi automatique fonctionne seulement sur les formulaires reconnus Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday. Les comptes à créer, SSO, questions inconnues, CAPTCHA/MFA et autres parcours propriétaires demandent une action manuelle; une campagne se met en pause quand le navigateur rencontre un blocage. Vérifiez les résultats et réponses avant de lancer une campagne.
 
 ## Données et confidentialité
 

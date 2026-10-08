@@ -66,7 +66,7 @@ const knownValue = (key: string, p: CareerProfile): string | undefined => {
 const missingType = (c: Control): MissingField["type"] => c.type === "file" ? "file" : c.tag === "select" ? "select" : ["checkbox", "radio"].includes(c.type) ? "boolean" : ["text", "email", "tel", "url", "textarea"].includes(c.type) ? "text" : "unknown";
 const loginButton = (s: string) => /^(log in|login|sign in|connexion|se connecter|connecter|submit)$/i.test(s.trim());
 const loginField = (c: Control) => c.type === "email" || [c.name, c.label, c.key].some(value => /(^| )(username|user name|email|e mail|identifiant|login)( |$)/i.test(tidy(value)));
-const nextButton = (s: string) => /^(next|continue|suivant|suivante|continuer|prochaine etape)$/i.test(tidy(s));
+const nextButton = (s: string) => /^(next|continue|save and continue|suivant|suivante|continuer|enregistrer et continuer|prochaine etape)$/i.test(tidy(s));
 const finalButton = (s: string) => /^(submit( application)?|send( application)?|apply( now)?|complete application|envoyer( ma candidature| la candidature)?|soumettre( ma candidature)?|postuler|valider la candidature)$/i.test(tidy(s));
 const resumeField = (c: Control) => /\b(cv|resume)\b|curriculum vitae/i.test(tidy([c.label, c.name, c.key].join(" ")));
 const controlValue = (c: Control) => c.type === "file" ? `file:${c.uploaded}` : ["checkbox", "radio"].includes(c.type) ? `checked:${c.checked}` : c.value;
