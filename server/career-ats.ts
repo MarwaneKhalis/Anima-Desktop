@@ -36,17 +36,19 @@ export function careerAtsForUrl(value: string): CareerAts | null {
  * public ATS redirect within the same vendor family. Redirects to ordinary domains fail closed. */
 export function allowsCareerAtsNavigation(input: {
   from: string; to: string; pendingAtsOrigin?: string; initialNavigation: boolean;
-  redirected: boolean; testOrigins: ReadonlySet<string>;
+  redirected: boolean; remoteOkApplyRedirect?: boolean; testOrigins: ReadonlySet<string>;
 }): boolean {
   let from: URL; let to: URL;
   try { from = new URL(input.from); to = new URL(input.to); } catch { return false; }
+  const toAts = careerAtsForUrl(to.href);
+  if (input.remoteOkApplyRedirect && input.redirected
+    && ((to.protocol === "https:" && toAts !== null) || input.testOrigins.has(to.origin))) return true;
   // A test fixture may model a visible cross-origin Apply link, but it must still
   // be selected explicitly as the pending destination before navigation is allowed.
   if (input.testOrigins.has(to.origin)) return input.pendingAtsOrigin === to.origin
     || (input.initialNavigation && input.redirected);
   if (to.protocol !== "https:") return false;
   const fromAts = careerAtsForUrl(from.href);
-  const toAts = careerAtsForUrl(to.href);
   if (!toAts) return false;
   if ((fromAts === "smartrecruiters" || fromAts === "teamtailor" || fromAts === "workday") && toAts === fromAts && from.origin !== to.origin
     && (input.redirected || input.pendingAtsOrigin !== to.origin)) return false;
@@ -75,7 +77,17 @@ export function allowsCareerAtsResource(input: {
   return ["stylesheet", "image", "media", "font", "script"].includes(input.kind);
 }
 
-export type ApplyLink = { href: string; vendor: CareerAts | "test"; index: number };
+export type ApplyLink = { href: string; vendor: CareerAts | "test" | "remoteok"; index: number };
+
+const REMOTE_OK_REDIRECTORS = new Set(["remoteok.com", "www.remoteok.com"]);
+
+export function isRemoteOkApplyRedirectorUrl(value: string, testOrigins: ReadonlySet<string>): boolean {
+  try {
+    const url = new URL(value);
+    const remoteOk = url.protocol === "https:" && REMOTE_OK_REDIRECTORS.has(url.hostname.toLowerCase());
+    return (remoteOk || testOrigins.has(url.origin)) && /^\/l\/\d+$/.test(url.pathname);
+  } catch { return false; }
+}
 
 function isTeamtailorApplicationUrl(value: string, testOrigins: ReadonlySet<string>): boolean {
   try {
@@ -97,14 +109,16 @@ export async function findApplyLink(page: Page, testOrigins: ReadonlySet<string>
     if (style.display === "none" || style.visibility === "hidden" || !a.getClientRects().length) return [];
     return [{ href: a.href, index, text }];
   }));
-  const candidates = links.filter(({ href, text }) =>
+  const candidateLinks = links.filter(({ href, text }) =>
     /\b(apply|apply now|apply for this job|postuler|candidater|postulez|i['’]?m interested|interested in this job)\b/i.test(text)
     || isTeamtailorApplicationUrl(href, testOrigins));
+  const candidates = [...new Map(candidateLinks.map(link => [link.href, link])).values()];
   if (candidates.length > 1) return "ambiguous";
   const allowed: ApplyLink[] = candidates.flatMap<ApplyLink>(({ href, index }) => {
     try {
       const url = new URL(href);
       if (url.protocol !== "https:" && !testOrigins.has(url.origin)) return [];
+      if (isRemoteOkApplyRedirectorUrl(url.href, testOrigins)) return [{ href: url.href, vendor: "remoteok", index }];
       const vendor = careerAtsForUrl(url.href);
       if (vendor) return [{ href: url.href, vendor, index }];
       if (testOrigins.has(url.origin)) return [{ href: url.href, vendor: "test", index }];
@@ -114,3 +128,4 @@ export async function findApplyLink(page: Page, testOrigins: ReadonlySet<string>
   if (allowed.length > 1) return "ambiguous";
   return allowed[0] || null;
 }
+

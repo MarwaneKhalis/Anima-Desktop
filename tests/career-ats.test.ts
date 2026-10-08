@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForHostname, careerAtsForUrl } from "../server/career-ats.ts";
+import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForHostname, careerAtsForUrl, isRemoteOkApplyRedirectorUrl } from "../server/career-ats.ts";
 
 test("only explicit public Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor, and Workday hosts are ATS destinations", () => {
   assert.equal(careerAtsForHostname("boards.greenhouse.io"), "greenhouse");
@@ -115,3 +115,28 @@ test("cross-origin document navigation needs an explicit Apply target or same-ve
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", redirected: true }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://jobs.lever.co/acme/id/apply", redirected: true }), false);
 });
+
+test("Remote OK apply redirectors are exact and may lead only to a supported ATS or test fixture", () => {
+  const fixtures = new Set(["http://127.0.0.1:4321"]);
+  assert.equal(isRemoteOkApplyRedirectorUrl("https://remoteok.com/l/1137466", fixtures), true);
+  assert.equal(isRemoteOkApplyRedirectorUrl("https://www.remoteok.com/l/1137466", fixtures), true);
+  assert.equal(isRemoteOkApplyRedirectorUrl("https://remoteok.com.evil.example/l/1137466", fixtures), false);
+  assert.equal(isRemoteOkApplyRedirectorUrl("http://remoteok.com/l/1137466", fixtures), false);
+  assert.equal(isRemoteOkApplyRedirectorUrl("https://remoteok.com/l/../login", fixtures), false);
+  assert.equal(isRemoteOkApplyRedirectorUrl("http://127.0.0.1:4321/l/1137466", fixtures), true);
+
+  const redirect = {
+    from: "https://remoteok.com/remote-jobs/role",
+    to: "https://boards.greenhouse.io/acme/jobs/123/apply",
+    pendingAtsOrigin: "remoteok-apply-redirect",
+    initialNavigation: false,
+    redirected: true,
+    remoteOkApplyRedirect: true,
+    testOrigins: new Set<string>(),
+  };
+  assert.equal(allowsCareerAtsNavigation(redirect), true);
+  assert.equal(allowsCareerAtsNavigation({ ...redirect, to: "https://evil.example/collect" }), false);
+  assert.equal(allowsCareerAtsNavigation({ ...redirect, to: "http://boards.greenhouse.io/acme/jobs/123/apply" }), false);
+  assert.equal(allowsCareerAtsNavigation({ ...redirect, to: "http://127.0.0.1:4321/apply", testOrigins: fixtures }), true);
+});
+

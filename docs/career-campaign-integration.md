@@ -100,3 +100,4 @@ et questions sans réponse nécessitent une intervention humaine et peuvent mett
 `start` répond 202 sans attendre la campagne et intercepte les rejets en arrière-plan; les états
 terminaux répondent 200 sans redémarrer. `stop` attend la fin du worker avant de répondre. La démo
 refuse création et démarrage. Les tests HTTP associés sont dans `tests/career-campaign-api.test.ts`.
+

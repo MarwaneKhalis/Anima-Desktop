@@ -13,6 +13,12 @@ import type {
 
 type Tab =
   "home" | "jobs" | "applications" | "profile" | "vault" | "prospecting";
+function jobSourceLabel(job: JobOffer): string {
+  try {
+    const host = new URL(job.sourceUrl || job.url).hostname.toLowerCase();
+    return host === "remoteok.com" || host === "www.remoteok.com" ? "Remote OK" : new URL(job.url).hostname;
+  } catch { return "Source de l’offre"; }
+}
 const navigation: [Tab, string, string][] = [
   ["home", "◈", "Tableau de bord"],
   ["jobs", "⌕", "Offres"],
@@ -93,7 +99,7 @@ export default function CareerWorkspace() {
   const [query, setQuery] = useState(""),
     [source, setSource] = useState(""),
     [franceTravail, setFranceTravail] = useState<FranceTravailStatus>({ configured: false }),
-    [searchSource, setSearchSource] = useState<"arbeitnow" | "france-travail" | "jobicy">("arbeitnow"),
+    [searchSource, setSearchSource] = useState<"arbeitnow" | "france-travail" | "jobicy" | "remoteok">("arbeitnow"),
     [franceCredentials, setFranceCredentials] = useState({ clientId: "", clientSecret: "", scope: "" }),
     [searchCriteria, setSearchCriteria] = useState({ keywords: "", department: "", commune: "", contractType: "", limit: 50 }),
     [maxSubmissions, setMaxSubmissions] = useState(10),
@@ -310,7 +316,9 @@ export default function CareerWorkspace() {
       ? "/sources/arbeitnow/search"
       : searchSource === "jobicy"
         ? "/sources/jobicy/search"
-        : "/sources/france-travail/search";
+        : searchSource === "remoteok"
+          ? "/sources/remoteok/search"
+          : "/sources/france-travail/search";
     const found = await api<{ jobs: JobOffer[]; note: string }>(
       searchPath,
       "POST",
@@ -764,13 +772,15 @@ export default function CareerWorkspace() {
                     <div className="cw-source-title">
                       <div>
                         <span className="cw-eyebrow">RECHERCHE AUTOMATIQUE</span>
-                        <h2>{searchSource === "arbeitnow" ? "Offres Arbeitnow France" : searchSource === "jobicy" ? "Offres télétravaillables pour la France" : "Offres France Travail"}</h2>
+                        <h2>{searchSource === "arbeitnow" ? "Offres Arbeitnow France" : searchSource === "jobicy" ? "Offres télétravaillables Jobicy" : searchSource === "remoteok" ? "Offres remote Remote OK" : "Offres France Travail"}</h2>
                         <p>
                           {searchSource === "arbeitnow"
                             ? "Recherche publique d’offres récentes en France, sans clé API ni URL à copier."
                             : searchSource === "jobicy"
                               ? "Offres à distance indiquant France, Europe/EMEA ou partout dans leur zone d’éligibilité. Source publique, sans clé API ni compte à créer."
-                              : "La recherche part de vos mots-clés et critères. Cette source demande des identifiants API personnels conservés dans le coffre local chiffré."}
+                              : searchSource === "remoteok"
+                                ? "Postes remote récents ouverts explicitement à la France, à l’Europe/EMEA ou partout. Les mots-clés, la ville et le contrat sont filtrés localement."
+                                : "La recherche part de vos mots-clés et critères. Cette source demande des identifiants API personnels conservés dans le coffre local chiffré."}
                         </p>
                       </div>
                       <span className={`cw-source-status ${searchSource !== "france-travail" || franceTravail.configured ? "is-ready" : ""}`}>
@@ -793,12 +803,13 @@ export default function CareerWorkspace() {
                       <label>
                         Source d’offres
                         <select value={searchSource} onChange={(e) => {
-                          const source = e.target.value as "arbeitnow" | "france-travail" | "jobicy";
+                          const source = e.target.value as "arbeitnow" | "france-travail" | "jobicy" | "remoteok";
                           setSearchSource(source);
-                          if (source === "jobicy" && searchCriteria.limit > 200) setSearchCriteria({ ...searchCriteria, limit: 200 });
+                          if ((source === "jobicy" || source === "remoteok") && searchCriteria.limit > 200) setSearchCriteria({ ...searchCriteria, limit: 200 });
                         }}>
                           <option value="arbeitnow">Arbeitnow France · public, sans clé API</option>
                           <option value="jobicy">Jobicy · France, Europe/EMEA ou partout</option>
+                          <option value="remoteok">Remote OK · remote ouvert à la France</option>
                           <option value="france-travail">France Travail · accès restreint</option>
                         </select>
                       </label>
@@ -845,7 +856,7 @@ export default function CareerWorkspace() {
                         <label>
                           Nombre d’offres à examiner
                           <select value={searchCriteria.limit} onChange={(e) => setSearchCriteria({ ...searchCriteria, limit: Number(e.target.value) })}>
-                            {(searchSource === "jobicy" ? [25, 50, 100, 150, 200] : [25, 50, 100, 150, 200, 300, 450]).map((n) => <option key={n} value={n}>{n}</option>)}
+                            {(searchSource === "jobicy" || searchSource === "remoteok" ? [25, 50, 100, 150, 200] : [25, 50, 100, 150, 200, 300, 450]).map((n) => <option key={n} value={n}>{n}</option>)}
                           </select>
                         </label>
                       </div>
@@ -873,7 +884,9 @@ export default function CareerWorkspace() {
                             ? <>Les offres viennent de l’<a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">API publique Arbeitnow France</a>. La couverture dépend des annonces indexées.</>
                             : searchSource === "jobicy"
                               ? <>Les offres viennent de l’<a href="https://jobicy.com" target="_blank" rel="noreferrer">API publique Jobicy</a>, limitée aux annonces télétravaillables des 7 derniers jours ; les zones hors France, Europe/EMEA et partout sont filtrées. La recherche est actualisée au plus une fois par heure et le lien Jobicy reste la source canonique.</>
-                              : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
+                              : searchSource === "remoteok"
+                                ? <>Les offres viennent du <a href="https://remoteok.com/api" target="_blank" rel="noreferrer">flux JSON public Remote OK</a>. Le lien d’origine Remote OK reste affiché sur chaque fiche; les annonces de plus de 60 jours et les zones non explicitement compatibles avec la France sont écartées.</>
+                                : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
                       </small>
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
                       {!resumeId && <small>Ajoutez d’abord un CV dans l’onglet Profil & CV pour activer les candidatures.</small>}
@@ -1074,7 +1087,7 @@ export default function CareerWorkspace() {
                               {j.company.slice(0, 2).toUpperCase() || "↗"}
                             </span>
                             <span className="cw-pill">
-                              {new URL(j.url).hostname}
+                              {jobSourceLabel(j)}
                             </span>
                           </div>
                           <h2>{j.title}</h2>
@@ -1088,8 +1101,11 @@ export default function CareerWorkspace() {
                           </div>
                           <div className="cw-section-head">
                             <a href={j.url} target="_blank" rel="noreferrer">
-                              Voir l’offre ↗
+                              Voir l’offre{jobSourceLabel(j) === "Remote OK" ? " sur Remote OK" : ""} ↗
                             </a>
+                            {j.sourceUrl && j.sourceUrl !== j.url && (
+                              <a href={j.sourceUrl} target="_blank" rel="noreferrer">Source {jobSourceLabel(j)} ↗</a>
+                            )}
                             {data.applications.some((a) => a.jobId === j.id) ? (
                               <button
                                 onClick={() => {
@@ -2230,3 +2246,4 @@ export default function CareerWorkspace() {
     </div>
   );
 }
+

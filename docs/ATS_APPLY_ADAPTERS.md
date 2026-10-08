@@ -4,6 +4,8 @@
 
 Le navigateur sait ouvrir les parcours publics Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday, suivre un unique lien de candidature visible, attendre les scripts de formulaire chargés depuis l’ATS, puis appliquer les règles de remplissage déjà utilisées par l’application. Les champs clairement identifiés d’expérience et de formation sont rapprochés des entrées du profil dans leur ordre d’affichage ; une réponse enregistrée pour la candidature reste prioritaire et une donnée absente n’est jamais inventée.
 
+Remote OK est une source d’offres, pas un ATS. Sur une fiche Remote OK, les liens visibles « Apply » peuvent pointer vers son redirecteur `/l/{id}`. Le navigateur déduplique les boutons qui pointent vers cette même URL, inspecte d’abord la réponse du redirecteur et ne laisse le navigateur continuer que si la destination est un ATS pris en charge en HTTPS. Toute autre destination est bloquée avant l’envoi des données du profil. Chaque offre conserve en parallèle son URL canonique Remote OK pour l’attribution et la consultation.
+
 - Greenhouse : `boards.greenhouse.io`, `job-boards.greenhouse.io`, `boards.eu.greenhouse.io`.
 - Lever : `jobs.lever.co`, `jobs.eu.lever.co`.
 - Ashby : `jobs.ashbyhq.com`.
@@ -65,3 +67,4 @@ La lecture directe de la page Teamtailor a confirmé le bouton public « Postule
 - L’envoi en mode « préparer » ne soumet jamais le formulaire. En mode d’envoi, l’idempotence et le reçu vérifiable existants restent appliqués; un résultat sans reçu reste incertain et ne doit pas être relancé automatiquement.
 
 Ces adaptateurs ne signifient pas que tous les formulaires hébergés par ces fournisseurs sont compatibles. Les questions spécifiques à l’offre et les valeurs sensibles restent à confirmer au cas par cas.
+

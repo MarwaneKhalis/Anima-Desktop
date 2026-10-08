@@ -4,7 +4,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import type {
   Application, CareerProfile, JobOffer, MissingField, Receipt, Resume, RunMode, RunResult,
 } from "../src/shared/career.ts";
-import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForUrl, findApplyLink } from "./career-ats.ts";
+import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForUrl, findApplyLink, isRemoteOkApplyRedirectorUrl } from "./career-ats.ts";
 
 export interface CareerBrowserOptions { headless?: boolean; allowedTestOrigins?: string[] }
 type Control = { index: number; tag: string; type: string; label: string; name: string; key: string; required: boolean; value: string; checked: boolean; uploaded: boolean; options: string[] };
@@ -25,6 +25,7 @@ type BrowserSession = {
 const tidy = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1 $2").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const safeText = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 240);
 const result = (state: RunResult["state"], message: string, missingFields: MissingField[] = [], receipt: Receipt | null = null): RunResult => ({ state, message, missingFields, receipt });
+const REMOTE_OK_APPLY_REDIRECT = "remoteok-apply-redirect";
 
 function safeUrl(value: string, testOrigins: Set<string>): URL {
   const url = new URL(value);
@@ -224,10 +225,35 @@ export class CareerBrowser {
         const request = route.request();
         let url: URL;
         try { url = new URL(request.url()); } catch { return route.abort(); }
+        if (request.isNavigationRequest() && session!.pendingAtsOrigin === REMOTE_OK_APPLY_REDIRECT
+          && isRemoteOkApplyRedirectorUrl(url.href, this.testOrigins)) {
+          try {
+            const response = await route.fetch({ maxRedirects: 0 });
+            const location = response.headers()["location"];
+            if (response.status() < 300 || response.status() >= 400 || !location) {
+              await response.dispose();
+              return route.abort();
+            }
+            const target = new URL(location, url);
+            const targetAts = careerAtsForUrl(target.href);
+            const approvedTarget = (target.protocol === "https:" && targetAts !== null) || this.testOrigins.has(target.origin);
+            if (!approvedTarget) {
+              await response.dispose();
+              return route.abort();
+            }
+            await assertPublic(target, this.testOrigins);
+            session!.flowOrigin = target.origin;
+            session!.pendingAtsOrigin = target.origin;
+            return route.fulfill({ response });
+          } catch { return route.abort(); }
+        }
         if (url.origin !== session!.flowOrigin) {
+          const redirectedFrom = request.redirectedFrom();
+          const remoteOkApplyRedirect = session!.pendingAtsOrigin === REMOTE_OK_APPLY_REDIRECT
+            && Boolean(redirectedFrom && isRemoteOkApplyRedirectorUrl(redirectedFrom.url(), this.testOrigins));
           const allowedAtsNavigation = request.isNavigationRequest() && allowsCareerAtsNavigation({
             from: session!.flowOrigin, to: url.href, pendingAtsOrigin: session!.pendingAtsOrigin,
-            initialNavigation: session!.initialNavigation, redirected: Boolean(request.redirectedFrom()), testOrigins: this.testOrigins,
+            initialNavigation: session!.initialNavigation, redirected: Boolean(redirectedFrom), remoteOkApplyRedirect, testOrigins: this.testOrigins,
           });
           if (allowedAtsNavigation) {
             try {
@@ -303,7 +329,7 @@ export class CareerBrowser {
           if (apply) {
             if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
             session.seen.add(apply.href);
-            session.pendingAtsOrigin = new URL(apply.href).origin;
+            session.pendingAtsOrigin = apply.vendor === "remoteok" ? REMOTE_OK_APPLY_REDIRECT : new URL(apply.href).origin;
             await advance(page, page.locator("a[href]").nth(apply.index));
             continue;
           }
@@ -421,6 +447,14 @@ export class CareerBrowser {
         const apply = await findApplyLink(page, this.testOrigins);
         if (apply === "ambiguous") return result("blocked", "Plusieurs liens de candidature sont possibles : sélectionnez le parcours manuellement.");
         if (apply) {
+          if (apply.vendor === "remoteok") {
+            if (onSupportedAts || !isRemoteOkApplyRedirectorUrl(apply.href, this.testOrigins)) return result("blocked", "Le lien de redirection Remote OK ne peut pas être vérifié.");
+            if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
+            session.seen.add(apply.href);
+            session.pendingAtsOrigin = REMOTE_OK_APPLY_REDIRECT;
+            await advance(page, page.locator("a[href]").nth(apply.index));
+            continue;
+          }
           const targetAts = careerAtsForUrl(apply.href);
           const currentAts = careerAtsForUrl(session.flowOrigin);
           if (apply.vendor !== "test" && targetAts !== currentAts) return result("blocked", "Le lien de candidature sort du fournisseur ATS pris en charge.");
@@ -465,3 +499,4 @@ export class CareerBrowser {
     return result("blocked", "Le formulaire dépasse dix étapes.");
   }
 }
+

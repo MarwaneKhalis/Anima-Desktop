@@ -60,7 +60,7 @@ async function waitForServer(
   );
 }
 
-export async function startCareerTestServer(options: { mockFranceTravailSearch?: boolean; mockArbeitnowSearch?: boolean; mockJobicySearch?: boolean } = {}): Promise<CareerTestServer> {
+export async function startCareerTestServer(options: { mockFranceTravailSearch?: boolean; mockArbeitnowSearch?: boolean; mockJobicySearch?: boolean; mockRemoteOkSearch?: boolean } = {}): Promise<CareerTestServer> {
   const fixture = await startCareerFixtures();
   const port = await reservePort();
   const dataDir = await mkdtemp(join(tmpdir(), "anima-career-api-"));
@@ -76,10 +76,11 @@ export async function startCareerTestServer(options: { mockFranceTravailSearch?:
         ANIMA_DATA_DIR: dataDir,
         PORT: String(port),
         ANIMA_TEST_MODE: "1",
-        CAREER_TEST_ORIGINS: JSON.stringify([new URL(fixture.baseUrl).origin]),
+        CAREER_TEST_ORIGINS: JSON.stringify([new URL(fixture.baseUrl).origin, new URL(fixture.atsUrl).origin]),
         CAREER_TEST_FRANCE_TRAVAIL_URL: options.mockFranceTravailSearch ? `${fixture.baseUrl}/simple` : "",
         CAREER_TEST_ARBEITNOW_URL: options.mockArbeitnowSearch ? `${fixture.baseUrl}/simple?source=arbeitnow` : "",
         CAREER_TEST_JOBICY_URL: options.mockJobicySearch ? `${fixture.baseUrl}/simple?source=jobicy` : "",
+        CAREER_TEST_REMOTEOK_URL: options.mockRemoteOkSearch ? `${fixture.baseUrl}/remoteok-job` : "",
         CAREER_HEADLESS: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -157,3 +158,4 @@ export async function waitFor<T>(
     `Timed out waiting for career state; last value: ${JSON.stringify(last)}`,
   );
 }
+

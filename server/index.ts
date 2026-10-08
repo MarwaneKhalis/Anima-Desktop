@@ -30,6 +30,7 @@ import { JobDiscovery } from "./job-discovery.ts";
 import { FranceTravailDiscovery } from "./france-travail-discovery.ts";
 import { ArbeitnowFranceDiscovery } from "./arbeitnow-france-discovery.ts";
 import { JobicyRemoteDiscovery } from "./jobicy-remote-discovery.ts";
+import { RemoteOkDiscovery } from "./remoteok-discovery.ts";
 import { csvParse, csvStringify, makeSearchUrl } from "./domain.ts";
 import type { Prospect, SavedSearch, Template } from "../src/shared/types.ts";
 import type { OfferSearchService } from "../src/shared/career.ts";
@@ -90,6 +91,10 @@ const testPublicOfferSearch: OfferSearchService | undefined = testArbeitnowUrl
 const testJobicyUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_JOBICY_URL : undefined;
 const testJobicyOfferSearch: OfferSearchService | undefined = testJobicyUrl
   ? { search: async (criteria) => ({ offers: [{ url: testJobicyUrl, title: "Offre de test Jobicy France", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://jobicy.com/jobs/test" }], note: `Résultat de test Jobicy pour ${criteria.keywords}.` }) }
+  : undefined;
+const testRemoteOkUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_REMOTEOK_URL : undefined;
+const testRemoteOkOfferSearch: OfferSearchService | undefined = testRemoteOkUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testRemoteOkUrl, title: "Offre de test Remote OK", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://remoteok.com/remote-jobs/test" }], note: `Résultat de test Remote OK pour ${criteria.keywords}.` }) }
   : undefined;
 let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);
@@ -255,6 +260,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           : testOfferSearch || new FranceTravailDiscovery(vault),
         publicOfferSearch: testPublicOfferSearch || new ArbeitnowFranceDiscovery(),
         jobicyOfferSearch: testJobicyOfferSearch || (demo ? undefined : new JobicyRemoteDiscovery()),
+        remoteOkOfferSearch: testRemoteOkOfferSearch || (demo ? undefined : new RemoteOkDiscovery()),
         demo,
         allowedTestOrigins,
       })
@@ -628,3 +634,4 @@ if (!electronMode) {
   process.on("SIGTERM", shutdown);
 }
 export { shutdown };
+

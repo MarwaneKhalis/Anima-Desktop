@@ -47,6 +47,13 @@ test("preparation fills standard form but sends no application", async () => {
   const { outcome, marker } = await run("/simple", "prepare");
   assert.equal(outcome.state, "ready"); assert.equal(marker, 0); assert.equal(fx.submissions.length, count);
 });
+test("Remote OK redirector refuses non-ATS targets before opening or sending applicant data", async () => {
+  const before = fx.submissions.length;
+  const { outcome, marker } = await run("/remoteok-unsafe-job", "submit");
+  assert.equal(outcome.state, "blocked");
+  assert.equal(marker, 0);
+  assert.equal(fx.submissions.length, before);
+});
 test("profile experience and education entries fill matching ATS fields in order", async () => {
   const submissions = fx.submissions.length;
   const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}) => ({
@@ -704,3 +711,4 @@ test("runner stop persists failed before marker and uncertain after marker", asy
   assert.throws(() => runner.start(after.id, "submit"));
   db.db.close();
 });
+

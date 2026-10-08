@@ -204,6 +204,8 @@ interface CareerDiscovery {
 
 `server/job-discovery.ts` implémente les sources publiques Greenhouse et Lever à partir d'une URL de board reconnue, plus JSON-LD `JobPosting` depuis une URL publique générique. Le client saisit une URL ; il ne fournit jamais une URL de proxy HTTP arbitraire. Le service valide les destinations et redirections, limite taille/temps/pagination, et conserve l'URL finale de candidature. Aucun besoin d'authentification pour ces adaptateurs publics. `server/arbeitnow-france-discovery.ts` ajoute une recherche sans URL depuis l'API publique Arbeitnow France : cinq pages maximum, 100 entrées par page, filtres locaux, cache de dix minutes et limite de 450 offres renvoyées. `server/jobicy-remote-discovery.ts` ajoute le flux public des emplois distants Jobicy en zone France, plafonné à 200 offres et mis en cache une heure. `FranceTravailDiscovery` reste une source facultative qui demande des identifiants habilités. L'API persiste les offres via `CareerStore.saveJob` puis renvoie les résultats. Les fixtures couvrent les chemins déterministes ; les contrôles en direct restent en lecture seule.
 
+`server/remoteok-discovery.ts` ajoute le flux JSON public Remote OK, conserve le lien canonique pour l’attribution, filtre les annonces de plus de 60 jours et n’inclut que les zones explicitement compatibles avec la France ; sa réponse est plafonnée à 200 offres et mise en cache une heure. Sur une fiche Remote OK, le navigateur pré-vérifie le redirecteur Apply `/l/{id}` et ne permet la suite que vers un ATS connu.
+
 ## 6. API HTTP exacte
 
 Préfixe `/api/career`. Toutes les réponses JSON ont `Cache-Control: no-store`. Erreurs : `{error:string, code:string}` ; 400 validation, 403 origine, 404 absence, 409 conflit, 423 coffre verrouillé, 413 taille excessive. Les routes nouvelles sont déléguées par `index.ts` à `handleCareerApi(req,res,url,context): Promise<boolean>` ; `false` signifie route inconnue. Contexte A : `{store:CareerStore,vault:Vault,browser:CareerBrowser,runner:CareerRunner,discovery:CareerDiscovery,demo:boolean}`. L'interface structurelle `CareerDiscovery` est exportée depuis `src/shared/career.ts`, sans dépendance serveur. Les helpers JSON/réponse sont privés au module ou fournis par root sans dépendance circulaire.
@@ -222,6 +224,7 @@ Préfixe `/api/career`. Toutes les réponses JSON ont `Cache-Control: no-store`.
 | DELETE `/credentials/:id` | — | 200 `{deleted:true}` |
 | POST `/jobs` | `{url,title,company,location,description?,sourceUrl?}` | 201 `JobOffer` |
 | POST `/discover` | `{url}` | 200 `DiscoveryResult`, offres persistées |
+| POST `/sources/{france-travail,arbeitnow,jobicy,remoteok}/search` | mots-clés et filtres propres à la source | 200 `{jobs,note}`, offres persistées |
 | POST `/applications` | `{jobId,resumeId,prospectId?}` | 201 `Application` (200 si existante) |
 | GET `/applications/:id` | — | 200 `Application` |
 | PATCH `/applications/:id` | réponses/champs publics ci-dessus | 200 `Application` |
@@ -311,3 +314,4 @@ Les sorties de tests doivent distinguer les scénarios exécutés, les limites c
 ## 11. Revue et publication
 
 Avant commit : revue croisée sur validations d'entrée, injection DOM, origine, secrets, état durable avant clic et absence de double soumission ; correction de tous problèmes bloquants. Inspection du diff et fichiers staged pour exclure `data/`, CV réels, credentials, captures ou logs privés. Ne pas écraser les fichiers déjà staged de l'utilisateur ; conserver l'historique/branche existants avant changements de branche. Publier dans le dépôt Anima-Connect existant selon le mandat utilisateur ; attacher toute PR créée au chat. Livraison accompagnée de la commande Windows de démarrage, URL locale, bilan des tests et périmètre exact des formulaires pris en charge.
+

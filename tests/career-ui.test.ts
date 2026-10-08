@@ -428,6 +428,51 @@ test("Jobicy search starts a desktop application campaign without a pasted job U
   await page.screenshot({ path: "artifacts/career-ui/10-jobicy-campaign.png", fullPage: true });
 });
 
+test("Remote OK search keeps source attribution and starts a desktop application campaign", async (t) => {
+  const app = await startCareerTestServer({ mockRemoteOkSearch: true });
+  t.after(() => app.close());
+  assert.equal((await app.json("/api/career/profile", profile(), "PUT")).response.status, 200);
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV principal", filename: "cv.pdf", mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
+
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  const offerLimit = page.getByLabel("Nombre d’offres à examiner");
+  await offerLimit.selectOption("450");
+  await page.getByLabel("Source d’offres").selectOption("remoteok");
+  assert.equal(await offerLimit.inputValue(), "200", "Remote OK's UI limit matches its feed cap");
+  await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
+  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
+  await page.getByRole("button", { name: "Rechercher les offres" }).click();
+  await page.getByRole("heading", { name: "Offre de test Remote OK" }).waitFor();
+  const sourceLink = page.getByRole("link", { name: "Source Remote OK" });
+  assert.equal(await sourceLink.getAttribute("href"), "https://remoteok.com/remote-jobs/test");
+  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+
+  const completed = await waitFor(async () => {
+    const { value } = await app.json("/api/career/campaigns");
+    return value.campaigns[0];
+  }, campaign => campaign?.state === "completed", 20_000);
+  assert.equal(completed.counts.submitted, 1);
+  const { value: snapshot } = await app.json("/api/career/bootstrap");
+  assert.equal(snapshot.jobs[0].title, "Offre de test Remote OK");
+  assert.equal(snapshot.jobs[0].sourceUrl, "https://remoteok.com/remote-jobs/test");
+  assert.equal(snapshot.applications[0].state, "submitted");
+  assert.ok(snapshot.applications[0].receipt);
+  assert.equal(app.fixture.submissions.length, 1);
+  assert.deepEqual(pageErrors, []);
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.screenshot({ path: "artifacts/career-ui/11-remoteok-campaign.png", fullPage: true });
+});
+
 test("career UI resumes a paused application after saving a missing answer", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
@@ -476,3 +521,4 @@ test("career UI resumes a paused application after saving a missing answer", asy
   assert.equal(app.fixture.submissions.length, 1);
   assert.equal(app.fixture.submissions[0].fields.workAuthorization, "Yes");
 });
+

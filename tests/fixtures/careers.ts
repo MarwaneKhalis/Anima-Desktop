@@ -93,6 +93,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     }
     if (path === "/ats-login") { page(res, `<form action="/ats-login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" required></label><button type="submit">Sign in</button></form>`); return; }
     if (path === "/ats-apply") { page(res, simple("/submit")); return; }
+    if (path === "/remoteok-application") { page(res, simple("/submit")); return; }
     if (path === "/submit" && req.method === "POST") { submissions.push(parseSubmission(req, await read(req), path)); page(res, `<h1>Application received</h1><p>Reference: ATS-${submissions.length}</p>`); return; }
     page(res, "<h1>Not found</h1>");
   });
@@ -139,6 +140,10 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     if (path === "/login") { page(res, `<form action="/login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" required></label><button type="submit">Sign in</button></form>`); return; }
     if (path === "/readonly-login") { page(res, `<form action="/login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" readonly required></label><button type="submit">Sign in</button></form>`); return; }
     if (path === "/apply-link") { page(res, `<h1>Software Engineer</h1><a href="/apply-page">Apply for this job</a>`); return; }
+    if (path === "/remoteok-job") { page(res, `<main><h1>Software Engineer</h1><a href="/l/123">Apply</a><a href="/l/123">Apply now</a><a href="/l/123">Apply for this job</a></main>`); return; }
+    if (path === "/l/123") { res.writeHead(302, { Location: `${atsUrl}/remoteok-application` }); res.end(); return; }
+    if (path === "/remoteok-unsafe-job") { page(res, `<main><h1>Software Engineer</h1><a href="/l/999">Apply for this job</a></main>`); return; }
+    if (path === "/l/999") { res.writeHead(302, { Location: "https://evil.example/collect" }); res.end(); return; }
     if (path === "/jobicy-discovered") { page(res, `<main><h1>Software Engineer</h1><a href="${atsUrl}/ashby-job">Apply for this job</a></main>`); return; }
     if (path === "/jobicy-recruitee") { page(res, `<main><h1>Platform Engineer</h1><a href="${atsUrl}/recruitee-job">Apply for this job</a></main>`); return; }
     if (path === "/jobicy-workable") { page(res, `<main><h1>Customer Success Lead</h1><a href="${atsUrl}/workable-job">Apply for this job</a></main>`); return; }
@@ -196,3 +201,4 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     close: async () => { await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())); await new Promise<void>((resolve, reject) => ats.close(err => err ? reject(err) : resolve())); },
   };
 }
+
