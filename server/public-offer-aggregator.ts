@@ -6,6 +6,7 @@ type Offer = Omit<JobOffer, "id" | "discoveredAt" | "updatedAt">;
 export interface PublicOfferSource {
   name: string;
   service?: OfferSearchService;
+  supportsCommune?: boolean;
 }
 
 type SearchResult =
@@ -66,10 +67,17 @@ export class PublicOfferAggregator implements OfferSearchService {
 
     const results: SearchResult[] = await Promise.all(this.sources.map(async source => {
       try {
-        const result = await source.service!.search({ ...criteria, limit: 200 });
+        const sourceCriteria = { ...criteria, limit: 200 };
+        const ignoredFilters: string[] = [];
+        if (source.supportsCommune === false && sourceCriteria.commune?.trim()) {
+          delete sourceCriteria.commune;
+          ignoredFilters.push("filtre ville non appliqué.");
+        }
+        const result = await source.service!.search(sourceCriteria);
         if (!Array.isArray(result.offers) || result.offers.length > 200) throw new Error("invalid response");
         const offers = result.offers.map(offer => publicOffer(offer, this.allowedTestOrigins)).filter((offer): offer is Offer => offer !== null);
-        return { source, offers, note: typeof result.note === "string" ? result.note.trim().slice(0, 500) : "" };
+        const note = typeof result.note === "string" ? result.note.trim().slice(0, 450) : "";
+        return { source, offers, note: [note, ...ignoredFilters].filter(Boolean).join(" ").slice(0, 500) };
       } catch (error) {
         return {
           source,
@@ -109,4 +117,3 @@ export class PublicOfferAggregator implements OfferSearchService {
     return { offers, note: notes.join(" ").slice(0, 1000) };
   }
 }
-

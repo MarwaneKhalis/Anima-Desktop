@@ -411,6 +411,7 @@ test("default public search aggregates sources and launches one desktop campaign
   const source = page.getByLabel("Source d’offres");
   assert.equal(await source.inputValue(), "all");
   assert.equal(await page.getByLabel("Métier(s) ou mot(s)-clé(s)").inputValue(), "Ingénieure logiciel");
+  assert.match(await page.locator(".cw-automation-note").innerText(), /Himalayas recherche les postes compatibles avec la France sans filtre ville/);
   await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
   await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
   const completed = await waitFor(async () => {
@@ -541,6 +542,8 @@ test("Himalayas search starts a verified ATS application from its attributed job
   await page.getByRole("button", { name: "Offres", exact: true }).click();
   await page.getByLabel("Source d’offres").selectOption("himalayas");
   assert.equal(await page.getByLabel("Nombre d’offres à examiner").inputValue(), "20");
+  assert.equal(await page.getByLabel("Ville ou commune (facultatif)").count(), 0);
+  assert.match(await page.locator(".cw-automation-note").innerText(), /ne filtre pas par ville/);
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Product Manager");
   await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
   await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
@@ -556,6 +559,28 @@ test("Himalayas search starts a verified ATS application from its attributed job
   assert.ok(snapshot.applications[0].receipt);
   assert.equal(app.fixture.submissions.length, 1);
   assert.deepEqual(pageErrors, []);
+});
+
+test("test mode keeps every unmocked public source offline", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+
+  for (const source of ["all-public", "arbeitnow", "jobicy", "remoteok", "himalayas"]) {
+    const { response, value } = await app.json(`/api/career/sources/${source}/search`, { keywords: "Engineer", commune: "Paris" });
+    assert.equal(response.status, 200, source);
+    assert.deepEqual(value.jobs, [], source);
+    assert.match(value.note, /Flux externe neutralisé en mode test/, source);
+  }
+
+  await app.json("/api/career/vault/initialize", { passphrase: "test search isolation vault" });
+  await app.json("/api/career/sources/france-travail", {
+    clientId: "test-client",
+    clientSecret: "test-secret",
+    scope: "test-scope",
+  }, "POST");
+  const franceTravail = await app.json("/api/career/sources/france-travail/search", { keywords: "Engineer", commune: "Paris" });
+  assert.equal(franceTravail.response.status, 200);
+  assert.deepEqual(franceTravail.value.jobs, []);
 });
 
 test("career UI resumes a paused application after saving a missing answer", async (t) => {
@@ -606,4 +631,3 @@ test("career UI resumes a paused application after saving a missing answer", asy
   assert.equal(app.fixture.submissions.length, 1);
   assert.equal(app.fixture.submissions[0].fields.workAuthorization, "Yes");
 });
-

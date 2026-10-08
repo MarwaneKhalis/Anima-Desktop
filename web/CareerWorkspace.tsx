@@ -331,7 +331,7 @@ export default function CareerWorkspace() {
       {
         keywords,
         ...(searchSource === "france-travail" && searchCriteria.department.trim() ? { department: searchCriteria.department.trim() } : {}),
-        ...(searchCriteria.commune.trim() ? { commune: searchCriteria.commune.trim() } : {}),
+        ...(searchSource !== "himalayas" && searchCriteria.commune.trim() ? { commune: searchCriteria.commune.trim() } : {}),
         ...(searchCriteria.contractType.trim() ? { contractType: searchCriteria.contractType.trim() } : {}),
         limit: searchCriteria.limit,
       },
@@ -849,7 +849,7 @@ export default function CareerWorkspace() {
                             />
                           </label>
                         )}
-                        <label>
+                        {searchSource !== "himalayas" && <label>
                           Ville ou commune (facultatif)
                           <input
                             maxLength={100}
@@ -857,7 +857,7 @@ export default function CareerWorkspace() {
                             onChange={(e) => setSearchCriteria({ ...searchCriteria, commune: e.target.value })}
                             placeholder="Paris ou code INSEE"
                           />
-                        </label>
+                        </label>}
                         <label>
                           {searchSource === "france-travail" ? "Contrat (code API, facultatif)" : "Contrat (filtre texte, facultatif)"}
                           <input
@@ -894,7 +894,7 @@ export default function CareerWorkspace() {
                       </div>
                       <small className="cw-automation-note">
                           {searchSource === "all"
-                            ? <>La recherche interroge simultanément les flux publics <a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">Arbeitnow</a>, <a href="https://jobicy.com" target="_blank" rel="noreferrer">Jobicy</a>, <a href="https://remoteok.com/api" target="_blank" rel="noreferrer">Remote OK</a> et <a href="https://himalayas.app/api" target="_blank" rel="noreferrer">Himalayas</a>. Chaque fiche conserve son lien source; les offres identiques sont regroupées. France Travail reste sélectionnable séparément avec ses accès API.</>
+                            ? <>La recherche interroge simultanément les flux publics <a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">Arbeitnow</a>, <a href="https://jobicy.com" target="_blank" rel="noreferrer">Jobicy</a>, <a href="https://remoteok.com/api" target="_blank" rel="noreferrer">Remote OK</a> et <a href="https://himalayas.app/api" target="_blank" rel="noreferrer">Himalayas</a>. Le filtre ville s’applique aux trois premières sources; Himalayas recherche les postes compatibles avec la France sans filtre ville. Chaque fiche conserve son lien source; les offres identiques sont regroupées. France Travail reste sélectionnable séparément avec ses accès API.</>
                             : searchSource === "arbeitnow"
                             ? <>Les offres viennent de l’<a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">API publique Arbeitnow France</a>. La couverture dépend des annonces indexées.</>
                             : searchSource === "jobicy"
@@ -902,7 +902,7 @@ export default function CareerWorkspace() {
                               : searchSource === "remoteok"
                                 ? <>Les offres viennent du <a href="https://remoteok.com/api" target="_blank" rel="noreferrer">flux JSON public Remote OK</a>. Le lien d’origine Remote OK reste affiché sur chaque fiche; les annonces de plus de 60 jours et les zones non explicitement compatibles avec la France sont écartées.</>
                                 : searchSource === "himalayas"
-                                  ? <>Les offres viennent de l’<a href="https://himalayas.app/api" target="_blank" rel="noreferrer">API publique Himalayas</a>. Les annonces limitées à un autre pays sont écartées ; le lien Himalayas reste attribué. Les données sont mises à jour quotidiennement.</>
+                                  ? <>Les offres viennent de l’<a href="https://himalayas.app/api" target="_blank" rel="noreferrer">API publique Himalayas</a>. Cette source ne filtre pas par ville; les annonces limitées à un autre pays sont écartées. Le lien Himalayas reste attribué et les données sont mises à jour quotidiennement.</>
                                 : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
                       </small>
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
@@ -2263,4 +2263,3 @@ export default function CareerWorkspace() {
     </div>
   );
 }
-

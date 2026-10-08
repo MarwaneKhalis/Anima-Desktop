@@ -97,3 +97,15 @@ test("distinguishes unsupported source filters from outages without leaking upst
   assert.doesNotMatch(result.note, /secret network detail|Himalayas ne filtre/);
 });
 
+test("omits the city filter for sources that do not support it and explains the limitation", async () => {
+  const calls: OfferSearchCriteria[] = [];
+  const aggregator = new PublicOfferAggregator([
+    { name: "Himalayas", supportsCommune: false, service: service([offer("https://jobs.example/remote")], calls) },
+  ]);
+
+  const result = await aggregator.search({ keywords: "Engineer", commune: "Paris" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].commune, undefined);
+  assert.match(result.note, /Himalayas : .*filtre ville non appliqué/);
+  assert.equal(result.offers.length, 1);
+});

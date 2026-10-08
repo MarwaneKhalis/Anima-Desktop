@@ -33,6 +33,7 @@ import { JobicyRemoteDiscovery } from "./jobicy-remote-discovery.ts";
 import { RemoteOkDiscovery } from "./remoteok-discovery.ts";
 import { HimalayasDiscovery } from "./himalayas-discovery.ts";
 import { PublicOfferAggregator } from "./public-offer-aggregator.ts";
+import { resolveTestFixtureUrl } from "./test-fixtures.ts";
 import { csvParse, csvStringify, makeSearchUrl } from "./domain.ts";
 import type { Prospect, SavedSearch, Template } from "../src/shared/types.ts";
 import type { OfferSearchService } from "../src/shared/career.ts";
@@ -63,14 +64,14 @@ if (
 )
   throw new Error("Origines de test invalides.");
 const careerOptions = { allowedTestOrigins };
+const testMode = process.env.ANIMA_TEST_MODE === "1";
+const testFixtureUrl = (name: string) => testMode ? resolveTestFixtureUrl(process.env[name], allowedTestOrigins) : undefined;
 const careerBrowser = new CareerBrowser({
   ...careerOptions,
   headless: process.env.CAREER_HEADLESS === "1",
 });
 const discovery = new JobDiscovery(allowedTestOrigins);
-const testFranceTravailUrl = process.env.ANIMA_TEST_MODE === "1"
-  ? process.env.CAREER_TEST_FRANCE_TRAVAIL_URL
-  : undefined;
+const testFranceTravailUrl = testFixtureUrl("CAREER_TEST_FRANCE_TRAVAIL_URL");
 const testOfferSearch: OfferSearchService | undefined = testFranceTravailUrl
   ? {
       search: async (criteria) => ({
@@ -86,31 +87,48 @@ const testOfferSearch: OfferSearchService | undefined = testFranceTravailUrl
       }),
     }
   : undefined;
-const testArbeitnowUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_ARBEITNOW_URL : undefined;
+const testArbeitnowUrl = testFixtureUrl("CAREER_TEST_ARBEITNOW_URL");
 const testPublicOfferSearch: OfferSearchService | undefined = testArbeitnowUrl
   ? { search: async (criteria) => ({ offers: [{ url: testArbeitnowUrl, title: "Offre de test Arbeitnow France", company: "Entreprise de test", location: "Paris, France", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://www.arbeitnow.fr" }], note: `Résultat de test pour ${criteria.keywords}.` }) }
   : undefined;
-const testJobicyUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_JOBICY_URL : undefined;
+const testJobicyUrl = testFixtureUrl("CAREER_TEST_JOBICY_URL");
 const testJobicyOfferSearch: OfferSearchService | undefined = testJobicyUrl
   ? { search: async (criteria) => ({ offers: [{ url: testJobicyUrl, title: "Offre de test Jobicy France", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://jobicy.com/jobs/test" }], note: `Résultat de test Jobicy pour ${criteria.keywords}.` }) }
   : undefined;
-const testRemoteOkUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_REMOTEOK_URL : undefined;
+const testRemoteOkUrl = testFixtureUrl("CAREER_TEST_REMOTEOK_URL");
 const testRemoteOkOfferSearch: OfferSearchService | undefined = testRemoteOkUrl
   ? { search: async (criteria) => ({ offers: [{ url: testRemoteOkUrl, title: "Offre de test Remote OK", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://remoteok.com/remote-jobs/test" }], note: `Résultat de test Remote OK pour ${criteria.keywords}.` }) }
   : undefined;
-const testHimalayasUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_HIMALAYAS_URL : undefined;
+const testHimalayasUrl = testFixtureUrl("CAREER_TEST_HIMALAYAS_URL");
 const testHimalayasOfferSearch: OfferSearchService | undefined = testHimalayasUrl
-  ? { search: async (criteria) => ({ offers: [{ url: testHimalayasUrl, title: "Offre de test Himalayas", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://himalayas.app/companies/test/jobs/test-role" }], note: `Résultat de test Himalayas pour ${criteria.keywords}.` }) }
+  ? { search: async (criteria) => {
+      if (criteria.commune?.trim()) throw new CareerError(400, "unsupported_filter", "Himalayas ne filtre pas par ville.");
+      return { offers: [{ url: testHimalayasUrl, title: "Offre de test Himalayas", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://himalayas.app/companies/test/jobs/test-role" }], note: `Résultat de test Himalayas pour ${criteria.keywords}.` };
+    } }
   : undefined;
-const publicOfferSearch = testPublicOfferSearch || new ArbeitnowFranceDiscovery();
-const jobicyOfferSearch = testJobicyOfferSearch || new JobicyRemoteDiscovery();
-const remoteOkOfferSearch = testRemoteOkOfferSearch || new RemoteOkDiscovery();
-const himalayasOfferSearch = testHimalayasOfferSearch || new HimalayasDiscovery();
+const disabledTestOfferSearch: OfferSearchService = {
+  search: async () => ({ offers: [], note: "Flux externe neutralisé en mode test." }),
+};
+const testFranceTravailRequest: typeof fetch = async (input) => {
+  const url = new URL(String(input));
+  if (url.hostname === "geo.api.gouv.fr") {
+    const department = url.searchParams.get("codeDepartement") || "";
+    const code = department === "2A" ? "2A004" : department === "2B" ? "2B004" : department ? `${department}000`.slice(0, 5) : "75056";
+    return Response.json([{ code, nom: url.searchParams.get("nom") || "Paris", codeDepartement: department || "75" }]);
+  }
+  if (url.hostname === "entreprise.francetravail.fr") return Response.json({ access_token: "anima-test-token", expires_in: 3600 });
+  if (url.hostname === "api.francetravail.io") return Response.json({ resultats: [] });
+  throw new Error("Appel externe inattendu dans le transport France Travail simulé.");
+};
+const publicOfferSearch = testPublicOfferSearch || (testMode ? disabledTestOfferSearch : new ArbeitnowFranceDiscovery());
+const jobicyOfferSearch = testJobicyOfferSearch || (testMode ? disabledTestOfferSearch : new JobicyRemoteDiscovery());
+const remoteOkOfferSearch = testRemoteOkOfferSearch || (testMode ? disabledTestOfferSearch : new RemoteOkDiscovery());
+const himalayasOfferSearch = testHimalayasOfferSearch || (testMode ? disabledTestOfferSearch : new HimalayasDiscovery());
 const allPublicOfferSearch = new PublicOfferAggregator([
   { name: "Arbeitnow", service: publicOfferSearch },
   { name: "Jobicy", service: jobicyOfferSearch },
   { name: "Remote OK", service: remoteOkOfferSearch },
-  { name: "Himalayas", service: himalayasOfferSearch },
+  { name: "Himalayas", service: himalayasOfferSearch, supportsCommune: false },
 ], allowedTestOrigins);
 let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);
@@ -272,8 +290,8 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         runner: demo ? demoRunner : runner,
         discovery,
         offerSearch: demo
-          ? new FranceTravailDiscovery(demoVault)
-          : testOfferSearch || new FranceTravailDiscovery(vault),
+          ? new FranceTravailDiscovery(demoVault, testMode ? testFranceTravailRequest : fetch)
+          : testOfferSearch || new FranceTravailDiscovery(vault, testMode ? testFranceTravailRequest : fetch),
         publicOfferSearch: demo && !testPublicOfferSearch ? undefined : publicOfferSearch,
         jobicyOfferSearch: demo && !testJobicyOfferSearch ? undefined : jobicyOfferSearch,
         remoteOkOfferSearch: demo && !testRemoteOkOfferSearch ? undefined : remoteOkOfferSearch,
@@ -652,4 +670,3 @@ if (!electronMode) {
   process.on("SIGTERM", shutdown);
 }
 export { shutdown };
-
