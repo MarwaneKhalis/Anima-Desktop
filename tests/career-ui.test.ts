@@ -390,12 +390,17 @@ test("Arbeitnow search can save offers before a CV is added", async (t) => {
   assert.equal(await applyButton.isDisabled(), true);
 });
 
-test("default public search aggregates available sources in one desktop workflow", async (t) => {
+test("default public search aggregates sources and launches one desktop campaign", async (t) => {
   const app = await startCareerTestServer({ mockAllPublicSearch: true });
   t.after(() => app.close());
   const searchProfile = profile();
   searchProfile.preferences.titles = ["Ingénieure logiciel"];
   assert.equal((await app.json("/api/career/profile", searchProfile, "PUT")).response.status, 200);
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV principal", filename: "cv.pdf", mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
@@ -406,10 +411,14 @@ test("default public search aggregates available sources in one desktop workflow
   const source = page.getByLabel("Source d’offres");
   assert.equal(await source.inputValue(), "all");
   assert.equal(await page.getByLabel("Métier(s) ou mot(s)-clé(s)").inputValue(), "Ingénieure logiciel");
-  await page.getByRole("button", { name: "Rechercher les offres" }).click();
-  await page.getByRole("heading", { name: "Offre de test Arbeitnow France" }).waitFor();
-  await page.getByRole("heading", { name: "Offre de test Jobicy France" }).waitFor();
-  await page.getByRole("heading", { name: "Offre de test Remote OK" }).waitFor();
+  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
+  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  const completed = await waitFor(async () => {
+    const { value } = await app.json("/api/career/campaigns");
+    return value.campaigns[0];
+  }, campaign => campaign?.state === "completed", 30_000);
+  assert.equal(completed.counts.total, 3);
+  assert.equal(completed.counts.submitted, 3);
   const { value: snapshot } = await app.json("/api/career/bootstrap");
   assert.equal(snapshot.jobs.length, 3);
   assert.deepEqual(new Set(snapshot.jobs.map((job: { sourceUrl: string }) => job.sourceUrl)), new Set([
@@ -417,6 +426,9 @@ test("default public search aggregates available sources in one desktop workflow
     "https://jobicy.com/jobs/test",
     "https://remoteok.com/remote-jobs/test",
   ]));
+  assert.equal(snapshot.applications.length, 3);
+  assert.ok(snapshot.applications.every((application: Application) => application.state === "submitted"));
+  assert.equal(app.fixture.submissions.length, 3);
   assert.deepEqual(pageErrors, []);
 });
 
