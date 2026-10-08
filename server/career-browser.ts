@@ -251,6 +251,12 @@ export class CareerBrowser {
           const redirectedFrom = request.redirectedFrom();
           const remoteOkApplyRedirect = session!.pendingAtsOrigin === REMOTE_OK_APPLY_REDIRECT
             && Boolean(redirectedFrom && isRemoteOkApplyRedirectorUrl(redirectedFrom.url(), this.testOrigins));
+          if (request.isNavigationRequest() && session!.initialNavigation && redirectedFrom
+            && !session!.pendingAtsOrigin && !remoteOkApplyRedirect) {
+            const fromAts = careerAtsForUrl(redirectedFrom.url());
+            const toAts = careerAtsForUrl(url.href);
+            if (!fromAts || fromAts !== toAts) return route.abort();
+          }
           const allowedAtsNavigation = request.isNavigationRequest() && allowsCareerAtsNavigation({
             from: session!.flowOrigin, to: url.href, pendingAtsOrigin: session!.pendingAtsOrigin,
             initialNavigation: session!.initialNavigation, redirected: Boolean(redirectedFrom), remoteOkApplyRedirect, testOrigins: this.testOrigins,
@@ -268,8 +274,14 @@ export class CareerBrowser {
         return route.continue();
       });
       await page.goto(start.href, { waitUntil: "domcontentloaded" });
+      const landed = new URL(page.url());
+      const startAts = careerAtsForUrl(start.href);
+      const landedAts = careerAtsForUrl(landed.href);
+      if (landed.origin !== start.origin && (!startAts || landedAts !== startAts)) {
+        return await this.finish(session, result("blocked", "Redirection initiale vers un autre site refusée. Ouvrez la fiche et sélectionnez son lien Apply visible."));
+      }
       session.initialNavigation = false;
-      session.flowOrigin = new URL(page.url()).origin;
+      session.flowOrigin = landed.origin;
       return await this.finish(session, await this.drive(session));
     } catch {
       const outcome = result(session?.submittedClick ? "uncertain" : input.signal?.aborted ? "failed" : "blocked", session?.submittedClick ? "L’envoi a peut-être eu lieu ; vérifiez manuellement avant toute nouvelle tentative." : input.signal?.aborted ? "Parcours interrompu avant l’envoi." : "Le navigateur n’a pas pu terminer ce formulaire.");

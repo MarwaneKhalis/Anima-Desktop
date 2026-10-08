@@ -566,12 +566,16 @@ test("a required non-CV file can be explicitly resolved with the selected stored
     assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-b", bytesB).sha256);
   } finally { await b.close(); }
 });
-test("initial ATS redirect uses only destination-origin credential", async () => {
+test("an initial job-page redirect to an ATS is blocked before personal data or submission", async () => {
   const b = new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin] });
   const seen: string[] = [];
-  const outcome = await b.run({ application: app(), job: job("/ats-redirect"), profile, resume: { meta: meta("cv-a", bytesA), bytes: bytesA }, mode: "submit", getCredential: origin => { seen.push(origin); return origin === new URL(fx.atsUrl).origin ? { username: "ats@example.test", password: "ats-secret" } : null; }, beforeSubmit: () => {} });
-  assert.equal(outcome.state, "submitted");
-  assert.deepEqual(seen, [new URL(fx.atsUrl).origin]);
+  const submissions = fx.submissions.length;
+  try {
+    const outcome = await b.run({ application: app(), job: job("/ats-redirect"), profile, resume: { meta: meta("cv-a", bytesA), bytes: bytesA }, mode: "submit", getCredential: origin => { seen.push(origin); return origin === new URL(fx.atsUrl).origin ? { username: "ats@example.test", password: "ats-secret" } : null; }, beforeSubmit: () => {} });
+    assert.equal(outcome.state, "blocked");
+    assert.deepEqual(seen, []);
+    assert.equal(fx.submissions.length, submissions);
+  } finally { await b.close(); }
 });
 test("third-party exfiltration request is blocked while filling", async () => {
   const count = fx.exfilCount;

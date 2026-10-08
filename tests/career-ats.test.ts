@@ -112,6 +112,7 @@ test("cross-origin document navigation needs an explicit Apply target or same-ve
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://other.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com", redirected: true }), false, "cross-tenant Workday redirects are blocked");
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://workday.wd5.myworkdayjobs.com:444/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com", redirected: true }), false, "cross-origin Workday redirects are blocked");
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://evil.example/apply", pendingAtsOrigin: "https://evil.example" }), false);
+  assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://careers.example/jobs/1", to: "https://boards.greenhouse.io/acme/jobs/12/apply", initialNavigation: true, redirected: true }), false, "an arbitrary initial job-page redirect cannot bypass the visible Apply link");
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", redirected: true }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://jobs.lever.co/acme/id/apply", redirected: true }), false);
 });

@@ -45,15 +45,17 @@ export function allowsCareerAtsNavigation(input: {
     && ((to.protocol === "https:" && toAts !== null) || input.testOrigins.has(to.origin))) return true;
   // A test fixture may model a visible cross-origin Apply link, but it must still
   // be selected explicitly as the pending destination before navigation is allowed.
-  if (input.testOrigins.has(to.origin)) return input.pendingAtsOrigin === to.origin
-    || (input.initialNavigation && input.redirected);
+  if (input.testOrigins.has(to.origin)) return input.pendingAtsOrigin === to.origin;
   if (to.protocol !== "https:") return false;
   const fromAts = careerAtsForUrl(from.href);
   if (!toAts) return false;
   if ((fromAts === "smartrecruiters" || fromAts === "teamtailor" || fromAts === "workday") && toAts === fromAts && from.origin !== to.origin
     && (input.redirected || input.pendingAtsOrigin !== to.origin)) return false;
   return input.pendingAtsOrigin === to.origin
-    || (input.initialNavigation && input.redirected && (!fromAts || fromAts === toAts))
+    // A job page cannot silently redirect the initial navigation to an ATS.
+    // Cross-origin ATS navigation must follow a visible Apply link; initial
+    // canonical redirects are allowed only within the same recognized vendor.
+    || (input.initialNavigation && input.redirected && fromAts !== null && fromAts === toAts)
     || (input.redirected && fromAts !== null && fromAts === toAts);
 }
 
