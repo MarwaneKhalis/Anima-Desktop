@@ -2,7 +2,7 @@
 
 ## Périmètre actuel
 
-Le navigateur sait ouvrir les parcours publics Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday, suivre un unique lien de candidature visible, attendre les scripts de formulaire chargés depuis l’ATS, puis appliquer les règles de remplissage déjà utilisées par l’application.
+Le navigateur sait ouvrir les parcours publics Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday, suivre un unique lien de candidature visible, attendre les scripts de formulaire chargés depuis l’ATS, puis appliquer les règles de remplissage déjà utilisées par l’application. Les champs clairement identifiés d’expérience et de formation sont rapprochés des entrées du profil dans leur ordre d’affichage ; une réponse enregistrée pour la candidature reste prioritaire et une donnée absente n’est jamais inventée.
 
 - Greenhouse : `boards.greenhouse.io`, `job-boards.greenhouse.io`, `boards.eu.greenhouse.io`.
 - Lever : `jobs.lever.co`, `jobs.eu.lever.co`.

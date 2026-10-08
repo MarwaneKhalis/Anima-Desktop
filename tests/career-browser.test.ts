@@ -19,6 +19,14 @@ const meta = (id: string, bytes: Buffer): Resume => ({ id, name: id, filename: `
 const profile: CareerProfile = {
   firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", phone: "12345", city: "Paris", country: "France", address: "", postalCode: "", headline: "", summary: "", linkedinUrl: "", websiteUrl: "", skills: [], languages: [], experiences: [], education: [], preferences: { titles: [], locations: [], remote: false, contract: "" }, answers: {}, updatedAt: "2026-01-01T00:00:00Z",
 };
+const profileWithHistory: CareerProfile = {
+  ...profile,
+  experiences: [
+    { company: "Analytical Engines", title: "Senior Engineer", start: "2022", end: "2025", description: "Led the platform team." },
+    { company: "Difference Engine Ltd", title: "Software Engineer", start: "2019", end: "2022", description: "Built numerical tools." },
+  ],
+  education: [{ school: "University of London", degree: "Mathematics", start: "2015", end: "2018" }],
+};
 const app = (answers: Record<string, string | boolean> = {}): Application => ({ id: "app", jobId: "job", resumeId: "cv-a", prospectId: null, state: "running", outcome: "active", answers, missingFields: [], notes: "", nextActionAt: "", lastError: "", receipt: null, createdAt: "", updatedAt: "", submittedAt: null });
 const job = (path: string): JobOffer => ({ id: "job", url: fx.baseUrl + path, title: "Engineer", company: "Fixture", location: "Paris", description: "", sourceUrl: fx.baseUrl, discoveredAt: "", updatedAt: "" });
 const browser = () => new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin] });
@@ -38,6 +46,48 @@ test("preparation fills standard form but sends no application", async () => {
   const count = fx.submissions.length;
   const { outcome, marker } = await run("/simple", "prepare");
   assert.equal(outcome.state, "ready"); assert.equal(marker, 0); assert.equal(fx.submissions.length, count);
+});
+test("profile experience and education entries fill matching ATS fields in order", async () => {
+  const submissions = fx.submissions.length;
+  const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}) => ({
+    ...inputFor("/profile-history", mode, { answers }),
+    profile: profileWithHistory,
+  });
+  const preparation = new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin] });
+  try {
+    const ready = await preparation.run(makeInput("prepare"));
+    assert.equal(ready.state, "ready", ready.message);
+    assert.equal(fx.submissions.length, submissions, "profile preparation never sends an application");
+  } finally { await preparation.close(); }
+
+  const submit = new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin] });
+  try {
+    const result = await submit.run(makeInput("submit"));
+    assert.equal(result.state, "submitted", result.message);
+    assert.equal(fx.submissions.length, submissions + 1);
+    const fields = fx.submissions.at(-1)!.fields;
+    assert.equal(fields.employment_0_company, "Analytical Engines");
+    assert.equal(fields.employment_0_position, "Senior Engineer");
+    assert.equal(fields.employment_0_start_date, "2022");
+    assert.equal(fields.employment_0_end_date, "2025");
+    assert.equal(fields.employment_0_responsibilities, "Led the platform team.");
+    assert.equal(fields.employment_1_company, "Difference Engine Ltd");
+    assert.equal(fields.employment_1_position, "Software Engineer");
+    assert.equal(fields.employment_1_start_date, "2019");
+    assert.equal(fields.employment_1_end_date, "2022");
+    assert.equal(fields.employment_1_responsibilities, "Built numerical tools.");
+    assert.equal(fields.education_0_school, "University of London");
+    assert.equal(fields.education_0_degree, "Mathematics");
+    assert.equal(fields.education_0_start_date, "2015");
+    assert.equal(fields.education_0_end_date, "2018");
+  } finally { await submit.close(); }
+
+  const override = new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin] });
+  try {
+    const result = await override.run(makeInput("submit", { employment_0_company: "Corrected employer" }));
+    assert.equal(result.state, "submitted", result.message);
+    assert.equal(fx.submissions.at(-1)?.fields.employment_0_company, "Corrected employer", "application-specific answers take precedence over profile history");
+  } finally { await override.close(); }
 });
 test("follows one visible Apply link and waits for its first-party form script", async () => {
   const count = fx.submissions.length;
@@ -212,9 +262,10 @@ test("Workday multi-step form pauses for unknown answers and handles Save and Co
   const allowedTestOrigins = [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin];
   const before = fx.submissions.length;
   let marker = 0;
-  const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}) => inputFor(
-    "/jobicy-workday", mode, { answers }, () => { marker++; },
-  );
+  const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}) => ({
+    ...inputFor("/jobicy-workday", mode, { answers }, () => { marker++; }),
+    profile: profileWithHistory,
+  });
 
   const preparation = new CareerBrowser({ headless: true, allowedTestOrigins });
   try {
@@ -235,6 +286,10 @@ test("Workday multi-step form pauses for unknown answers and handles Save and Co
     assert.equal(fx.submissions.length, before + 1);
     assert.equal(fx.submissions.at(-1)?.fields.firstName, profile.firstName);
     assert.equal(fx.submissions.at(-1)?.fields.wd_work_france, "Yes");
+    assert.equal(fx.submissions.at(-1)?.fields.employment_0_company, "Analytical Engines");
+    assert.equal(fx.submissions.at(-1)?.fields.employment_1_company, "Difference Engine Ltd");
+    assert.equal(fx.submissions.at(-1)?.fields.employment_0_responsibilities, "Led the platform team.");
+    assert.equal(fx.submissions.at(-1)?.fields.education_0_degree, "Mathematics");
     assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
   } finally { await submit.close(); }
 });

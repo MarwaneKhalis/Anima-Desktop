@@ -63,6 +63,40 @@ const knownValue = (key: string, p: CareerProfile): string | undefined => {
   ];
   return rules.find(([re]) => re.test(key))?.[1];
 };
+type RepeatedProfileField = { collection: "experiences" | "education"; field: string };
+const repeatedProfileField = (control: Control): RepeatedProfileField | undefined => {
+  const label = tidy(control.label);
+  const key = tidy([control.name, control.key].filter(Boolean).join(" "));
+  const combined = `${label} ${key}`.trim();
+  const hasExperienceContext = /\b(experience|employment|work history|previous job|prior job)\b/.test(combined);
+  const hasEducationContext = /\b(education|school history|academic history|study history)\b/.test(combined);
+
+  if (/\b(school|school name|university|college|institution|institution name)\b/.test(combined)) return { collection: "education", field: "school" };
+  if (/\b(degree|degree name|qualification|diploma)\b/.test(combined)) return { collection: "education", field: "degree" };
+  if (/\b(education|school|study|academic) (start|from) date\b/.test(combined) || (hasEducationContext && /\b(start|from) date\b/.test(label))) return { collection: "education", field: "start" };
+  if (/\b(education|school|study|academic) (end|to) date\b/.test(combined) || (hasEducationContext && /\b(end|to) date\b/.test(label))) return { collection: "education", field: "end" };
+
+  if (/\b(company|company name|employer|employer name|organization|organization name)\b/.test(combined)) return { collection: "experiences", field: "company" };
+  if (/\b(job title|position title|role title|employment title|job position|position|role)\b/.test(combined)) return { collection: "experiences", field: "title" };
+  if (/\b(experience|employment|work) (start|from) date\b/.test(combined) || (hasExperienceContext && /\b(start|from) date\b/.test(label)) || /\b(employment|work|experience)[ _-]?(start|from)[ _-]?(date|year)\b/.test(key)) return { collection: "experiences", field: "start" };
+  if (/\b(experience|employment|work) (end|to) date\b/.test(combined) || (hasExperienceContext && /\b(end|to) date\b/.test(label)) || /\b(employment|work|experience)[ _-]?(end|to)[ _-]?(date|year)\b/.test(key)) return { collection: "experiences", field: "end" };
+  if (/\b(job duties|responsibilities|duties|role description|employment description|experience description)\b/.test(combined)) return { collection: "experiences", field: "description" };
+  return undefined;
+};
+const profileValuesFor = (controls: Control[], profile: CareerProfile): Map<number, string | undefined> => {
+  const counts = new Map<string, number>();
+  const values = new Map<number, string | undefined>();
+  for (const control of controls) {
+    const field = repeatedProfileField(control);
+    if (!field) continue;
+    const countKey = `${field.collection}.${field.field}`;
+    const index = counts.get(countKey) || 0;
+    counts.set(countKey, index + 1);
+    const entry = profile[field.collection][index] as unknown as Record<string, string> | undefined;
+    values.set(control.index, entry?.[field.field]);
+  }
+  return values;
+};
 const missingType = (c: Control): MissingField["type"] => c.type === "file" ? "file" : c.tag === "select" ? "select" : ["checkbox", "radio"].includes(c.type) ? "boolean" : ["text", "email", "tel", "url", "textarea"].includes(c.type) ? "text" : "unknown";
 const loginButton = (s: string) => /^(log in|login|sign in|connexion|se connecter|connecter|submit)$/i.test(s.trim());
 const loginField = (c: Control) => c.type === "email" || [c.name, c.label, c.key].some(value => /(^| )(username|user name|email|e mail|identifiant|login)( |$)/i.test(tidy(value)));
@@ -310,6 +344,7 @@ export class CareerBrowser {
         }
         return undefined;
       };
+      const profileValues = profileValuesFor(cs, input.profile);
       const radioGroups = new Map<string, Control[]>();
       for (const c of cs.filter(c => c.type === "radio")) {
         const groupKey = tidy(c.name || c.key);
@@ -348,7 +383,7 @@ export class CareerBrowser {
         }
         const aliases = new Set([key, tidy(c.label), tidy(c.key)]);
         const explicit = explicitFor(...aliases);
-        const value = explicit === undefined ? knownValue(tidy(c.label || c.key), input.profile) : explicit;
+        const value = explicit === undefined ? profileValues.get(c.index) ?? knownValue(tidy(c.label || c.key), input.profile) : explicit;
         if (c.type === "checkbox") {
           if (typeof value === "boolean") {
             if (value) await loc.check();
