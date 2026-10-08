@@ -55,6 +55,13 @@ function matchesContract(wanted: string, available: string): boolean {
   return value.includes(query);
 }
 
+/** Jobicy's geo=france feed can still include other regions. Keep only listings
+ * whose stated eligibility includes France or a region that contains France. */
+function isOpenToFrance(location: string): boolean {
+  const labels = normalize(location).split(/[,;|/]+/).map(value => value.trim()).filter(Boolean);
+  return labels.some(label => /^(?:france|europe|emea|eu|eea|european union|european economic area|anywhere|worldwide|global)(?:\b|$)/.test(label));
+}
+
 /** Public remote-job feed from Jobicy; the API response is cached for one hour. */
 export class JobicyRemoteDiscovery implements OfferSearchService {
   private readonly request: typeof fetch;
@@ -149,6 +156,7 @@ export class JobicyRemoteDiscovery implements OfferSearchService {
     for (const row of rows) {
       const job = this.mapJob(row);
       if (!job || !phrases.some(words => words.every(word => job.searchText.includes(word)))) continue;
+      if (!isOpenToFrance(job.location)) continue;
       if (commune && !job.location.includes(commune)) continue;
       if (!matchesContract(criteria.contractType || "", job.contract)) continue;
       const key = job.offer.url.toLowerCase();
@@ -158,7 +166,7 @@ export class JobicyRemoteDiscovery implements OfferSearchService {
       if (offers.length >= limit) break;
     }
     const note = offers.length
-      ? `${offers.length} offre(s) Jobicy trouvée(s) parmi les postes distants correspondant à la zone France, ${offers.length === 1 ? "résultat" : "résultats"} filtré(s) localement. La source est actualisée au maximum une fois par heure. Source : ${SOURCE_URL}.`
+      ? `${offers.length} offre(s) Jobicy trouvée(s) parmi les postes distants indiquant France, Europe/EMEA ou partout, ${offers.length === 1 ? "résultat" : "résultats"} filtré(s) localement. La source est actualisée au maximum une fois par heure. Source : ${SOURCE_URL}.`
       : `Aucune offre Jobicy correspondante parmi les postes distants de la zone France. Les filtres métier, ville et contrat sont appliqués localement ; la source ne couvre pas tout le marché français. Source : ${SOURCE_URL}.`;
     return { offers, note };
   }

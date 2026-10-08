@@ -77,8 +77,9 @@ La recherche laisse choisir `ArbeitnowFranceDiscovery` ou `JobicyRemoteDiscovery
 commune et contrat facultatifs → flux public sélectionné → offres filtrées localement et
 dédupliquées, enregistrées dans `CareerStore` → campagnes durables. Arbeitnow parcourt au plus cinq
 pages de 100 annonces, renvoie au plus 450 résultats et met chaque page en cache dix minutes. Jobicy
-demande au plus 200 offres distantes ouvertes à la France, publiées dans les sept derniers jours,
-et met la réponse en cache une heure. Ces sources ne couvrent pas tout le marché. L’interface
+demande au plus 200 offres distantes publiées dans les sept derniers jours et conserve celles dont
+la zone déclarée inclut France, Europe/EMEA ou partout ; la réponse est mise en cache une heure.
+Ces sources ne couvrent pas tout le marché. L’interface
 conserve le lien vers la source et le lien de retour demandé par Arbeitnow.
 `FranceTravailDiscovery` reste disponible en option pour les personnes disposant d’identifiants
 habilités ; la recherche publique n’en dépend pas. L’envoi automatique est limité aux formulaires

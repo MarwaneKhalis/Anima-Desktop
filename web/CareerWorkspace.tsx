@@ -769,7 +769,7 @@ export default function CareerWorkspace() {
                           {searchSource === "arbeitnow"
                             ? "Recherche publique d’offres récentes en France, sans clé API ni URL à copier."
                             : searchSource === "jobicy"
-                              ? "Offres à distance explicitement ouvertes à la France. Source publique, sans clé API ni compte à créer."
+                              ? "Offres à distance indiquant France, Europe/EMEA ou partout dans leur zone d’éligibilité. Source publique, sans clé API ni compte à créer."
                               : "La recherche part de vos mots-clés et critères. Cette source demande des identifiants API personnels conservés dans le coffre local chiffré."}
                         </p>
                       </div>
@@ -794,7 +794,7 @@ export default function CareerWorkspace() {
                         Source d’offres
                         <select value={searchSource} onChange={(e) => setSearchSource(e.target.value as "arbeitnow" | "france-travail" | "jobicy")}>
                           <option value="arbeitnow">Arbeitnow France · public, sans clé API</option>
-                          <option value="jobicy">Jobicy · télétravail ouvert à la France</option>
+                          <option value="jobicy">Jobicy · France, Europe/EMEA ou partout</option>
                           <option value="france-travail">France Travail · accès restreint</option>
                         </select>
                       </label>
@@ -868,8 +868,8 @@ export default function CareerWorkspace() {
                           {searchSource === "arbeitnow"
                             ? <>Les offres viennent de l’<a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">API publique Arbeitnow France</a>. La couverture dépend des annonces indexées.</>
                             : searchSource === "jobicy"
-                              ? <>Les offres viennent de l’<a href="https://jobicy.com" target="_blank" rel="noreferrer">API publique Jobicy</a>, limitée aux annonces télétravaillables des 7 derniers jours. La recherche est actualisée au plus une fois par heure et le lien Jobicy reste la source canonique.</>
-                              : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse et Lever ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
+                              ? <>Les offres viennent de l’<a href="https://jobicy.com" target="_blank" rel="noreferrer">API publique Jobicy</a>, limitée aux annonces télétravaillables des 7 derniers jours ; les zones hors France, Europe/EMEA et partout sont filtrées. La recherche est actualisée au plus une fois par heure et le lien Jobicy reste la source canonique.</>
+                              : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse, Lever et Ashby ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
                       </small>
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
                       {!resumeId && <small>Ajoutez d’abord un CV dans l’onglet Profil & CV pour activer les candidatures.</small>}

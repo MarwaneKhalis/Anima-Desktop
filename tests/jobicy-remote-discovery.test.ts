@@ -81,6 +81,27 @@ test("Jobicy applies accent-insensitive city and contract matching and rejects u
   assert.equal(calls, 1, "unsupported filters are rejected before making another request");
 });
 
+test("Jobicy keeps only France, broad Europe/EMEA, and worldwide eligibility from its France feed", async () => {
+  const service = new JobicyRemoteDiscovery(async () => response([
+    row({ id: 201, url: "https://jobicy.com/jobs/france", jobGeo: "France" }),
+    row({ id: 202, url: "https://jobicy.com/jobs/europe", jobGeo: "Europe, Ukraine" }),
+    row({ id: 203, url: "https://jobicy.com/jobs/emea", jobGeo: "APAC, EMEA, LATAM, Canada, USA" }),
+    row({ id: 204, url: "https://jobicy.com/jobs/anywhere", jobGeo: "Anywhere" }),
+    row({ id: 205, url: "https://jobicy.com/jobs/usa", jobGeo: "USA, Canada" }),
+    row({ id: 206, url: "https://jobicy.com/jobs/apac", jobGeo: "APAC" }),
+    row({ id: 207, url: "https://jobicy.com/jobs/germany", jobGeo: "Germany, Austria" }),
+    row({ id: 208, url: "https://jobicy.com/jobs/unknown", jobGeo: "" }),
+  ]));
+  const result = await service.search({ keywords: "ingenieure logiciel", limit: 20 });
+  assert.deepEqual(result.offers.map(offer => offer.url), [
+    "https://jobicy.com/jobs/france",
+    "https://jobicy.com/jobs/europe",
+    "https://jobicy.com/jobs/emea",
+    "https://jobicy.com/jobs/anywhere",
+  ]);
+  assert.match(result.note, /France, Europe\/EMEA ou partout/);
+});
+
 test("Jobicy timeout is bounded and reported clearly", async () => {
   const request: typeof fetch = async (_input, init) => await new Promise((_resolve, reject) => {
     init?.signal?.addEventListener("abort", () => {
