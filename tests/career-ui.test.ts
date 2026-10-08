@@ -581,6 +581,7 @@ test("test mode keeps every unmocked public source offline", async (t) => {
   const franceTravail = await app.json("/api/career/sources/france-travail/search", { keywords: "Engineer", commune: "Paris" });
   assert.equal(franceTravail.response.status, 200);
   assert.deepEqual(franceTravail.value.jobs, []);
+  assert.match(franceTravail.value.note, /Aucune offre avec lien de candidature exploitable/);
 });
 
 test("career UI resumes a paused application after saving a missing answer", async (t) => {
