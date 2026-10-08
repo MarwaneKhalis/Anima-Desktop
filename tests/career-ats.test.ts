@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForHostname, careerAtsForUrl } from "../server/career-ats.ts";
 
-test("only explicit public Greenhouse, Lever, Ashby, and Recruitee hosts are ATS destinations", () => {
+test("only explicit public Greenhouse, Lever, Ashby, Recruitee, and Workable hosts are ATS destinations", () => {
   assert.equal(careerAtsForHostname("boards.greenhouse.io"), "greenhouse");
   assert.equal(careerAtsForHostname("job-boards.greenhouse.io"), "greenhouse");
   assert.equal(careerAtsForHostname("boards.eu.greenhouse.io"), "greenhouse");
@@ -11,8 +11,12 @@ test("only explicit public Greenhouse, Lever, Ashby, and Recruitee hosts are ATS
   assert.equal(careerAtsForHostname("jobs.ashbyhq.com"), "ashby");
   assert.equal(careerAtsForHostname("recruiteedemo.recruitee.com"), "recruitee");
   assert.equal(careerAtsForHostname("jbinternationalpharmacy.s.recruitee.com"), "recruitee");
+  assert.equal(careerAtsForHostname("apply.workable.com"), "workable");
+  assert.equal(careerAtsForHostname("scalesource.workable.com"), "workable");
   assert.equal(careerAtsForUrl("https://jobs.ashbyhq.com/acme/123/application"), "ashby");
   assert.equal(careerAtsForUrl("https://acme.recruitee.com/o/software-engineer"), "recruitee");
+  assert.equal(careerAtsForUrl("https://apply.workable.com/j/61D02B30F2"), "workable");
+  assert.equal(careerAtsForUrl("https://scalesource.workable.com/jobs/3949357/candidates/new"), "workable");
   assert.equal(careerAtsForUrl("https://boards.greenhouse.io/acme/jobs/123"), "greenhouse");
   assert.equal(careerAtsForHostname("greenhouse.io.evil.example"), null);
   assert.equal(careerAtsForHostname("jobs.lever.co.evil.example"), null);
@@ -22,6 +26,9 @@ test("only explicit public Greenhouse, Lever, Ashby, and Recruitee hosts are ATS
   assert.equal(careerAtsForHostname("recruitee.com"), null);
   assert.equal(careerAtsForHostname("acme.recruitee.com.evil.example"), null);
   assert.equal(careerAtsForHostname("evilrecruitee.com"), null);
+  assert.equal(careerAtsForHostname("workable.com"), null);
+  assert.equal(careerAtsForHostname("apply.workable.com.evil.example"), null);
+  assert.equal(careerAtsForHostname("foo.bar.workable.com"), null);
   assert.equal(careerAtsForHostname("acme.evil.recruitee.com"), null);
   assert.equal(careerAtsForHostname("s.recruitee.com"), null);
 });
@@ -45,6 +52,11 @@ test("cross-origin ATS allowances are limited to passive GET assets on named ven
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, method: "POST", kind: "fetch" }), false);
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://acme.recruitee.com/api/offers/role/candidates", kind: "xhr" }), false, "cross-origin candidate API requests are not inferred or enabled");
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://evil.example/pixel.png", kind: "image" }), false);
+  const workableAsset = { from: "https://apply.workable.com/j/ROLE", to: "https://apply.workable.com/assets/app.js", method: "GET", kind: "script" as const };
+  assert.equal(allowsCareerAtsResource(workableAsset), true);
+  assert.equal(allowsCareerAtsResource({ ...workableAsset, kind: "xhr" }), false);
+  assert.equal(allowsCareerAtsResource({ ...workableAsset, method: "POST", kind: "fetch" }), false);
+  assert.equal(allowsCareerAtsResource({ ...workableAsset, to: "https://another-company.workable.com/assets/app.js" }), false, "Workable resources stay on the exact origin");
 });
 
 test("cross-origin document navigation needs an explicit Apply target or same-vendor redirect", () => {
@@ -54,6 +66,7 @@ test("cross-origin document navigation needs an explicit Apply target or same-ve
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://jobs.lever.co/acme/id/apply", pendingAtsOrigin: "https://jobs.lever.co" }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://jobs.ashbyhq.com/acme/id/application", pendingAtsOrigin: "https://jobs.ashbyhq.com" }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://acme.recruitee.com/o/software-engineer/apply", pendingAtsOrigin: "https://acme.recruitee.com" }), true);
+  assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://apply.workable.com/j/61D02B30F2", pendingAtsOrigin: "https://apply.workable.com" }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://evil.example/apply", pendingAtsOrigin: "https://evil.example" }), false);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", redirected: true }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://jobs.lever.co/acme/id/apply", redirected: true }), false);

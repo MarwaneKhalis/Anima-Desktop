@@ -23,7 +23,7 @@ Décision : extension du dépôt existant, mêmes serveur et base locale, tables
 5. **Suivre** : reçu vérifiable, événements, statut métier, date de relance et notes. Ajouter entretien, réponse, refus et offre reçue depuis la fiche ; afficher la provenance manuelle de ces mises à jour.
 6. **Prospection** : fonctionnalités LinkedIn existantes accessibles depuis la même application ; liaison facultative candidature → prospect ; tableau de bord commun issu des données stockées.
 
-Automatisation effectivement requise : formulaires HTML standard à champs étiquetés, login classique identifiant/mot de passe, fichier CV et soumission avec confirmation. Les adaptateurs présents sont Greenhouse, Lever, Ashby et Recruitee, sur leurs hôtes publics explicitement autorisés. Aucun adaptateur générique ne promet une compatibilité universelle avec Workday, Taleo, LinkedIn Easy Apply ou les widgets propriétaires. Les CAPTCHA, MFA, consentements légaux inconnus, questions factuelles inconnues et boutons ambigus interrompent l'action, avec une explication exploitable.
+Automatisation effectivement requise : formulaires HTML standard à champs étiquetés, login classique identifiant/mot de passe, fichier CV et soumission avec confirmation. Les adaptateurs présents sont Greenhouse, Lever, Ashby, Recruitee et Workable, sur leurs hôtes publics explicitement autorisés. Aucun adaptateur générique ne promet une compatibilité universelle avec Workday, Taleo, LinkedIn Easy Apply ou les widgets propriétaires. Les CAPTCHA, MFA, consentements légaux inconnus, questions factuelles inconnues et boutons ambigus interrompent l'action, avec une explication exploitable.
 
 ## 3. Répartition des fichiers
 

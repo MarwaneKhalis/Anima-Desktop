@@ -117,6 +117,37 @@ test("Recruitee career link pauses for unknown required facts and submits only a
     assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
   } finally { await submit.close(); }
 });
+test("Workable career link prepares without sending, then submits with an explicit answer", async () => {
+  const allowedTestOrigins = [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin];
+  const before = fx.submissions.length;
+  let marker = 0;
+  const makeInput = (mode: RunMode, answers: Record<string, string | boolean> = {}) => inputFor(
+    "/jobicy-workable", mode, { answers }, () => { marker++; },
+  );
+
+  const preparation = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const missing = await preparation.run(makeInput("prepare"));
+    assert.equal(missing.state, "needs_input");
+    assert.match(missing.missingFields[0]?.label || "", /available during US business hours/i);
+    assert.equal(marker, 0);
+    assert.equal(fx.submissions.length, before);
+    const ready = await preparation.resume(makeInput("prepare", { available_us_hours: "Yes" }));
+    assert.equal(ready.state, "ready");
+    assert.equal(fx.submissions.length, before, "prepare never posts to the Workable fixture");
+  } finally { await preparation.close(); }
+
+  const submit = new CareerBrowser({ headless: true, allowedTestOrigins });
+  try {
+    const submitted = await submit.run(makeInput("submit", { available_us_hours: "Yes" }));
+    assert.equal(submitted.state, "submitted");
+    assert.equal(marker, 1);
+    assert.equal(fx.submissions.length, before + 1);
+    assert.equal(fx.submissions.at(-1)?.fields.firstName, profile.firstName);
+    assert.equal(fx.submissions.at(-1)?.fields.available_us_hours, "Yes");
+    assert.equal(fx.submissions.at(-1)?.resume?.sha256, meta("cv-a", bytesA).sha256);
+  } finally { await submit.close(); }
+});
 test("Jobicy-discovered offer follows visible Apply links to a simulated Ashby form and waits for confirmation", async () => {
   const discovery = new JobicyRemoteDiscovery(async () => Response.json({ jobs: [{
     url: "https://www.jobicy.com/jobs/remote-software-engineer",

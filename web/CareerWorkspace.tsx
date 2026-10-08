@@ -873,7 +873,7 @@ export default function CareerWorkspace() {
                             ? <>Les offres viennent de l’<a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">API publique Arbeitnow France</a>. La couverture dépend des annonces indexées.</>
                             : searchSource === "jobicy"
                               ? <>Les offres viennent de l’<a href="https://jobicy.com" target="_blank" rel="noreferrer">API publique Jobicy</a>, limitée aux annonces télétravaillables des 7 derniers jours ; les zones hors France, Europe/EMEA et partout sont filtrées. La recherche est actualisée au plus une fois par heure et le lien Jobicy reste la source canonique.</>
-                              : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse, Lever, Ashby et Recruitee ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
+                              : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse, Lever, Ashby, Recruitee et Workable ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
                       </small>
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
                       {!resumeId && <small>Ajoutez d’abord un CV dans l’onglet Profil & CV pour activer les candidatures.</small>}
