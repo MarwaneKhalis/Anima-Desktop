@@ -73,17 +73,19 @@ continuer. Une pause automatique causée par un blocage conserve l’intention d
 une reprise après skip n’a lieu que si le navigateur est libre. Une pause manuelle n’est jamais relancée
 par un skip.
 
-La recherche combinée interroge `ArbeitnowFranceDiscovery`, `JobicyRemoteDiscovery` et
-`RemoteOkDiscovery` en parallèle : mots-clés, commune et contrat facultatifs → flux publics
+La recherche combinée interroge `ArbeitnowFranceDiscovery`, `JobicyRemoteDiscovery`,
+`RemoteOkDiscovery` et `HimalayasDiscovery` en parallèle : mots-clés, commune et contrat facultatifs → flux publics
 filtrés localement → résultats répartis entre les sources et dédupliqués par URL de candidature ou
 de fiche → enregistrement dans `CareerStore` → campagnes durables. Un incident sur un flux est
 signalé dans la note de recherche sans supprimer les résultats des autres. Arbeitnow parcourt au plus
 cinq pages de 100 annonces, renvoie au plus 450 résultats en mode individuel et met chaque page en
 cache dix minutes. Jobicy demande au plus 200 offres distantes publiées dans les sept derniers jours ;
-Remote OK conserve au plus 200 offres de moins de 60 jours. Les deux réponses restent en cache une
-heure entre les recherches. La recherche combinée renvoie au plus 200 offres. Ces sources ne couvrent
+Remote OK conserve au plus 200 offres de moins de 60 jours. Les réponses Jobicy et Remote OK restent
+en cache une heure. Himalayas utilise une page de 20 résultats par recherche et cache les réponses
+24 heures, conformément au rafraîchissement quotidien annoncé par l’API ; les zones restreintes à un
+autre pays sont écartées. La recherche combinée renvoie au plus 200 offres. Ces sources ne couvrent
 pas tout le marché. L’interface conserve l’attribution de chaque fiche et le lien de retour demandé
-par Arbeitnow.
+par Arbeitnow et Himalayas.
 `FranceTravailDiscovery` reste disponible en option pour les personnes disposant d’identifiants
 habilités ; la recherche publique n’en dépend pas. L’envoi automatique est limité aux formulaires
 Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday reconnus. Les autres sites, redirections non prises en charge, CAPTCHA/MFA

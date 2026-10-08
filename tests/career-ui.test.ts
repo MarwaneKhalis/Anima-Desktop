@@ -416,19 +416,22 @@ test("default public search aggregates sources and launches one desktop campaign
   const completed = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
     return value.campaigns[0];
-  }, campaign => campaign?.state === "completed", 30_000);
-  assert.equal(completed.counts.total, 3);
-  assert.equal(completed.counts.submitted, 3);
+  }, campaign => campaign?.state === "completed" || campaign?.state === "paused", 10_000);
   const { value: snapshot } = await app.json("/api/career/bootstrap");
-  assert.equal(snapshot.jobs.length, 3);
+  assert.equal(completed.state, "completed", JSON.stringify(snapshot.applications.map((application: Application) => ({ state: application.state, missingFields: application.missingFields, lastError: application.lastError, jobId: application.jobId }))));
+  assert.equal(completed.counts.total, 4);
+  assert.equal(completed.counts.submitted, 4);
+  assert.equal(snapshot.jobs.length, 4);
   assert.deepEqual(new Set(snapshot.jobs.map((job: { sourceUrl: string }) => job.sourceUrl)), new Set([
     "https://www.arbeitnow.fr/",
     "https://jobicy.com/jobs/test",
     "https://remoteok.com/remote-jobs/test",
+    "https://himalayas.app/companies/test/jobs/test-role",
   ]));
-  assert.equal(snapshot.applications.length, 3);
+  assert.equal(await page.getByRole("link", { name: /Source Himalayas/ }).getAttribute("href"), "https://himalayas.app/companies/test/jobs/test-role");
+  assert.equal(snapshot.applications.length, 4);
   assert.ok(snapshot.applications.every((application: Application) => application.state === "submitted"));
-  assert.equal(app.fixture.submissions.length, 3);
+  assert.equal(app.fixture.submissions.length, 4);
   assert.deepEqual(pageErrors, []);
 });
 
@@ -518,6 +521,41 @@ test("Remote OK search keeps source attribution and starts a desktop application
   assert.deepEqual(pageErrors, []);
   await mkdir("artifacts/career-ui", { recursive: true });
   await page.screenshot({ path: "artifacts/career-ui/11-remoteok-campaign.png", fullPage: true });
+});
+
+test("Himalayas search starts a verified ATS application from its attributed job page", async (t) => {
+  const app = await startCareerTestServer({ mockHimalayasSearch: true });
+  t.after(() => app.close());
+  assert.equal((await app.json("/api/career/profile", profile(), "PUT")).response.status, 200);
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV principal", filename: "cv.pdf", mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByLabel("Source d’offres").selectOption("himalayas");
+  assert.equal(await page.getByLabel("Nombre d’offres à examiner").inputValue(), "20");
+  await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Product Manager");
+  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
+  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  const completed = await waitFor(async () => {
+    const { value } = await app.json("/api/career/campaigns");
+    return value.campaigns[0];
+  }, campaign => campaign?.state === "completed" || campaign?.state === "paused", 10_000);
+  const { value: snapshot } = await app.json("/api/career/bootstrap");
+  assert.equal(completed.state, "completed", JSON.stringify(snapshot.applications.map((application: Application) => ({ state: application.state, missingFields: application.missingFields, lastError: application.lastError, jobId: application.jobId }))));
+  assert.equal(completed.counts.submitted, 1);
+  assert.equal(snapshot.jobs[0].sourceUrl, "https://himalayas.app/companies/test/jobs/test-role");
+  assert.equal(snapshot.applications[0].state, "submitted");
+  assert.ok(snapshot.applications[0].receipt);
+  assert.equal(app.fixture.submissions.length, 1);
+  assert.deepEqual(pageErrors, []);
 });
 
 test("career UI resumes a paused application after saving a missing answer", async (t) => {

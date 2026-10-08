@@ -145,6 +145,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     if (path === "/remoteok-unsafe-job") { page(res, `<main><h1>Software Engineer</h1><a href="/l/999">Apply for this job</a></main>`); return; }
     if (path === "/l/999") { res.writeHead(302, { Location: "https://evil.example/collect" }); res.end(); return; }
     if (path === "/jobicy-discovered") { page(res, `<main><h1>Software Engineer</h1><a href="${atsUrl}/ashby-job">Apply for this job</a></main>`); return; }
+    if (path === "/himalayas-job") { page(res, `<main><h1>Product Manager</h1><a href="/simple">Apply for this job</a></main>`); return; }
     if (path === "/jobicy-recruitee") { page(res, `<main><h1>Platform Engineer</h1><a href="${atsUrl}/recruitee-job">Apply for this job</a></main>`); return; }
     if (path === "/jobicy-workable") { page(res, `<main><h1>Customer Success Lead</h1><a href="${atsUrl}/workable-job">Apply for this job</a></main>`); return; }
     if (path === "/jobicy-smartrecruiters") { page(res, `<main><h1>Sales Manager</h1><a href="${atsUrl}/smartrecruiters-job">Apply for this job</a></main>`); return; }

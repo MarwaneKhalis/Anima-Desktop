@@ -2,11 +2,13 @@
 
 ## Résultats actuels — 8 octobre 2026
 
-La version bureau locale passe la suite complète (**153 tests, 0 échec**), `pnpm build` et `pnpm desktop:compile`. La recherche par défaut interroge en parallèle Arbeitnow, Jobicy et Remote OK, conserve l’attribution des offres, répartit les résultats et tolère l’indisponibilité d’une source. Le parcours UI utilise les métiers du profil comme mots-clés par défaut, sans URL copiée. Des tests couvrent aussi une campagne Remote OK suivie jusqu’à un ATS fictif et le blocage d’un redirecteur vers un domaine inconnu avant envoi. Aucun site carrière réel n’a reçu de candidature.
+La version bureau locale passe la suite complète (**160 tests, 0 échec**), `pnpm build` et `pnpm desktop:compile`. La recherche par défaut interroge en parallèle Arbeitnow, Jobicy, Remote OK et Himalayas, conserve l’attribution des offres, répartit les résultats et tolère l’indisponibilité d’une source. Le parcours UI utilise les métiers du profil comme mots-clés par défaut, sans URL copiée. Des tests couvrent les campagnes multi-source, les filtres et caches bornés, les parcours ATS simulés, et le blocage d’un redirecteur vers un domaine inconnu avant envoi. Aucun site carrière réel n’a reçu de candidature.
 
-Le workflow Windows [#32](https://github.com/MarwaneKhalis/Anima-Desktop/actions/runs/37803479751) a réussi sur le commit `2918af6`, y compris build, suite, EXE, Chromium, smoke test et installation fraîche NSIS. Ce résultat précède l’ajout de la recherche combinée ; le workflow correspondant à ce nouveau lot sera vérifié après son push. Le smoke test local du dossier `win-unpacked` reste bloqué par une ACL AppContainer OneDrive ; la validation précédente a réussi sur un runner Windows propre.
+Le workflow Windows [#38](https://github.com/MarwaneKhalis/Anima-Desktop/actions/runs/37807673050) a réussi sur le commit `0ab4b97`, y compris build, suite, EXE, Chromium, smoke test et installation fraîche NSIS. Ce commit précède l’ajout d’Himalayas ; le nouveau SHA doit passer son propre workflow avant toute fusion. Le smoke test local du dossier `win-unpacked` reste bloqué par une ACL AppContainer OneDrive ; le runner Windows propre a validé l’installation précédente.
 
 Les adaptateurs Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday sont testés avec des formulaires synthétiques. Le formulaire Teamtailor observé directement n’était pas lisible par l’outil de consultation; son chemin d’application reste exercé avec la fixture et la convention officielle `/applications/new`. Workday utilise un formulaire configurable selon l’employeur; les comptes à créer, étapes de sécurité et réponses inconnues restent à compléter dans le navigateur. Les tests Remote OK utilisent un redirecteur et un ATS fictifs; ils n’envoient rien à un employeur.
+
+Les appels aux flux externes sont bornés en durée et en taille. La disponibilité live de l’API Himalayas n’a pas pu être vérifiée depuis cet environnement (accès réseau externe bloqué) ; son format et ses filtres sont couverts avec des réponses synthétiques conformes au contrat d’API.
 
 ### Résultats historiques — 7 octobre 2026
 

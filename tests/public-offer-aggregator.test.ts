@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { OfferSearchCriteria, OfferSearchService } from "../src/shared/career.ts";
 import { PublicOfferAggregator } from "../server/public-offer-aggregator.ts";
+import { CareerError } from "../server/career-store.ts";
 
 function offer(url: string, title = "Software engineer", sourceUrl = url) {
   return { url, title, company: "Example", location: "France", description: "Role details", sourceUrl };
@@ -82,5 +83,17 @@ test("drops offers with malformed or non-public links", async () => {
 
   const result = await aggregator.search({ keywords: "Engineer" });
   assert.deepEqual(result.offers.map(item => item.url), ["https://employer.example/job"]);
+});
+
+test("distinguishes unsupported source filters from outages without leaking upstream error text", async () => {
+  const aggregator = new PublicOfferAggregator([
+    { name: "Himalayas", service: { search: async () => { throw new CareerError(400, "unsupported_filter", "Himalayas ne filtre que par pays."); } } },
+    { name: "Arbeitnow", service: { search: async () => { throw new Error("secret network detail"); } } },
+    { name: "Jobicy", service: service([], []) },
+  ]);
+  const result = await aggregator.search({ keywords: "Engineer" });
+  assert.match(result.note, /Himalayas : filtre non pris en charge/);
+  assert.match(result.note, /Arbeitnow : source indisponible/);
+  assert.doesNotMatch(result.note, /secret network detail|Himalayas ne filtre/);
 });
 

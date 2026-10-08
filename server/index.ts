@@ -31,6 +31,7 @@ import { FranceTravailDiscovery } from "./france-travail-discovery.ts";
 import { ArbeitnowFranceDiscovery } from "./arbeitnow-france-discovery.ts";
 import { JobicyRemoteDiscovery } from "./jobicy-remote-discovery.ts";
 import { RemoteOkDiscovery } from "./remoteok-discovery.ts";
+import { HimalayasDiscovery } from "./himalayas-discovery.ts";
 import { PublicOfferAggregator } from "./public-offer-aggregator.ts";
 import { csvParse, csvStringify, makeSearchUrl } from "./domain.ts";
 import type { Prospect, SavedSearch, Template } from "../src/shared/types.ts";
@@ -97,13 +98,19 @@ const testRemoteOkUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER
 const testRemoteOkOfferSearch: OfferSearchService | undefined = testRemoteOkUrl
   ? { search: async (criteria) => ({ offers: [{ url: testRemoteOkUrl, title: "Offre de test Remote OK", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://remoteok.com/remote-jobs/test" }], note: `Résultat de test Remote OK pour ${criteria.keywords}.` }) }
   : undefined;
+const testHimalayasUrl = process.env.ANIMA_TEST_MODE === "1" ? process.env.CAREER_TEST_HIMALAYAS_URL : undefined;
+const testHimalayasOfferSearch: OfferSearchService | undefined = testHimalayasUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testHimalayasUrl, title: "Offre de test Himalayas", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://himalayas.app/companies/test/jobs/test-role" }], note: `Résultat de test Himalayas pour ${criteria.keywords}.` }) }
+  : undefined;
 const publicOfferSearch = testPublicOfferSearch || new ArbeitnowFranceDiscovery();
 const jobicyOfferSearch = testJobicyOfferSearch || new JobicyRemoteDiscovery();
 const remoteOkOfferSearch = testRemoteOkOfferSearch || new RemoteOkDiscovery();
+const himalayasOfferSearch = testHimalayasOfferSearch || new HimalayasDiscovery();
 const allPublicOfferSearch = new PublicOfferAggregator([
   { name: "Arbeitnow", service: publicOfferSearch },
   { name: "Jobicy", service: jobicyOfferSearch },
   { name: "Remote OK", service: remoteOkOfferSearch },
+  { name: "Himalayas", service: himalayasOfferSearch },
 ], allowedTestOrigins);
 let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);
@@ -270,6 +277,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         publicOfferSearch: demo && !testPublicOfferSearch ? undefined : publicOfferSearch,
         jobicyOfferSearch: demo && !testJobicyOfferSearch ? undefined : jobicyOfferSearch,
         remoteOkOfferSearch: demo && !testRemoteOkOfferSearch ? undefined : remoteOkOfferSearch,
+        himalayasOfferSearch: demo && !testHimalayasOfferSearch ? undefined : himalayasOfferSearch,
         allPublicOfferSearch: demo ? undefined : allPublicOfferSearch,
         demo,
         allowedTestOrigins,

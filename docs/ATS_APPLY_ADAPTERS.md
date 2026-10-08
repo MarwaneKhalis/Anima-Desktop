@@ -6,6 +6,8 @@ Le navigateur sait ouvrir les parcours publics Greenhouse, Lever, Ashby, Recruit
 
 Remote OK est une source d’offres, pas un ATS. Sur une fiche Remote OK, les liens visibles « Apply » peuvent pointer vers son redirecteur `/l/{id}`. Le navigateur déduplique les boutons qui pointent vers cette même URL, inspecte d’abord la réponse du redirecteur et ne laisse le navigateur continuer que si la destination est un ATS pris en charge en HTTPS. Toute autre destination est bloquée avant l’envoi des données du profil. Chaque offre conserve en parallèle son URL canonique Remote OK pour l’attribution et la consultation.
 
+Himalayas est également une source, pas un ATS. Depuis une fiche Himalayas sans champs de candidature, le navigateur peut suivre un lien « Apply » unique, visible et explicitement dirigé vers l’un des ATS pris en charge. Il n’envoie aucune donnée personnelle à la fiche Himalayas ; une destination externe qui n’est pas un ATS reconnu est bloquée.
+
 - Greenhouse : `boards.greenhouse.io`, `job-boards.greenhouse.io`, `boards.eu.greenhouse.io`.
 - Lever : `jobs.lever.co`, `jobs.eu.lever.co`.
 - Ashby : `jobs.ashbyhq.com`.

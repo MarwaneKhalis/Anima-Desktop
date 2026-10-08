@@ -10,7 +10,7 @@ export interface PublicOfferSource {
 
 type SearchResult =
   | { source: PublicOfferSource; offers: Offer[]; note: string }
-  | { source: PublicOfferSource; error: true };
+  | { source: PublicOfferSource; error: true; note: string };
 
 function canonicalUrl(value: unknown, allowedTestOrigins: ReadonlySet<string>): string {
   if (typeof value !== "string") return "";
@@ -70,8 +70,12 @@ export class PublicOfferAggregator implements OfferSearchService {
         if (!Array.isArray(result.offers) || result.offers.length > 200) throw new Error("invalid response");
         const offers = result.offers.map(offer => publicOffer(offer, this.allowedTestOrigins)).filter((offer): offer is Offer => offer !== null);
         return { source, offers, note: typeof result.note === "string" ? result.note.trim().slice(0, 500) : "" };
-      } catch {
-        return { source, error: true as const };
+      } catch (error) {
+        return {
+          source,
+          error: true as const,
+          note: error instanceof CareerError && error.code === "unsupported_filter" ? "filtre non pris en charge." : "source indisponible.",
+        };
       }
     }));
 
@@ -99,7 +103,7 @@ export class PublicOfferAggregator implements OfferSearchService {
     }
 
     const notes = results.map(result => "error" in result
-      ? `${result.source.name} : source indisponible.`
+      ? `${result.source.name} : ${result.note}`
       : `${result.source.name} : ${result.note || `${result.offers.length} offre(s) reçue(s).`}`);
     notes.push(`${offers.length} offre(s) distincte(s) retenue(s).`);
     return { offers, note: notes.join(" ").slice(0, 1000) };
