@@ -1,17 +1,19 @@
 import type { Page } from "playwright";
 
-export type CareerAts = "greenhouse" | "lever" | "ashby" | "recruitee" | "workable";
+export type CareerAts = "greenhouse" | "lever" | "ashby" | "recruitee" | "workable" | "smartrecruiters";
 export type ResourceKind = "document" | "stylesheet" | "image" | "media" | "font" | "script" | "texttrack" | "xhr" | "fetch" | "eventsource" | "websocket" | "manifest" | "other";
 
 const GREENHOUSE_PAGES = new Set(["boards.greenhouse.io", "job-boards.greenhouse.io", "boards.eu.greenhouse.io"]);
 const LEVER_PAGES = new Set(["jobs.lever.co", "jobs.eu.lever.co"]);
 const ASHBY_PAGES = new Set(["jobs.ashbyhq.com"]);
 const GREENHOUSE_STATIC = new Set(["static.greenhouse.io"]);
+const SMARTRECRUITERS_PAGES = new Set(["jobs.smartrecruiters.com", "careers.smartrecruiters.com"]);
 const RECRUITEE_TENANT = /^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.s)?\.recruitee\.com$/;
 const WORKABLE_ACCOUNT = /^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.workable\.com$/;
 
 export function careerAtsForHostname(hostname: string): CareerAts | null {
   const host = hostname.toLowerCase().replace(/\.$/, "");
+  if (SMARTRECRUITERS_PAGES.has(host)) return "smartrecruiters";
   if (GREENHOUSE_PAGES.has(host)) return "greenhouse";
   if (LEVER_PAGES.has(host)) return "lever";
   if (ASHBY_PAGES.has(host)) return "ashby";
@@ -42,6 +44,8 @@ export function allowsCareerAtsNavigation(input: {
   const fromAts = careerAtsForUrl(from.href);
   const toAts = careerAtsForUrl(to.href);
   if (!toAts) return false;
+  if (fromAts === "smartrecruiters" && toAts === "smartrecruiters" && from.hostname !== to.hostname
+    && (input.redirected || input.pendingAtsOrigin !== to.origin)) return false;
   return input.pendingAtsOrigin === to.origin
     || (input.initialNavigation && input.redirected && (!fromAts || fromAts === toAts))
     || (input.redirected && fromAts !== null && fromAts === toAts);
@@ -55,7 +59,7 @@ export function allowsCareerAtsResource(input: {
   try { from = new URL(input.from); to = new URL(input.to); } catch { return false; }
   if (to.protocol !== "https:" || input.method.toUpperCase() !== "GET") return false;
   const ats = careerAtsForUrl(from.href);
-  if (ats === "workable" && from.hostname !== to.hostname) return false;
+  if ((ats === "workable" || ats === "smartrecruiters") && from.origin !== to.origin) return false;
   if (!ats || careerAtsForUrl(to.href) !== ats) {
     if (ats !== "greenhouse" || !GREENHOUSE_STATIC.has(to.hostname.toLowerCase())) return false;
     // Static Greenhouse is only for stylesheet/font bytes, never scripts, pixels, or data.
@@ -77,7 +81,7 @@ export async function findApplyLink(page: Page, testOrigins: ReadonlySet<string>
   const links = await page.locator("a[href]").evaluateAll(nodes => nodes.flatMap((node, index) => {
     const a = node as HTMLAnchorElement;
     const text = `${a.innerText || ""} ${a.getAttribute("aria-label") || ""} ${a.title || ""}`.trim();
-    if (!/\b(apply|apply now|apply for this job|postuler|candidater|postulez)\b/i.test(text)) return [];
+    if (!/\b(apply|apply now|apply for this job|postuler|candidater|postulez|i['’]?m interested|interested in this job)\b/i.test(text)) return [];
     const style = getComputedStyle(a);
     if (style.display === "none" || style.visibility === "hidden" || !a.getClientRects().length) return [];
     return [{ href: a.href, index }];
@@ -96,3 +100,4 @@ export async function findApplyLink(page: Page, testOrigins: ReadonlySet<string>
   if (allowed.length > 1) return "ambiguous";
   return allowed[0] || null;
 }
+
