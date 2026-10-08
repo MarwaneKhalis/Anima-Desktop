@@ -266,7 +266,9 @@ export default function CareerWorkspace() {
     }
   }
   async function createAndStartCampaign(jobIds: string[]) {
-    const normalizedJobIds = [...new Set(jobIds)].sort();
+    // Keep discovery order: the first offers are the highest ranked, and the
+    // campaign's submission cap must apply to that ranking.
+    const normalizedJobIds = [...new Set(jobIds)];
     const payload = { jobIds: normalizedJobIds, resumeId, maxSubmissions, ...(credentialId ? { credentialId } : {}) };
     const storageKey = "anima-pending-campaign";
     let pending: { key: string; payload: typeof payload } | undefined;
