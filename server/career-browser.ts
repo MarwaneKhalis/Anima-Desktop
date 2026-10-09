@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { isPublicAIAddress } from "./career-ai.ts";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type {
   Application, CareerProfile, JobOffer, MissingField, Receipt, Resume, RunMode, RunResult,
@@ -41,11 +42,7 @@ async function assertPublic(url: URL, testOrigins: Set<string>): Promise<void> {
   safeUrl(url.href, testOrigins);
   if (testOrigins.has(url.origin)) return;
   const addresses = await lookup(url.hostname, { all: true });
-  if (!addresses.length || addresses.some(({ address }) => {
-    const ip = address.toLowerCase();
-    return /^10\.|^127\.|^0\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)
-      || ip === "::1" || ip === "::" || ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80:");
-  })) throw new Error("Destination réseau privée interdite.");
+  if (!addresses.length || addresses.some(({ address, family }) => !isPublicAIAddress(address, family))) throw new Error("Destination réseau privée interdite.");
 }
 
 const knownValue = (key: string, p: CareerProfile): string | undefined => {
@@ -279,7 +276,7 @@ export class CareerBrowser {
               session!.flowOrigin = url.origin;
               session!.pendingAtsOrigin = url.origin;
             } catch { return route.abort(); }
-          } else if (allowsCareerAtsResource({ from: session!.flowOrigin, to: url.href, method: request.method(), kind: request.resourceType() as Parameters<typeof allowsCareerAtsResource>[0]["kind"] })) {
+          } else if (allowsCareerAtsResource({ from: session!.page.url(), to: url.href, method: request.method(), kind: request.resourceType() as Parameters<typeof allowsCareerAtsResource>[0]["kind"] })) {
             return route.continue();
           } else return route.abort();
         }

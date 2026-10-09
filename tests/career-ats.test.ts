@@ -51,8 +51,9 @@ test("only explicit public Greenhouse, Lever, Ashby, Recruitee, Workable, SmartR
 });
 
 test("cross-origin ATS allowances are limited to passive GET assets on named vendor origins", () => {
-  const request = { from: "https://boards.greenhouse.io/acme/jobs/123", to: "https://job-boards.greenhouse.io/assets/form.js", method: "GET", kind: "script" as const };
+  const request = { from: "https://boards.greenhouse.io/acme/jobs/123", to: "https://job-boards.greenhouse.io/acme/assets/form.js", method: "GET", kind: "script" as const };
   assert.equal(allowsCareerAtsResource(request), true);
+  assert.equal(allowsCareerAtsResource({ ...request, to: "https://job-boards.greenhouse.io/other-company/assets/pixel.gif?email=private@example.test", kind: "image" }), false, "cross-origin Greenhouse assets cannot send data to another tenant");
   assert.equal(allowsCareerAtsResource({ ...request, to: "https://static.greenhouse.io/assets/form.css", kind: "stylesheet" }), true);
   assert.equal(allowsCareerAtsResource({ ...request, to: "https://static.greenhouse.io/collect.gif?email=private", kind: "image" }), false);
   assert.equal(allowsCareerAtsResource({ ...request, to: "https://static.greenhouse.io/assets/logo.svg", kind: "image" }), false);
@@ -69,6 +70,7 @@ test("cross-origin ATS allowances are limited to passive GET assets on named ven
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, kind: "xhr" }), false);
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, method: "POST", kind: "fetch" }), false);
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://acme.recruitee.com/api/offers/role/candidates", kind: "xhr" }), false, "cross-origin candidate API requests are not inferred or enabled");
+  assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://other-company.s.recruitee.com/assets/pixel.gif?email=private@example.test", kind: "image" }), false, "cross-origin Recruitee assets cannot send data to another tenant");
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://evil.example/pixel.png", kind: "image" }), false);
   const leverAsset = { from: "https://jobs.lever.co/acme/123", to: "https://jobs.eu.lever.co/acme/assets/app.js", method: "GET", kind: "script" as const };
   assert.equal(allowsCareerAtsResource(leverAsset), true);

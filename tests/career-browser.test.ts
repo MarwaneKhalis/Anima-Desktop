@@ -643,6 +643,14 @@ test("rejects private URL outside exact constructor test origin", async () => {
   assert.equal(outcome.state, "blocked");
 });
 
+test("rejects non-standard HTTPS ports before browser navigation", async () => {
+  const b = new CareerBrowser({ headless: true });
+  try {
+    const input = inputFor("/simple", "submit");
+    const outcome = await b.run({ ...input, job: { ...input.job, url: "https://careers.example.org:444/jobs/42" } });
+    assert.equal(outcome.state, "blocked");
+  } finally { await b.close(); }
+});
 test("runner rejects parallel runs and never repeats uncertain submission", async () => {
   const db = new Store(":memory:");
   const origin = new URL(fx.baseUrl).origin;
