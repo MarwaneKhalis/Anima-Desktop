@@ -70,3 +70,4 @@ La lecture directe de la page Teamtailor a confirmé le bouton public « Postule
 
 Ces adaptateurs ne signifient pas que tous les formulaires hébergés par ces fournisseurs sont compatibles. Les questions spécifiques à l’offre et les valeurs sensibles restent à confirmer au cas par cas.
 
+Pour le contrôle manuel en lecture seule d'une offre publique, voir [le smoke ATS](ATS_LIVE_SMOKE.md). Il vérifie le rendu/navigation et n'envoie pas de candidature.

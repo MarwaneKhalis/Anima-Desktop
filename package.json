@@ -16,7 +16,8 @@
     "desktop:dev": "pnpm build && pnpm desktop:compile && electron .",
     "desktop:browser": "node scripts/install-desktop-browser.cjs",
     "desktop:dist": "pnpm build && pnpm desktop:compile && pnpm desktop:browser && electron-builder --win nsis --publish never",
-    "desktop:smoke": "node scripts/desktop-smoke.mjs"
+    "desktop:smoke": "node scripts/desktop-smoke.mjs",
+    "ats:live-smoke": "node --experimental-strip-types scripts/ats-live-smoke.mjs"
   },
   "dependencies": {
     "playwright": "^1.55.0",
