@@ -315,6 +315,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         jobicyOfferSearch: demo && !testJobicyOfferSearch ? undefined : jobicyOfferSearch,
         remoteOkOfferSearch: demo && !testRemoteOkOfferSearch ? undefined : remoteOkOfferSearch,
         himalayasOfferSearch: demo && !testHimalayasOfferSearch ? undefined : himalayasOfferSearch,
+        remotiveOfferSearch: demo && !testRemotiveOfferSearch ? undefined : remotiveOfferSearch,
         allPublicOfferSearch: demo ? undefined : allPublicOfferSearch,
         demo,
         allowedTestOrigins,

@@ -411,7 +411,7 @@ test("default public search aggregates sources and launches one desktop campaign
   const source = page.getByLabel("Source d’offres");
   assert.equal(await source.inputValue(), "all");
   assert.equal(await page.getByLabel("Métier(s) ou mot(s)-clé(s)").inputValue(), "Ingénieure logiciel");
-  assert.match(await page.locator(".cw-automation-note").innerText(), /Himalayas recherche les postes compatibles avec la France sans filtre ville/);
+  assert.match(await page.locator(".cw-automation-note").innerText(), /Himalayas et Remotive ne fournissent qu’une zone d’éligibilité par pays ou région/);
   await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
   await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
   const completed = await waitFor(async () => {
@@ -419,7 +419,7 @@ test("default public search aggregates sources and launches one desktop campaign
     return value.campaigns[0];
   }, campaign => campaign?.state === "completed" || campaign?.state === "paused", 30_000);
   const { value: snapshot } = await app.json("/api/career/bootstrap");
-  assert.equal(completed.state, "completed", JSON.stringify(snapshot.applications.map((application: Application) => ({ state: application.state, missingFields: application.missingFields, lastError: application.lastError, jobId: application.jobId }))));
+  assert.equal(completed.state, "completed", JSON.stringify(snapshot.applications.map((application: Application) => ({ state: application.state, missingFields: application.missingFields, lastError: application.lastError, job: snapshot.jobs.find((job: { id: string }) => job.id === application.jobId) }))));
   assert.equal(completed.counts.total, 5);
   assert.equal(completed.counts.submitted, 5);
   assert.equal(snapshot.jobs.length, 5);
@@ -510,10 +510,16 @@ test("Remote OK search keeps source attribution and starts a desktop application
   assert.equal(await sourceLink.getAttribute("href"), "https://remoteok.com/remote-jobs/test");
   await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
 
-  const completed = await waitFor(async () => {
+  const campaign = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
     return value.campaigns[0];
-  }, campaign => campaign?.state === "completed", 20_000);
+  }, value => value?.state === "completed" || value?.state === "paused", 20_000);
+  if (campaign.state !== "completed") {
+    const { value: detail } = await app.json(`/api/career/campaigns/${campaign.id}`);
+    const { value: bootstrap } = await app.json("/api/career/bootstrap");
+    assert.equal(campaign.state, "completed", JSON.stringify({ campaign, items: detail.items, applications: bootstrap.applications }));
+  }
+  const completed = campaign;
   assert.equal(completed.counts.submitted, 1);
   const { value: snapshot } = await app.json("/api/career/bootstrap");
   assert.equal(snapshot.jobs[0].title, "Offre de test Remote OK");
@@ -567,8 +573,11 @@ test("test mode keeps every unmocked public source offline", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
 
-  for (const source of ["all-public", "arbeitnow", "jobicy", "remoteok", "himalayas"]) {
-    const { response, value } = await app.json(`/api/career/sources/${source}/search`, { keywords: "Engineer", commune: "Paris" });
+  for (const source of ["all-public", "arbeitnow", "jobicy", "remoteok", "himalayas", "remotive"]) {
+    const { response, value } = await app.json(`/api/career/sources/${source}/search`, {
+      keywords: "Engineer",
+      ...(!["himalayas", "remotive"].includes(source) ? { commune: "Paris" } : {}),
+    });
     assert.equal(response.status, 200, source);
     assert.deepEqual(value.jobs, [], source);
     assert.match(value.note, /Flux externe neutralisé en mode test/, source);

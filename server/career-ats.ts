@@ -36,13 +36,11 @@ export function careerAtsForUrl(value: string): CareerAts | null {
  * Remote OK's verified /l/<id> redirect is handled separately. */
 export function allowsCareerAtsNavigation(input: {
   from: string; to: string; pendingAtsOrigin?: string; initialNavigation: boolean;
-  redirected: boolean; remoteOkApplyRedirect?: boolean; testOrigins: ReadonlySet<string>;
+  redirected: boolean; testOrigins: ReadonlySet<string>;
 }): boolean {
   let to: URL;
   try { new URL(input.from); to = new URL(input.to); } catch { return false; }
   const toAts = careerAtsForUrl(to.href);
-  if (input.remoteOkApplyRedirect && input.redirected
-    && ((to.protocol === "https:" && toAts !== null) || input.testOrigins.has(to.origin))) return true;
   // A test fixture may model a visible cross-origin Apply link, but it must still
   // be selected explicitly as the pending destination before navigation is allowed.
   if (input.testOrigins.has(to.origin)) return input.pendingAtsOrigin === to.origin;
@@ -89,8 +87,9 @@ const REMOTE_OK_REDIRECTORS = new Set(["remoteok.com", "www.remoteok.com"]);
 export function isRemoteOkApplyRedirectorUrl(value: string, testOrigins: ReadonlySet<string>): boolean {
   try {
     const url = new URL(value);
+    if (url.username || url.password || url.hash) return false;
     const remoteOk = url.protocol === "https:" && REMOTE_OK_REDIRECTORS.has(url.hostname.toLowerCase());
-    return (remoteOk || testOrigins.has(url.origin)) && /^\/l\/\d+$/.test(url.pathname);
+    return ((remoteOk && !url.port) || testOrigins.has(url.origin)) && /^\/l\/\d+$/.test(url.pathname);
   } catch { return false; }
 }
 

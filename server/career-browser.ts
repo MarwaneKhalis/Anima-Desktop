@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { request as httpsRequest } from "node:https";
 import { isPublicAIAddress } from "./career-ai.ts";
 import { CHROMIUM_EGRESS_FLAGS, PinnedBrowserProxy, resolveBrowserAddresses, type BrowserProxyDialer, type BrowserProxyResolver } from "./career-egress-proxy.ts";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
@@ -31,7 +32,6 @@ type BrowserSession = {
 const tidy = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1 $2").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const safeText = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 240);
 const result = (state: RunResult["state"], message: string, missingFields: MissingField[] = [], receipt: Receipt | null = null): RunResult => ({ state, message, missingFields, receipt });
-const REMOTE_OK_APPLY_REDIRECT = "remoteok-apply-redirect";
 
 function safeUrl(value: string, testOrigins: Set<string>): URL {
   const url = new URL(value);
@@ -48,6 +48,58 @@ async function assertPublic(url: URL, testOrigins: Set<string>, resolveAddresses
   if (testOrigins.has(url.origin)) return;
   const addresses = await resolveAddresses(url.hostname);
   if (!addresses.length || addresses.some(({ address, family }) => !isPublicAIAddress(address, family))) throw new Error("Destination réseau privée interdite.");
+}
+
+async function resolveRemoteOkApplyTarget(value: string, testOrigins: Set<string>, resolveAddresses: BrowserProxyResolver): Promise<URL> {
+  const source = new URL(value);
+  if (!isRemoteOkApplyRedirectorUrl(source.href, testOrigins)) throw new Error("Lien Remote OK invalide.");
+  let status = 0;
+  let location: string | null = null;
+  if (testOrigins.has(source.origin)) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const response = await fetch(source, { method: "GET", redirect: "manual", headers: { Accept: "text/html,*/*" }, signal: controller.signal });
+      status = response.status;
+      location = response.headers.get("location");
+      await response.body?.cancel().catch(() => {});
+    } finally { clearTimeout(timer); }
+  } else {
+    const addresses = await resolveAddresses(source.hostname);
+    if (!addresses.length || addresses.some(({ address, family }) => !isPublicAIAddress(address, family)))
+      throw new Error("Résolution Remote OK non publique.");
+    let lastError: unknown;
+    for (const address of addresses) {
+      try {
+        const result = await new Promise<{ status: number; location: string | null }>((resolve, reject) => {
+          const request = httpsRequest({
+            hostname: address.address, family: address.family, port: 443, method: "GET",
+            path: source.pathname + source.search, servername: source.hostname, agent: false,
+            headers: { Host: source.host, Accept: "text/html,*/*" },
+          }, response => {
+            const result = { status: response.statusCode || 0, location: response.headers.location || null };
+            response.destroy();
+            resolve(result);
+          });
+          request.setTimeout(5_000, () => request.destroy(new Error("Délai Remote OK dépassé.")));
+          request.once("error", reject);
+          request.end();
+        });
+        status = result.status;
+        location = result.location;
+        break;
+      } catch (error) { lastError = error; }
+    }
+    if (!status) throw lastError instanceof Error ? lastError : new Error("Redirection Remote OK indisponible.");
+  }
+  if (status < 300 || status >= 400 || !location) throw new Error("Remote OK n’a pas fourni une redirection de candidature vérifiable.");
+  const target = new URL(location, source);
+  if (target.username || target.password || target.hash) throw new Error("Destination de candidature Remote OK invalide.");
+  const isTestTarget = testOrigins.has(target.origin);
+  if (!isTestTarget && (target.protocol !== "https:" || target.port || !careerAtsForUrl(target.href)))
+    throw new Error("La redirection Remote OK ne mène pas à un ATS pris en charge.");
+  await assertPublic(target, testOrigins, resolveAddresses);
+  return target;
 }
 
 const knownValue = (key: string, p: CareerProfile): string | undefined => {
@@ -262,25 +314,13 @@ export class CareerBrowser {
         const request = route.request();
         let url: URL;
         try { url = new URL(request.url()); } catch { return route.abort(); }
-        if (request.isNavigationRequest() && session!.pendingAtsOrigin === REMOTE_OK_APPLY_REDIRECT
-          && isRemoteOkApplyRedirectorUrl(url.href, this.testOrigins)) {
-          try {
-            // Let Chromium follow the redirect through the pinned egress proxy.
-            // The redirected request is admitted only by the ATS navigation policy below.
-            await assertPublic(url, this.testOrigins, this.resolveAddresses);
-            session!.flowOrigin = url.origin;
-            return route.continue();
-          } catch { return route.abort(); }
-        }
         if (url.origin !== session!.flowOrigin) {
           const redirectedFrom = request.redirectedFrom();
-          const remoteOkApplyRedirect = session!.pendingAtsOrigin === REMOTE_OK_APPLY_REDIRECT
-            && Boolean(redirectedFrom && isRemoteOkApplyRedirectorUrl(redirectedFrom.url(), this.testOrigins));
           if (request.isNavigationRequest() && session!.initialNavigation && redirectedFrom
-            && !session!.pendingAtsOrigin && !remoteOkApplyRedirect) return route.abort();
+            && !session!.pendingAtsOrigin) return route.abort();
           const allowedAtsNavigation = request.isNavigationRequest() && allowsCareerAtsNavigation({
             from: session!.flowOrigin, to: url.href, pendingAtsOrigin: session!.pendingAtsOrigin,
-            initialNavigation: session!.initialNavigation, redirected: Boolean(redirectedFrom), remoteOkApplyRedirect, testOrigins: this.testOrigins,
+            initialNavigation: session!.initialNavigation, redirected: Boolean(redirectedFrom), testOrigins: this.testOrigins,
           });
           if (allowedAtsNavigation) {
             try {
@@ -360,8 +400,14 @@ export class CareerBrowser {
           if (apply) {
             if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
             session.seen.add(apply.href);
-            session.pendingAtsOrigin = apply.vendor === "remoteok" ? REMOTE_OK_APPLY_REDIRECT : new URL(apply.href).origin;
-            await advance(page, page.locator("a[href]").nth(apply.index));
+            if (apply.vendor === "remoteok") {
+              const target = await resolveRemoteOkApplyTarget(apply.href, this.testOrigins, this.resolveAddresses);
+              session.pendingAtsOrigin = target.origin;
+              await page.goto(target.href, { waitUntil: "domcontentloaded" });
+            } else {
+              session.pendingAtsOrigin = new URL(apply.href).origin;
+              await advance(page, page.locator("a[href]").nth(apply.index));
+            }
             continue;
           }
         }
@@ -482,8 +528,9 @@ export class CareerBrowser {
             if (onSupportedAts || !isRemoteOkApplyRedirectorUrl(apply.href, this.testOrigins)) return result("blocked", "Le lien de redirection Remote OK ne peut pas être vérifié.");
             if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
             session.seen.add(apply.href);
-            session.pendingAtsOrigin = REMOTE_OK_APPLY_REDIRECT;
-            await advance(page, page.locator("a[href]").nth(apply.index));
+            const target = await resolveRemoteOkApplyTarget(apply.href, this.testOrigins, this.resolveAddresses);
+            session.pendingAtsOrigin = target.origin;
+            await page.goto(target.href, { waitUntil: "domcontentloaded" });
             continue;
           }
           const targetAts = careerAtsForUrl(apply.href);
