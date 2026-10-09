@@ -46,7 +46,7 @@ export function allowsCareerAtsNavigation(input: {
   // A test fixture may model a visible cross-origin Apply link, but it must still
   // be selected explicitly as the pending destination before navigation is allowed.
   if (input.testOrigins.has(to.origin)) return input.pendingAtsOrigin === to.origin;
-  if (to.protocol !== "https:") return false;
+  if (to.protocol !== "https:" || to.port) return false;
   if (!toAts) return false;
   return input.pendingAtsOrigin === to.origin;
 }
@@ -57,9 +57,20 @@ export function allowsCareerAtsResource(input: {
 }): boolean {
   let from: URL; let to: URL;
   try { from = new URL(input.from); to = new URL(input.to); } catch { return false; }
-  if (to.protocol !== "https:" || input.method.toUpperCase() !== "GET") return false;
+  if (to.protocol !== "https:" || to.port || input.method.toUpperCase() !== "GET") return false;
   const ats = careerAtsForUrl(from.href);
   if ((ats === "workable" || ats === "smartrecruiters" || ats === "teamtailor" || ats === "workday") && from.origin !== to.origin) return false;
+  if (from.origin !== to.origin) {
+    // Cross-origin assets may only come from the same hiring tenant.
+    const tenantFor = (url: URL): string | null => {
+      if (ats === "greenhouse" || ats === "lever") return url.pathname.split("/").filter(Boolean)[0]?.toLowerCase() || null;
+      if (ats === "recruitee") return url.hostname.match(RECRUITEE_TENANT)?.[1]?.toLowerCase() || null;
+      return null;
+    };
+    const fromTenant = tenantFor(from);
+    const toTenant = tenantFor(to);
+    if (!fromTenant || fromTenant !== toTenant) return false;
+  }
   if (!ats || careerAtsForUrl(to.href) !== ats) {
     if (ats !== "greenhouse" || !GREENHOUSE_STATIC.has(to.hostname.toLowerCase())) return false;
     // Static Greenhouse is only for stylesheet/font bytes, never scripts, pixels, or data.

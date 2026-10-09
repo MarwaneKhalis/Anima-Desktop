@@ -32,7 +32,7 @@ function safeUrl(value: string, testOrigins: Set<string>): URL {
   const host = url.hostname.toLowerCase();
   if (url.username || url.password || url.hash) throw new Error("Adresse de candidature non prise en charge.");
   if (testOrigins.has(url.origin) && url.protocol === "http:") return url;
-  if (url.protocol !== "https:" || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || isIP(host) || !host.includes(".")) {
+  if (url.protocol !== "https:" || url.port || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || isIP(host) || !host.includes(".")) {
     throw new Error("La candidature exige une adresse HTTPS publique.");
   }
   return url;
@@ -221,6 +221,22 @@ export class CareerBrowser {
       this.context.setDefaultNavigationTimeout(20_000);
       const page = await this.context.newPage();
       session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false };
+      this.context.routeWebSocket("**/*", async socket => {
+        let origin: string | null = null;
+        try {
+          const url = new URL(socket.url());
+          if (!url.username && !url.password) {
+            if (url.protocol === "wss:") url.protocol = "https:";
+            else if (url.protocol === "ws:") url.protocol = "http:";
+            if (url.protocol === "https:" || url.protocol === "http:") origin = url.origin;
+          }
+        } catch { /* malformed WebSocket destinations stay blocked */ }
+        if (origin && origin === session?.flowOrigin) {
+          socket.connectToServer();
+          return;
+        }
+        await socket.close({ code: 1008, reason: "WebSocket externe bloqué pendant la candidature." });
+      });
       await this.context.route("**/*", async route => {
         const request = route.request();
         let url: URL;

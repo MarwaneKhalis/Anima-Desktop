@@ -14,6 +14,7 @@ export interface CareerFixtures {
   submissions: FixtureSubmission[];
   readonly loginCount: number;
   readonly exfilCount: number;
+  readonly websocketAttempts: number;
   readonly unknownVisits: number;
   readonly applyScriptVisits: number;
   resolveChallenge(): void;
@@ -58,6 +59,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   const submissions: FixtureSubmission[] = [];
   let loginCount = 0;
   let exfilCount = 0;
+  let websocketAttempts = 0;
   let unknownVisits = 0;
   let applyScriptVisits = 0;
   let unknownAnswer = "";
@@ -97,6 +99,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     if (path === "/submit" && req.method === "POST") { submissions.push(parseSubmission(req, await read(req), path)); page(res, `<h1>Application received</h1><p>Reference: ATS-${submissions.length}</p>`); return; }
     page(res, "<h1>Not found</h1>");
   });
+  ats.on("upgrade", (_req, socket) => { websocketAttempts++; socket.destroy(); });
   await new Promise<void>(resolve => ats.listen(0, "127.0.0.1", resolve));
   const atsAddress = ats.address();
   if (!atsAddress || typeof atsAddress === "string") throw new Error("ATS fixture did not listen");
@@ -215,6 +218,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     submissions,
     get loginCount() { return loginCount; },
     get exfilCount() { return exfilCount; },
+    get websocketAttempts() { return websocketAttempts; },
     get unknownVisits() { return unknownVisits; },
     get applyScriptVisits() { return applyScriptVisits; },
     resolveChallenge: () => { challengeSolved = true; },

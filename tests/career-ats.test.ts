@@ -63,12 +63,16 @@ test("cross-origin ATS allowances are limited to passive GET assets on named ven
   assert.equal(allowsCareerAtsResource({ ...request, to: "https://evil.example/form.js" }), false);
   assert.equal(allowsCareerAtsResource({ ...request, to: "http://job-boards.greenhouse.io/assets/form.js" }), false);
   assert.equal(allowsCareerAtsResource({ ...request, kind: "document" }), false);
+  assert.equal(allowsCareerAtsResource({ ...request, to: "https://job-boards.greenhouse.io:444/acme/assets/form.js" }), false, "non-standard asset ports are rejected");
   const recruiteeAsset = { from: "https://acme.recruitee.com/o/role", to: "https://acme.s.recruitee.com/assets/form.css", method: "GET", kind: "stylesheet" as const };
   assert.equal(allowsCareerAtsResource(recruiteeAsset), true);
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, kind: "xhr" }), false);
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, method: "POST", kind: "fetch" }), false);
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://acme.recruitee.com/api/offers/role/candidates", kind: "xhr" }), false, "cross-origin candidate API requests are not inferred or enabled");
   assert.equal(allowsCareerAtsResource({ ...recruiteeAsset, to: "https://evil.example/pixel.png", kind: "image" }), false);
+  const leverAsset = { from: "https://jobs.lever.co/acme/123", to: "https://jobs.eu.lever.co/acme/assets/app.js", method: "GET", kind: "script" as const };
+  assert.equal(allowsCareerAtsResource(leverAsset), true);
+  assert.equal(allowsCareerAtsResource({ ...leverAsset, to: "https://jobs.eu.lever.co/other-company/assets/pixel.gif?email=private@example.test", kind: "image" }), false, "cross-origin Lever assets cannot send data to another tenant");
   const workableAsset = { from: "https://apply.workable.com/j/ROLE", to: "https://apply.workable.com/assets/app.js", method: "GET", kind: "script" as const };
   assert.equal(allowsCareerAtsResource(workableAsset), true);
   assert.equal(allowsCareerAtsResource({ ...workableAsset, kind: "xhr" }), false);
@@ -94,7 +98,7 @@ test("cross-origin ATS allowances are limited to passive GET assets on named ven
   assert.equal(allowsCareerAtsResource({ ...workdayAsset, to: "https://example.wd5.myworkdayjobs.com:444/assets/app.js" }), false, "Workday resources stay on the exact scheme, host, and port");
 });
 
-test("cross-origin document navigation needs an explicit Apply target or same-vendor redirect", () => {
+test("cross-origin document navigation needs the selected Apply origin", () => {
   const testOrigins = new Set<string>();
   const base = { from: "https://careers.example/jobs/1", initialNavigation: false, redirected: false, testOrigins };
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://boards.greenhouse.io/acme/jobs/12/apply", pendingAtsOrigin: "https://boards.greenhouse.io" }), true);
@@ -111,6 +115,7 @@ test("cross-origin document navigation needs an explicit Apply target or same-ve
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com" }), true);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://other.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com", redirected: true }), false, "cross-tenant Workday redirects are blocked");
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://workday.wd5.myworkdayjobs.com/en-US/Acme/job/Engineer_R-1", to: "https://workday.wd5.myworkdayjobs.com:444/en-US/Acme/job/Engineer_R-1/apply", pendingAtsOrigin: "https://workday.wd5.myworkdayjobs.com", redirected: true }), false, "cross-origin Workday redirects are blocked");
+  assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://boards.greenhouse.io:444/acme/jobs/12/apply", pendingAtsOrigin: "https://boards.greenhouse.io:444" }), false, "non-standard HTTPS ports are rejected");
   assert.equal(allowsCareerAtsNavigation({ ...base, to: "https://evil.example/apply", pendingAtsOrigin: "https://evil.example" }), false);
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://careers.example/jobs/1", to: "https://boards.greenhouse.io/acme/jobs/12/apply", initialNavigation: true, redirected: true }), false, "an arbitrary initial job-page redirect cannot bypass the visible Apply link");
   assert.equal(allowsCareerAtsNavigation({ ...base, from: "https://boards.greenhouse.io/acme/jobs/12", to: "https://job-boards.greenhouse.io/acme/jobs/12/apply", redirected: true }), false, "same-vendor redirects still require an explicitly selected destination");

@@ -611,6 +611,32 @@ test("service workers are blocked so they cannot bypass request interception wit
     assert.equal(fx.exfilCount, exfilBefore, "the attempted worker sent no applicant data to the cross-origin fixture");
   } finally { await b.close(); }
 });
+test("cross-origin WebSockets cannot bypass the application network filter", async () => {
+  const b = new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin, new URL(fx.atsUrl).origin] });
+  try {
+    const outcome = await b.run(inputFor("/service-worker-job", "submit"));
+    assert.equal(outcome.state, "blocked");
+    const context = (b as unknown as { context: import("playwright").BrowserContext }).context;
+    const page = context.pages()[0];
+    assert.ok(page);
+    const attemptsBefore = fx.websocketAttempts;
+    const result = await page.evaluate((url) => new Promise<string>(resolve => {
+      const socket = new WebSocket(url);
+      let finished = false;
+      const finish = (value: string) => {
+        if (finished) return;
+        finished = true;
+        resolve(value);
+      };
+      socket.addEventListener("open", () => { socket.send("private applicant data"); finish("open"); }, { once: true });
+      socket.addEventListener("close", () => finish("closed"), { once: true });
+      socket.addEventListener("error", () => finish("error"), { once: true });
+      setTimeout(() => finish("timeout"), 1500);
+    }), fx.atsUrl.replace(/^http:/, "ws:") + "/collect-ws");
+    assert.notEqual(result, "open", "the cross-origin WebSocket never becomes writable");
+    assert.equal(fx.websocketAttempts, attemptsBefore, "the external fixture server receives no WebSocket handshake");
+  } finally { await b.close(); }
+});
 test("rejects private URL outside exact constructor test origin", async () => {
   const b = new CareerBrowser({ headless: true });
   const outcome = await b.run({ application: app(), job: job("/simple"), profile, resume: { meta: meta("cv-a", bytesA), bytes: bytesA }, mode: "submit", getCredential: () => null, beforeSubmit: () => assert.fail() });
