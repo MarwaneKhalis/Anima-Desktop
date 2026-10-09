@@ -218,7 +218,7 @@ export class CareerBrowser {
       this.context.setDefaultNavigationTimeout(20_000);
       const page = await this.context.newPage();
       session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false };
-      this.context.routeWebSocket("**/*", async socket => {
+      await this.context.routeWebSocket("**/*", async socket => {
         let origin: string | null = null;
         try {
           const url = new URL(socket.url());
