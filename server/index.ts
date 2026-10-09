@@ -32,6 +32,7 @@ import { ArbeitnowFranceDiscovery } from "./arbeitnow-france-discovery.ts";
 import { JobicyRemoteDiscovery } from "./jobicy-remote-discovery.ts";
 import { RemoteOkDiscovery } from "./remoteok-discovery.ts";
 import { HimalayasDiscovery } from "./himalayas-discovery.ts";
+import { RemotiveDiscovery } from "./remotive-discovery.ts";
 import { PublicOfferAggregator } from "./public-offer-aggregator.ts";
 import { resolveTestFixtureUrl } from "./test-fixtures.ts";
 import { csvParse, csvStringify, makeSearchUrl } from "./domain.ts";
@@ -106,6 +107,10 @@ const testHimalayasOfferSearch: OfferSearchService | undefined = testHimalayasUr
       return { offers: [{ url: testHimalayasUrl, title: "Offre de test Himalayas", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://himalayas.app/companies/test/jobs/test-role" }], note: `Résultat de test Himalayas pour ${criteria.keywords}.` };
     } }
   : undefined;
+const testRemotiveUrl = testFixtureUrl("CAREER_TEST_REMOTIVE_URL");
+const testRemotiveOfferSearch: OfferSearchService | undefined = testRemotiveUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testRemotiveUrl, title: "Offre de test Remotive", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://remotive.com/remote-jobs/test" }], note: `Résultat de test Remotive pour ${criteria.keywords}.` }) }
+  : undefined;
 const disabledTestOfferSearch: OfferSearchService = {
   search: async () => ({ offers: [], note: "Flux externe neutralisé en mode test." }),
 };
@@ -124,11 +129,13 @@ const publicOfferSearch = testPublicOfferSearch || (testMode ? disabledTestOffer
 const jobicyOfferSearch = testJobicyOfferSearch || (testMode ? disabledTestOfferSearch : new JobicyRemoteDiscovery());
 const remoteOkOfferSearch = testRemoteOkOfferSearch || (testMode ? disabledTestOfferSearch : new RemoteOkDiscovery());
 const himalayasOfferSearch = testHimalayasOfferSearch || (testMode ? disabledTestOfferSearch : new HimalayasDiscovery());
+const remotiveOfferSearch = testRemotiveOfferSearch || (testMode ? disabledTestOfferSearch : new RemotiveDiscovery({ cachePath: join(dataDir, "remotive-cache.json") }));
 const allPublicOfferSearch = new PublicOfferAggregator([
   { name: "Arbeitnow", service: publicOfferSearch },
   { name: "Jobicy", service: jobicyOfferSearch },
   { name: "Remote OK", service: remoteOkOfferSearch },
   { name: "Himalayas", service: himalayasOfferSearch, supportsCommune: false },
+  { name: "Remotive", service: remotiveOfferSearch, supportsCommune: false },
 ], allowedTestOrigins);
 let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);

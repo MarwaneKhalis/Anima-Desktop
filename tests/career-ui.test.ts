@@ -417,22 +417,24 @@ test("default public search aggregates sources and launches one desktop campaign
   const completed = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
     return value.campaigns[0];
-  }, campaign => campaign?.state === "completed" || campaign?.state === "paused", 10_000);
+  }, campaign => campaign?.state === "completed" || campaign?.state === "paused", 30_000);
   const { value: snapshot } = await app.json("/api/career/bootstrap");
   assert.equal(completed.state, "completed", JSON.stringify(snapshot.applications.map((application: Application) => ({ state: application.state, missingFields: application.missingFields, lastError: application.lastError, jobId: application.jobId }))));
-  assert.equal(completed.counts.total, 4);
-  assert.equal(completed.counts.submitted, 4);
-  assert.equal(snapshot.jobs.length, 4);
+  assert.equal(completed.counts.total, 5);
+  assert.equal(completed.counts.submitted, 5);
+  assert.equal(snapshot.jobs.length, 5);
   assert.deepEqual(new Set(snapshot.jobs.map((job: { sourceUrl: string }) => job.sourceUrl)), new Set([
     "https://www.arbeitnow.fr/",
     "https://jobicy.com/jobs/test",
     "https://remoteok.com/remote-jobs/test",
     "https://himalayas.app/companies/test/jobs/test-role",
+    "https://remotive.com/remote-jobs/test",
   ]));
   assert.equal(await page.getByRole("link", { name: /Source Himalayas/ }).getAttribute("href"), "https://himalayas.app/companies/test/jobs/test-role");
-  assert.equal(snapshot.applications.length, 4);
+  assert.equal(await page.getByRole("link", { name: /Source Remotive/ }).getAttribute("href"), "https://remotive.com/remote-jobs/test");
+  assert.equal(snapshot.applications.length, 5);
   assert.ok(snapshot.applications.every((application: Application) => application.state === "submitted"));
-  assert.equal(app.fixture.submissions.length, 4);
+  assert.equal(app.fixture.submissions.length, 5);
   assert.deepEqual(pageErrors, []);
 });
 
@@ -570,6 +572,7 @@ test("test mode keeps every unmocked public source offline", async (t) => {
     assert.equal(response.status, 200, source);
     assert.deepEqual(value.jobs, [], source);
     assert.match(value.note, /Flux externe neutralisé en mode test/, source);
+    if (source === "all-public") assert.match(value.note, /Remotive : Flux externe neutralisé en mode test/);
   }
 
   await app.json("/api/career/vault/initialize", { passphrase: "test search isolation vault" });

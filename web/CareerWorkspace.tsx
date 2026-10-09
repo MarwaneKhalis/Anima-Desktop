@@ -18,6 +18,7 @@ function jobSourceLabel(job: JobOffer): string {
     const host = new URL(job.sourceUrl || job.url).hostname.toLowerCase();
     if (host === "remoteok.com" || host === "www.remoteok.com") return "Remote OK";
     if (host === "himalayas.app") return "Himalayas";
+    if (host === "remotive.com" || host === "www.remotive.com") return "Remotive";
     return new URL(job.url).hostname;
   } catch { return "Source de l’offre"; }
 }
@@ -894,7 +895,7 @@ export default function CareerWorkspace() {
                       </div>
                       <small className="cw-automation-note">
                           {searchSource === "all"
-                            ? <>La recherche interroge simultanément les flux publics <a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">Arbeitnow</a>, <a href="https://jobicy.com" target="_blank" rel="noreferrer">Jobicy</a>, <a href="https://remoteok.com/api" target="_blank" rel="noreferrer">Remote OK</a> et <a href="https://himalayas.app/api" target="_blank" rel="noreferrer">Himalayas</a>. Le filtre ville s’applique aux trois premières sources; Himalayas recherche les postes compatibles avec la France sans filtre ville. Chaque fiche conserve son lien source; les offres identiques sont regroupées. France Travail reste sélectionnable séparément avec ses accès API.</>
+                            ? <>La recherche interroge simultanément les flux publics <a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">Arbeitnow</a>, <a href="https://jobicy.com" target="_blank" rel="noreferrer">Jobicy</a>, <a href="https://remoteok.com/api" target="_blank" rel="noreferrer">Remote OK</a>, <a href="https://himalayas.app/api" target="_blank" rel="noreferrer">Himalayas</a> et <a href="https://remotive.com/remote-jobs/api" target="_blank" rel="noreferrer">Remotive</a>. Remotive retarde ses annonces de 24 h et son flux est actualisé au plus une fois par jour. Le filtre ville s’applique à Arbeitnow, Jobicy et Remote OK; Himalayas et Remotive ne fournissent qu’une zone d’éligibilité par pays ou région. Chaque fiche conserve son lien source; les offres identiques sont regroupées. France Travail reste sélectionnable séparément avec ses accès API.</>
                             : searchSource === "arbeitnow"
                             ? <>Les offres viennent de l’<a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">API publique Arbeitnow France</a>. La couverture dépend des annonces indexées.</>
                             : searchSource === "jobicy"
@@ -1118,7 +1119,7 @@ export default function CareerWorkspace() {
                           </div>
                           <div className="cw-section-head">
                             <a href={j.url} target="_blank" rel="noreferrer">
-                              Voir l’offre{jobSourceLabel(j) === "Remote OK" ? " sur Remote OK" : ""} ↗
+                              Voir l’offre{["Remote OK", "Remotive"].includes(jobSourceLabel(j)) ? ` sur ${jobSourceLabel(j)}` : ""} ↗
                             </a>
                             {j.sourceUrl && j.sourceUrl !== j.url && (
                               <a href={j.sourceUrl} target="_blank" rel="noreferrer">Source {jobSourceLabel(j)} ↗</a>
