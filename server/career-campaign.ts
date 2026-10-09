@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { Application, ApplicationState, JobOffer, RunResult } from "../src/shared/career.ts";
+import { ensureProtectedScope, LocalDataProtector, PROTECTED_SCOPES } from "./data-protection.ts";
 
 /** A durable queue for a single user-approved search campaign. This module deliberately
  * knows nothing about Playwright or HTTP: the desktop host injects the career runner. */
@@ -28,8 +29,10 @@ export class CampaignError extends Error {
 /** SQLite repository; all claims and reservations happen under BEGIN IMMEDIATE. */
 export class CareerCampaignStore {
   private readonly db: DatabaseSync;
-  constructor(db: DatabaseSync) {
+  private readonly protectedData: LocalDataProtector;
+  constructor(db: DatabaseSync, dataProtectionKey?: Buffer) {
     this.db = db;
+    this.protectedData = new LocalDataProtector(dataProtectionKey);
     db.exec(`
       CREATE TABLE IF NOT EXISTS career_campaigns (
         id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL, resume_id TEXT NOT NULL, credential_id TEXT NOT NULL DEFAULT '', expected_job_ids TEXT, max_submissions INTEGER NOT NULL,
@@ -57,10 +60,13 @@ export class CareerCampaignStore {
       bindLegacy.run(JSON.stringify(ids), String(row.id));
     }
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS career_campaigns_idempotency ON career_campaigns(idempotency_key) WHERE idempotency_key<>''");
+    const campaignScope = PROTECTED_SCOPES.find((scope) => scope.name === "campaign");
+    if (!campaignScope) throw new Error("Schéma de protection des campagnes absent.");
+    ensureProtectedScope(db, campaignScope, dataProtectionKey);
   }
   private tx<T>(fn: () => T): T { this.db.exec("BEGIN IMMEDIATE"); try { const value = fn(); this.db.exec("COMMIT"); return value; } catch (error) { this.db.exec("ROLLBACK"); throw error; } }
   private campaign(row: Row): Campaign { return { id: String(row.id), idempotencyKey: String(row.idempotency_key ?? ""), resumeId: String(row.resume_id), credentialId: String(row.credential_id ?? "") || null, maxSubmissions: Number(row.max_submissions), state: String(row.state) as CampaignState, startRequested: Number(row.start_requested) === 1, createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
-  private item(row: Row): CampaignItem { return { id: String(row.id), campaignId: String(row.campaign_id), applicationId: String(row.application_id), jobId: String(row.job_id), state: String(row.state) as CampaignItemState, error: String(row.error), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
+  private item(row: Row): CampaignItem { const itemId=String(row.id); return { id: itemId, campaignId: String(row.campaign_id), applicationId: String(row.application_id), jobId: String(row.job_id), state: String(row.state) as CampaignItemState, error: this.protectedData.readText("career_campaign_items",itemId,"error",row.error), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
   create(resumeId: string, maxSubmissions: number, idempotencyKey: string = randomUUID(), credentialId?: string | null, expectedJobIds?: readonly string[]): Campaign {
     if (!resumeId || !idempotencyKey.trim() || idempotencyKey.length > 200 || !Number.isInteger(maxSubmissions) || maxSubmissions < 1 || maxSubmissions > 500) throw new CampaignError(400, "validation", "Paramètres de campagne invalides (clé requise, plafond de 1 à 500 candidatures).");
     const existing = this.db.prepare("SELECT * FROM career_campaigns WHERE idempotency_key=?").get(idempotencyKey) as Row | undefined;
@@ -101,7 +107,8 @@ export class CareerCampaignStore {
     const previous = this.db.prepare("SELECT created_at FROM career_campaign_items WHERE campaign_id=? ORDER BY created_at DESC,id DESC LIMIT 1").get(campaignId) as Row | undefined;
     const previousTime = previous ? Date.parse(String(previous.created_at)) : 0;
     const at = new Date(Math.max(Date.now(), Number.isFinite(previousTime) ? previousTime + 1 : 0)).toISOString();
-    this.db.prepare("INSERT OR IGNORE INTO career_campaign_items VALUES (?,?,?,?,?,?,?,?)").run(randomUUID(), campaignId, application.id, application.jobId, "pending", "", at, at);
+    const itemId=randomUUID();
+    this.db.prepare("INSERT OR IGNORE INTO career_campaign_items VALUES (?,?,?,?,?,?,?,?)").run(itemId, campaignId, application.id, application.jobId, "pending", this.protectedData.writeText("career_campaign_items",itemId,"error",""), at, at);
     const row = this.db.prepare("SELECT * FROM career_campaign_items WHERE campaign_id=? AND job_id=?").get(campaignId, application.jobId) as Row;
     return this.item(row);
   }
@@ -144,7 +151,7 @@ export class CareerCampaignStore {
   }
   markSkipped(campaignId: string, itemId: string, reason: string): CampaignItem {
     return this.tx(() => {
-      const result = this.db.prepare("UPDATE career_campaign_items SET state='skipped',error=?,updated_at=? WHERE campaign_id=? AND id=? AND state IN ('pending','needs_input','failed')").run(reason.slice(0, 1000), stamp(), campaignId, itemId);
+      const result = this.db.prepare("UPDATE career_campaign_items SET state='skipped',error=?,updated_at=? WHERE campaign_id=? AND id=? AND state IN ('pending','needs_input','failed')").run(this.protectedData.writeText("career_campaign_items",itemId,"error",reason.slice(0, 1000)), stamp(), campaignId, itemId);
       if (result.changes !== 1) {
         this.getItem(campaignId, itemId);
         throw new CampaignError(409, "item_not_skippable", "Cette offre a démarré ou ne peut plus être passée.");
@@ -202,13 +209,13 @@ export class CareerCampaignStore {
       const row = this.db.prepare("SELECT * FROM career_campaign_items WHERE campaign_id=? AND state='pending' ORDER BY created_at,id LIMIT 1").get(id) as Row | undefined;
       if (!row) return null;
       const at = stamp();
-      this.db.prepare("UPDATE career_campaign_items SET state='running',error='',updated_at=? WHERE id=? AND state='pending'").run(at, String(row.id));
+      this.db.prepare("UPDATE career_campaign_items SET state='running',error=?,updated_at=? WHERE id=? AND state='pending'").run(this.protectedData.writeText("career_campaign_items",String(row.id),"error",""), at, String(row.id));
       return this.item(this.db.prepare("SELECT * FROM career_campaign_items WHERE id=?").get(String(row.id)) as Row);
     });
   }
   finish(itemId: string, state: CampaignItemState, error = ""): CampaignItem {
     if (!(["submitted", "needs_input", "uncertain", "failed", "pending", "skipped"] as CampaignItemState[]).includes(state)) throw new Error("Transition d’élément invalide.");
-    this.db.prepare("UPDATE career_campaign_items SET state=?,error=?,updated_at=? WHERE id=?").run(state, error.slice(0, 1000), stamp(), itemId);
+    this.db.prepare("UPDATE career_campaign_items SET state=?,error=?,updated_at=? WHERE id=?").run(state, this.protectedData.writeText("career_campaign_items",itemId,"error",error.slice(0, 1000)), stamp(), itemId);
     const row = this.db.prepare("SELECT * FROM career_campaign_items WHERE id=?").get(itemId) as Row | undefined;
     if (!row) throw new Error("Élément de campagne introuvable.");
     return this.item(row);

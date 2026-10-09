@@ -16,6 +16,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { decryptPortableBackup, deserializeDatabase, encryptPortableBackup, ensureAllProtectedScopes, serializeDatabase, unprotectAllScopes, validatePortableDatabase } from "./data-protection.ts";
 import { LocalBrowser } from "./browser.ts";
 import { Store } from "./db.ts";
 import { CareerError, CareerStore } from "./career-store.ts";
@@ -40,14 +41,25 @@ import type { Prospect, SavedSearch, Template } from "../src/shared/types.ts";
 import type { OfferSearchService } from "../src/shared/career.ts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const electronMode = process.env.ANIMA_ELECTRON_MODE === "1";
 const dataDir = process.env.ANIMA_DATA_DIR
   ? resolve(process.env.ANIMA_DATA_DIR)
   : join(root, "data");
 mkdirSync(dataDir, { recursive: true });
+const encodedLocalKey = process.env.ANIMA_LOCAL_DATA_KEY_BASE64;
+delete process.env.ANIMA_LOCAL_DATA_KEY_BASE64;
+let dataProtectionKey: Buffer | undefined;
+if (electronMode) {
+  if (!encodedLocalKey || !/^(?:[A-Za-z0-9+/]{4}){10}[A-Za-z0-9+/]{3}=$/.test(encodedLocalKey))
+    throw new Error("La clé de protection locale fournie par Windows est absente ou invalide.");
+  dataProtectionKey = Buffer.from(encodedLocalKey, "base64");
+  if (dataProtectionKey.length !== 32 || dataProtectionKey.toString("base64") !== encodedLocalKey)
+    throw new Error("La clé de protection locale fournie par Windows est absente ou invalide.");
+}
 const realPath = join(dataDir, "anima-connect.sqlite");
 const demoPath = join(dataDir, "demo.sqlite");
-let realStore = new Store(realPath);
-const demoStore = new Store(demoPath);
+let realStore = new Store(realPath, dataProtectionKey);
+const demoStore = new Store(demoPath, dataProtectionKey);
 demoStore.seedDemo();
 const browser = new LocalBrowser(join(dataDir, "browser-profile"));
 const port = Number(process.env.PORT || 4174);
@@ -64,7 +76,7 @@ if (
   )
 )
   throw new Error("Origines de test invalides.");
-const careerOptions = { allowedTestOrigins };
+const careerOptions = { allowedTestOrigins, dataProtectionKey };
 const testMode = process.env.ANIMA_TEST_MODE === "1";
 const testFixtureUrl = (name: string) => testMode ? resolveTestFixtureUrl(process.env[name], allowedTestOrigins) : undefined;
 const careerBrowser = new CareerBrowser({
@@ -141,16 +153,16 @@ let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);
 let runner = new CareerRunner(careerStore, vault, careerBrowser);
 careerStore.recoverInterruptedRuns();
-let campaignRuntime = createCareerCampaignRuntime(careerStore, runner);
+let campaignRuntime = createCareerCampaignRuntime(careerStore, runner, dataProtectionKey);
 void campaignRuntime.engine.recoverAfterRestart().catch((error) =>
   console.error("Échec de reprise des campagnes de candidature :", error),
 );
-const demoCareerStore = new CareerStore(demoStore.db);
-const demoVault = new Vault(demoStore.db);
+const demoCareerStore = new CareerStore(demoStore.db, careerOptions);
+const demoVault = new Vault(demoStore.db, careerOptions);
 const demoBrowser = new CareerBrowser();
 const demoRunner = new CareerRunner(demoCareerStore, demoVault, demoBrowser);
 demoCareerStore.seedDemo();
-const demoCampaignRuntime = createCareerCampaignRuntime(demoCareerStore, demoRunner);
+const demoCampaignRuntime = createCareerCampaignRuntime(demoCareerStore, demoRunner, dataProtectionKey);
 
 function respond(res: ServerResponse, status: number, value: unknown) {
   res.writeHead(status, {
@@ -571,18 +583,23 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       });
       return;
     }
-    if (method === "GET" && path === "/api/backup") {
-      const temp = join(dataDir, `backup-${randomUUID()}.sqlite`);
+    if (method === "POST" && path === "/api/backup") {
+      const input = await json(req);
+      const scratch = new DatabaseSync(":memory:");
       try {
-        store.db.exec(`VACUUM INTO '${temp.replaceAll("'", "''")}'`);
+        deserializeDatabase(scratch, serializeDatabase(store.db));
+        unprotectAllScopes(scratch, dataProtectionKey);
+        const portable = encryptPortableBackup(serializeDatabase(scratch), String(input.passphrase ?? ""));
+        if (portable.length > 75 * 1024 * 1024)
+          throw new Error("Sauvegarde trop volumineuse pour l’export intégré. Réduisez la taille des CV enregistrés.");
         download(
           res,
-          `anima-connect-${demo ? "demo-" : ""}${new Date().toISOString().slice(0, 10)}.sqlite`,
-          readFileSync(temp),
-          "application/vnd.sqlite3",
+          `anima-connect-${demo ? "demo-" : ""}${new Date().toISOString().slice(0, 10)}.anima-backup`,
+          portable,
+          "application/vnd.anima.backup",
         );
       } finally {
-        rmSync(temp, { force: true });
+        scratch.close();
       }
       return;
     }
@@ -590,24 +607,28 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       if (demo)
         throw new Error("Quittez le mode démo pour restaurer une sauvegarde.");
       if (req.headers["content-type"] !== "application/octet-stream")
-        throw new Error("Fichier SQLite attendu.");
-      const bytes = await body(req, 100_000_000);
-      if (bytes.subarray(0, 16).toString("ascii") !== "SQLite format 3\0")
-        throw new Error("Ce fichier n’est pas une base SQLite.");
-      const temp = join(dataDir, `restore-${randomUUID()}.sqlite`);
-      writeFileSync(temp, bytes);
+        throw new Error("Fichier de sauvegarde attendu.");
+      const bytes = await body(req, 90 * 1024 * 1024);
+      const encodedPassphrase = String(req.headers["x-anima-backup-passphrase-base64"] ?? "");
+      if (encodedPassphrase && (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encodedPassphrase) || encodedPassphrase.length > 1400))
+        throw new Error("Phrase de sauvegarde invalide.");
+      let passphrase: string;
       try {
-        const check = new DatabaseSync(temp, { readOnly: true });
-        const tables = check
-          .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-          .all() as { name: string }[];
-        check.close();
-        if (
-          !["prospects", "searches", "events", "messages", "queue"].every(
-            (name) => tables.some((t) => t.name === name),
-          )
-        )
-          throw new Error("Sauvegarde Anima Connect incomplète.");
+        const phraseBytes = Buffer.from(encodedPassphrase, "base64");
+        if (phraseBytes.toString("base64") !== encodedPassphrase) throw new Error();
+        passphrase = new TextDecoder("utf-8", { fatal: true }).decode(phraseBytes);
+      } catch {
+        throw new Error("Phrase de sauvegarde invalide.");
+      }
+      const legacyAllowed = req.headers["x-anima-allow-legacy-backup"] === "1";
+      const decrypted = decryptPortableBackup(bytes, passphrase, legacyAllowed);
+      const scratch = new DatabaseSync(":memory:");
+      const temp = join(dataDir, `restore-${randomUUID()}.sqlite`);
+      try {
+        deserializeDatabase(scratch, decrypted.database);
+        validatePortableDatabase(scratch, { legacy: decrypted.legacy });
+        ensureAllProtectedScopes(scratch, dataProtectionKey);
+        writeFileSync(temp, serializeDatabase(scratch), { flag: "wx" });
         campaignRuntime.engine.pauseAll();
         await runner.stop();
         await campaignRuntime.engine.waitAll();
@@ -621,27 +642,28 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         copyFileSync(realPath, rollback);
         try {
           renameSync(temp, realPath);
-          realStore = new Store(realPath);
+          realStore = new Store(realPath, dataProtectionKey);
           careerStore = new CareerStore(realStore.db, careerOptions);
           vault = new Vault(realStore.db, careerOptions);
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
-          campaignRuntime = createCareerCampaignRuntime(careerStore, runner);
+          campaignRuntime = createCareerCampaignRuntime(careerStore, runner, dataProtectionKey);
           void campaignRuntime.engine.recoverAfterRestart().catch((error) =>
             console.error("Échec de reprise des campagnes après restauration :", error),
           );
         } catch (error) {
           copyFileSync(rollback, realPath);
-          realStore = new Store(realPath);
+          realStore = new Store(realPath, dataProtectionKey);
           careerStore = new CareerStore(realStore.db, careerOptions);
           vault = new Vault(realStore.db, careerOptions);
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
-          campaignRuntime = createCareerCampaignRuntime(careerStore, runner);
+          campaignRuntime = createCareerCampaignRuntime(careerStore, runner, dataProtectionKey);
           throw error;
         }
         respond(res, 200, { restored: true, safetyCopy: rollback });
       } finally {
+        scratch.close();
         rmSync(temp, { force: true });
       }
       return;
@@ -651,7 +673,6 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     fail(res, error);
   }
 }
-const electronMode = process.env.ANIMA_ELECTRON_MODE === "1";
 const server = electronMode ? undefined : createServer(handleRequest);
 
 if (server)

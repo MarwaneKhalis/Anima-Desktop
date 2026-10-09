@@ -16,8 +16,8 @@ function asRunResult(application: Application): RunResult {
 }
 
 /** Connect the durable campaign scheduler to the one-at-a-time desktop browser runner. */
-export function createCareerCampaignRuntime(career: CareerStore, runner: CareerRunner) {
-  const campaigns = new CareerCampaignStore(career.db);
+export function createCareerCampaignRuntime(career: CareerStore, runner: CareerRunner, dataProtectionKey?: Buffer) {
+  const campaigns = new CareerCampaignStore(career.db, dataProtectionKey);
   const engine = new CareerCampaignEngine(campaigns, {
     createApplication: (jobId, resumeId) => career.createApplication({ jobId, resumeId }),
     getApplication: (id) => career.getApplication(id),

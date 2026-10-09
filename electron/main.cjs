@@ -1,4 +1,7 @@
-const { app, BrowserWindow, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } = require("electron");
+const { randomBytes } = require("node:crypto");
+const { DatabaseSync } = require("node:sqlite");
+const { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require("node:fs");
 const { Readable } = require("node:stream");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -9,6 +12,73 @@ const MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 let backend;
 let mainWindow;
+
+function databaseContainsProtectedData(databasePath) {
+  if (!existsSync(databasePath)) return false;
+  const db = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    const marker = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='anima_data_protection'").get();
+    if (marker) return true;
+    const specs = {
+      searches: ["name", "filters", "linkedin_url", "notes"],
+      prospects: ["linkedin_url", "first_name", "last_name", "title", "company", "location", "school", "tags", "notes", "next_action"],
+      events: ["detail"], templates: ["name", "content"], messages: ["content"], queue: ["error"],
+      career_profile: ["value"], career_resumes: ["name", "filename", "mime", "sha256"],
+      career_applications: ["outcome", "answers", "missing_fields", "notes", "last_error", "receipt"],
+      career_events: ["detail"], career_credentials: ["origin", "label", "username"],
+      career_campaign_items: ["error"],
+    };
+    for (const [table, columns] of Object.entries(specs)) {
+      if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)) continue;
+      for (const column of columns) {
+        const quoted = `"${column}"`;
+        if (db.prepare(`SELECT 1 FROM "${table}" WHERE typeof(${quoted})='text' AND substr(${quoted},1,19)='anima-protected:v1:' LIMIT 1`).get()) return true;
+        if (table === "career_resumes" && column === "sha256" &&
+            db.prepare(`SELECT 1 FROM "${table}" WHERE typeof("bytes")='blob' AND substr("bytes",1,8)=x'414e494d41503100' LIMIT 1`).get()) return true;
+      }
+    }
+    return false;
+  } finally {
+    db.close();
+  }
+}
+
+function getOrCreateLocalDataKey(dataDirectory, databasePath) {
+  if (!safeStorage.isEncryptionAvailable())
+    throw new Error("Le stockage sécurisé Windows (DPAPI) est indisponible. Les données n’ont pas été ouvertes.");
+  mkdirSync(dataDirectory, { recursive: true });
+  const keyPath = path.join(dataDirectory, "local-data-key.dpapi");
+  if (existsSync(keyPath)) {
+    let saved;
+    try { saved = JSON.parse(readFileSync(keyPath, "utf8")); }
+    catch { throw new Error("La clé locale est illisible. La base n’a pas été modifiée."); }
+    if (!saved || saved.version !== 1 || saved.provider !== "electron-safeStorage" || typeof saved.ciphertext !== "string" ||
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(saved.ciphertext))
+      throw new Error("Le fichier de clé locale est invalide. La base n’a pas été modifiée.");
+    try {
+      const ciphertext = Buffer.from(saved.ciphertext, "base64");
+      if (ciphertext.toString("base64") !== saved.ciphertext) throw new Error();
+      const key = Buffer.from(safeStorage.decryptString(ciphertext), "base64");
+      if (key.length !== 32 || key.toString("base64") !== safeStorage.decryptString(ciphertext)) throw new Error();
+      return key;
+    } catch {
+      throw new Error("Impossible de déchiffrer la clé locale avec le compte Windows actuel. La base n’a pas été modifiée.");
+    }
+  }
+  if (databaseContainsProtectedData(databasePath))
+    throw new Error("La base est déjà chiffrée mais sa clé locale est absente. Aucun remplacement de clé n’a été tenté.");
+  const key = randomBytes(32);
+  const encrypted = safeStorage.encryptString(key.toString("base64"));
+  const tempPath = `${keyPath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tempPath, JSON.stringify({ version: 1, provider: "electron-safeStorage", ciphertext: encrypted.toString("base64") }), { flag: "wx", mode: 0o600 });
+    renameSync(tempPath, keyPath);
+  } catch (error) {
+    rmSync(tempPath, { force: true });
+    throw error;
+  }
+  return key;
+}
 
 if (!gotSingleInstanceLock) app.quit();
 if (process.platform === "win32") app.setAppUserModelId("com.animaconnect.desktop");
@@ -109,7 +179,9 @@ async function createWindow() {
 
 if (gotSingleInstanceLock) app.whenReady().then(async () => {
   process.env.ANIMA_ELECTRON_MODE = "1";
-  process.env.ANIMA_DATA_DIR = path.join(app.getPath("userData"), "data");
+  const dataDirectory = path.join(app.getPath("userData"), "data");
+  process.env.ANIMA_DATA_DIR = dataDirectory;
+  process.env.ANIMA_LOCAL_DATA_KEY_BASE64 = getOrCreateLocalDataKey(dataDirectory, path.join(dataDirectory, "anima-connect.sqlite")).toString("base64");
   process.env.PLAYWRIGHT_BROWSERS_PATH = app.isPackaged
     ? path.join(process.resourcesPath, "playwright-browsers")
     : path.join(__dirname, "..", ".playwright-browsers");
@@ -135,6 +207,7 @@ if (gotSingleInstanceLock) app.whenReady().then(async () => {
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch((error) => {
   console.error("Impossible de démarrer Anima Connect", error);
+  dialog.showErrorBox("Impossible d’ouvrir les données Anima Connect", error instanceof Error ? error.message : String(error));
   app.quit();
 });
 
