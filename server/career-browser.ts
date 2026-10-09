@@ -1,13 +1,18 @@
 import { isIP } from "node:net";
-import { lookup } from "node:dns/promises";
 import { isPublicAIAddress } from "./career-ai.ts";
+import { CHROMIUM_EGRESS_FLAGS, PinnedBrowserProxy, resolveBrowserAddresses, type BrowserProxyDialer, type BrowserProxyResolver } from "./career-egress-proxy.ts";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type {
   Application, CareerProfile, JobOffer, MissingField, Receipt, Resume, RunMode, RunResult,
 } from "../src/shared/career.ts";
 import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForUrl, findApplyLink, isRemoteOkApplyRedirectorUrl } from "./career-ats.ts";
 
-export interface CareerBrowserOptions { headless?: boolean; allowedTestOrigins?: string[] }
+export interface CareerBrowserOptions {
+  headless?: boolean;
+  allowedTestOrigins?: string[];
+  /** Deterministic network seams used by tests; never wired to user input. */
+  testNetwork?: { resolveAddresses?: BrowserProxyResolver; dial?: BrowserProxyDialer };
+}
 type Control = { index: number; tag: string; type: string; label: string; name: string; key: string; required: boolean; value: string; checked: boolean; uploaded: boolean; options: string[] };
 type Button = { index: number; text: string; disabled: boolean };
 type BrowserRunInput = {
@@ -38,10 +43,10 @@ function safeUrl(value: string, testOrigins: Set<string>): URL {
   }
   return url;
 }
-async function assertPublic(url: URL, testOrigins: Set<string>): Promise<void> {
+async function assertPublic(url: URL, testOrigins: Set<string>, resolveAddresses: BrowserProxyResolver): Promise<void> {
   safeUrl(url.href, testOrigins);
   if (testOrigins.has(url.origin)) return;
-  const addresses = await lookup(url.hostname, { all: true });
+  const addresses = await resolveAddresses(url.hostname);
   if (!addresses.length || addresses.some(({ address, family }) => !isPublicAIAddress(address, family))) throw new Error("Destination réseau privée interdite.");
 }
 
@@ -161,18 +166,30 @@ async function advance(page: Page, control: ReturnType<Page["locator"]>): Promis
 export class CareerBrowser {
   private browser: Browser | undefined;
   private context: BrowserContext | undefined;
+  private proxy: PinnedBrowserProxy | undefined;
   private active = false;
   private pausedSession: BrowserSession | undefined;
   private options: CareerBrowserOptions;
   private readonly testOrigins: Set<string>;
-  constructor(options: CareerBrowserOptions = {}) { this.options = options; this.testOrigins = new Set(options.allowedTestOrigins || []); }
+  private readonly resolveAddresses: BrowserProxyResolver;
+  constructor(options: CareerBrowserOptions = {}) {
+    this.options = options;
+    this.testOrigins = new Set(options.allowedTestOrigins || []);
+    this.resolveAddresses = options.testNetwork?.resolveAddresses ?? resolveBrowserAddresses;
+  }
 
   hasPausedSession(): boolean { return Boolean(this.pausedSession && this.isLive(this.pausedSession)); }
 
   async close(): Promise<void> {
     this.pausedSession = undefined;
-    await this.context?.close().catch(() => {}); this.context = undefined;
-    await this.browser?.close().catch(() => {}); this.browser = undefined;
+    const context = this.context; this.context = undefined;
+    const browser = this.browser; this.browser = undefined;
+    const proxy = this.proxy; this.proxy = undefined;
+    try { await context?.close().catch(() => {}); }
+    finally {
+      try { await browser?.close().catch(() => {}); }
+      finally { await proxy?.close().catch(() => {}); }
+    }
   }
 
   private isLive(session: BrowserSession): boolean {
@@ -211,8 +228,15 @@ export class CareerBrowser {
     let session: BrowserSession | undefined;
     try {
       const start = safeUrl(input.job.url, this.testOrigins);
-      await assertPublic(start, this.testOrigins);
-      this.browser = await chromium.launch({ headless: this.options.headless ?? false });
+      await assertPublic(start, this.testOrigins, this.resolveAddresses);
+      this.proxy = new PinnedBrowserProxy({ testOrigins: [...this.testOrigins], ...this.options.testNetwork });
+      const proxyServer = await this.proxy.listen();
+      this.browser = await chromium.launch({
+        headless: this.options.headless ?? false,
+        proxy: { server: proxyServer, bypass: "<-loopback>" },
+        // Keep destination DNS and non-proxied transports out of Chromium.
+        args: [...CHROMIUM_EGRESS_FLAGS],
+      });
       this.context = await this.browser.newContext({ acceptDownloads: false, serviceWorkers: "block", viewport: { width: 1365, height: 900 } });
       this.context.setDefaultTimeout(10_000);
       this.context.setDefaultNavigationTimeout(20_000);
@@ -241,23 +265,11 @@ export class CareerBrowser {
         if (request.isNavigationRequest() && session!.pendingAtsOrigin === REMOTE_OK_APPLY_REDIRECT
           && isRemoteOkApplyRedirectorUrl(url.href, this.testOrigins)) {
           try {
-            const response = await route.fetch({ maxRedirects: 0 });
-            const location = response.headers()["location"];
-            if (response.status() < 300 || response.status() >= 400 || !location) {
-              await response.dispose();
-              return route.abort();
-            }
-            const target = new URL(location, url);
-            const targetAts = careerAtsForUrl(target.href);
-            const approvedTarget = (target.protocol === "https:" && targetAts !== null) || this.testOrigins.has(target.origin);
-            if (!approvedTarget) {
-              await response.dispose();
-              return route.abort();
-            }
-            await assertPublic(target, this.testOrigins);
-            session!.flowOrigin = target.origin;
-            session!.pendingAtsOrigin = target.origin;
-            return route.fulfill({ response });
+            // Let Chromium follow the redirect through the pinned egress proxy.
+            // The redirected request is admitted only by the ATS navigation policy below.
+            await assertPublic(url, this.testOrigins, this.resolveAddresses);
+            session!.flowOrigin = url.origin;
+            return route.continue();
           } catch { return route.abort(); }
         }
         if (url.origin !== session!.flowOrigin) {
@@ -272,7 +284,7 @@ export class CareerBrowser {
           });
           if (allowedAtsNavigation) {
             try {
-              await assertPublic(url, this.testOrigins);
+              await assertPublic(url, this.testOrigins, this.resolveAddresses);
               session!.flowOrigin = url.origin;
               session!.pendingAtsOrigin = url.origin;
             } catch { return route.abort(); }

@@ -45,7 +45,7 @@ async function run(path: string, mode: RunMode, options: { answers?: Record<stri
 test("preparation fills standard form but sends no application", async () => {
   const count = fx.submissions.length;
   const { outcome, marker } = await run("/simple", "prepare");
-  assert.equal(outcome.state, "ready"); assert.equal(marker, 0); assert.equal(fx.submissions.length, count);
+  assert.equal(outcome.state, "ready", outcome.message); assert.equal(marker, 0); assert.equal(fx.submissions.length, count);
 });
 test("Remote OK redirector refuses non-ATS targets before opening or sending applicant data", async () => {
   const before = fx.submissions.length;
@@ -643,6 +643,30 @@ test("rejects private URL outside exact constructor test origin", async () => {
   assert.equal(outcome.state, "blocked");
 });
 
+test("a private DNS rebind at connect time is blocked after public preflight", async () => {
+  let resolutions = 0;
+  let dials = 0;
+  const b = new CareerBrowser({
+    headless: true,
+    testNetwork: {
+      resolveAddresses: async hostname => {
+        assert.equal(hostname, "careers.example.org");
+        resolutions++;
+        return resolutions === 1
+          ? [{ address: "93.184.216.34", family: 4 }]
+          : [{ address: "127.0.0.1", family: 4 }];
+      },
+      dial: async () => { dials++; throw new Error("proxy must reject before dialing the private address"); },
+    },
+  });
+  try {
+    const input = inputFor("/simple", "submit", {}, () => assert.fail("must not submit after rebinding"));
+    const externalJob = { ...input.job, url: "https://careers.example.org/jobs/42" };
+    const outcome = await b.run({ ...input, job: externalJob });
+    assert.equal(outcome.state, "blocked");
+    assert.equal(resolutions, 2, "one preflight lookup and one connection-time lookup occur");
+    assert.equal(dials, 0, "the proxy rejects the second, private DNS answer before TCP connect");  } finally { await b.close(); }
+});
 test("rejects non-standard HTTPS ports before browser navigation", async () => {
   const b = new CareerBrowser({ headless: true });
   try {
