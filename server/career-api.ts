@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Application, CareerDiscovery, JobOffer, RunMode } from '../src/shared/career.ts';
+import type { Application, CareerDiscovery, JobOffer, OfferSearchCriteria, OfferSearchService, RunMode } from '../src/shared/career.ts';
 import { careerUrl, CareerError, CareerStore } from './career-store.ts';
 import { Vault } from './vault.ts';
 import { CareerAI } from './career-ai.ts';
@@ -11,6 +11,13 @@ export interface CareerApiContext {
   browser?: { discover?: CareerDiscovery['discover'] };
   runner: { start(id:string,mode:RunMode,credentialId?:string):Application; resume?(id:string,credentialId?:string,fileFieldKey?:string,resumeId?:string):Application; isBusy():boolean; hasPausedSession?():boolean; stop():Promise<void> };
   discovery: CareerDiscovery;
+  offerSearch?: OfferSearchService;
+  publicOfferSearch?: OfferSearchService;
+  jobicyOfferSearch?: OfferSearchService;
+  remoteOkOfferSearch?: OfferSearchService;
+  himalayasOfferSearch?: OfferSearchService;
+  remotiveOfferSearch?: OfferSearchService;
+  allPublicOfferSearch?: OfferSearchService;
   demo: boolean;
   allowTestAutomation?: boolean;
   allowedTestOrigins?: string[];
@@ -39,11 +46,73 @@ function decodeResumeBase64(value:unknown):Buffer {
 export async function handleCareerApi(req:IncomingMessage,res:ServerResponse,url:URL,context:CareerApiContext):Promise<boolean>{
   const path=url.pathname;if(!path.startsWith('/api/career/'))return false;
   const relative=path.slice('/api/career'.length),method=req.method||'GET';
-  const known=relative==='/bootstrap'||relative==='/profile'||relative==='/resumes'||/^\/resumes\/[^/]+(?:\/download)?$/.test(relative)||relative.startsWith('/vault/')||relative==='/credentials'||/^\/credentials\/[^/]+$/.test(relative)||relative==='/jobs'||relative==='/discover'||relative==='/applications'||/^\/applications\/[^/]+(?:\/(?:run|resume|resolve))?$/.test(relative)||relative==='/ai/config'||relative==='/ai/test'||relative==='/ai/cover-letter';
+    const known=relative==='/bootstrap'||relative==='/profile'||relative==='/resumes'||/^\/resumes\/[^/]+(?:\/download)?$/.test(relative)||relative.startsWith('/vault/')||relative==='/credentials'||/^\/credentials\/[^/]+$/.test(relative)||relative==='/jobs'||relative==='/discover'||relative==='/sources/france-travail'||relative==='/sources/france-travail/search'||relative==='/sources/arbeitnow/search'||relative==='/sources/jobicy/search'||relative==='/sources/remoteok/search'||relative==='/sources/himalayas/search'||relative==='/sources/remotive/search'||relative==='/sources/all-public/search'||relative==='/applications'||/^\/applications\/[^/]+(?:\/(?:run|resume|resolve))?$/.test(relative)||relative==='/ai/config'||relative==='/ai/test'||relative==='/ai/cover-letter';
   if(!known)return false;
   try{
     if(method!=='GET'&&req.headers['x-anima-request']!=='1')throw new CareerError(403,'csrf','En-tête de requête requis.');
     const {store,vault,runner}=context;
+    if(relative==='/sources/france-travail'){
+      if(method==='GET'){reply(res,200,vault.franceTravailConfigSummary());return true;}
+      if(method==='POST'){noDemo(context,'Configuration source France Travail');const o=await json(req);fields(o,['clientId','clientSecret','scope']);const value=vault.saveFranceTravailConfig({clientId:string(o.clientId,'Identifiant client',500),clientSecret:string(o.clientSecret,'Secret client',2000),scope:string(o.scope,'Périmètre API',500)});reply(res,200,value);return true;}
+      if(method==='DELETE'){noDemo(context,'Suppression source France Travail');await json(req);vault.deleteFranceTravailConfig();reply(res,200,{deleted:true});return true;}
+    }
+    if(method==='POST'&&relative==='/sources/france-travail/search'){
+      noDemo(context,'Recherche France Travail');if(runner.isBusy()||runner.hasPausedSession?.())throw new CareerError(409,'browser_busy','Navigateur occupé ou en attente d’une intervention.');if(!context.offerSearch)throw new CareerError(503,'source_unavailable','Recherche France Travail indisponible.');const o=await json(req);fields(o,['keywords','department','commune','contractType','limit']);const department=o.department===undefined?undefined:string(o.department,'Département',3).toUpperCase();if(department&&!/^(?:\d{2,3}|2[AB])$/.test(department))throw new CareerError(400,'validation','Le département doit être un code à 2 ou 3 chiffres, ou 2A/2B pour la Corse.');const criteria:OfferSearchCriteria={keywords:string(o.keywords,'Métier ou mot-clé',300),...(department?{department}:{}),...(o.commune!==undefined?{commune:string(o.commune,'Commune ou code INSEE',100)}:{}),...(o.contractType!==undefined?{contractType:string(o.contractType,'Type de contrat',40)}:{}),...(o.limit!==undefined?{limit:Number(o.limit)}:{})};if(o.limit!==undefined&&(!Number.isInteger(criteria.limit)||Number(criteria.limit)<1||Number(criteria.limit)>450))throw new CareerError(400,'validation','Limite de résultats invalide.');const discovered=await context.offerSearch.search(criteria);if(!Array.isArray(discovered.offers)||discovered.offers.length>450)throw new CareerError(400,'validation','Résultat de recherche invalide.');const jobs:JobOffer[]=discovered.offers.map(offer=>store.saveJob(offer));reply(res,200,{jobs,note:String(discovered.note||'').slice(0,1000)});return true;
+    }
+    if(method==='POST'&&relative==='/sources/arbeitnow/search'){
+      noDemo(context,'Recherche Arbeitnow France');if(runner.isBusy()||runner.hasPausedSession?.())throw new CareerError(409,'browser_busy','Navigateur occupé ou en attente d’une intervention.');if(!context.publicOfferSearch)throw new CareerError(503,'source_unavailable','Recherche Arbeitnow France indisponible.');const o=await json(req);fields(o,['keywords','commune','contractType','limit']);const criteria:OfferSearchCriteria={keywords:string(o.keywords,'Métier ou mot-clé',300),...(o.commune!==undefined?{commune:string(o.commune,'Ville ou commune',100)}:{}),...(o.contractType!==undefined?{contractType:string(o.contractType,'Type de contrat',40)}:{}),...(o.limit!==undefined?{limit:Number(o.limit)}:{})};if(o.limit!==undefined&&(!Number.isInteger(criteria.limit)||Number(criteria.limit)<1||Number(criteria.limit)>450))throw new CareerError(400,'validation','Limite de résultats invalide.');const discovered=await context.publicOfferSearch.search(criteria);if(!Array.isArray(discovered.offers)||discovered.offers.length>450)throw new CareerError(400,'validation','Résultat de recherche invalide.');const jobs:JobOffer[]=discovered.offers.map(offer=>store.saveJob(offer));reply(res,200,{jobs,note:String(discovered.note||'').slice(0,1000)});return true;
+    }
+    if(method==='POST'&&relative==='/sources/jobicy/search'){
+      noDemo(context,'Recherche Jobicy');if(runner.isBusy()||runner.hasPausedSession?.())throw new CareerError(409,'browser_busy','Navigateur occupé ou en attente d’une intervention.');if(!context.jobicyOfferSearch)throw new CareerError(503,'source_unavailable','Recherche Jobicy indisponible.');const o=await json(req);fields(o,['keywords','commune','contractType','limit']);const criteria:OfferSearchCriteria={keywords:string(o.keywords,'Métier ou mot-clé',300),...(o.commune!==undefined?{commune:string(o.commune,'Ville ou commune',100)}:{}),...(o.contractType!==undefined?{contractType:string(o.contractType,'Type de contrat',40)}:{}),...(o.limit!==undefined?{limit:Number(o.limit)}:{})};if(o.limit!==undefined&&(!Number.isInteger(criteria.limit)||Number(criteria.limit)<1||Number(criteria.limit)>450))throw new CareerError(400,'validation','Limite de résultats invalide.');const discovered=await context.jobicyOfferSearch.search(criteria);if(!Array.isArray(discovered.offers)||discovered.offers.length>450)throw new CareerError(400,'validation','Résultat de recherche invalide.');const jobs:JobOffer[]=discovered.offers.map(offer=>store.saveJob(offer));reply(res,200,{jobs,note:String(discovered.note||'').slice(0,1000)});return true;
+    }
+    if(method==='POST'&&relative==='/sources/remoteok/search'){
+      noDemo(context,'Recherche Remote OK');
+      if(runner.isBusy()||runner.hasPausedSession?.())throw new CareerError(409,'browser_busy','Navigateur occupé ou en attente d’une intervention.');
+      if(!context.remoteOkOfferSearch)throw new CareerError(503,'source_unavailable','Recherche Remote OK indisponible.');
+      const o=await json(req);fields(o,['keywords','commune','contractType','limit']);
+      const criteria:OfferSearchCriteria={keywords:string(o.keywords,'Métier ou mot-clé',300),...(o.commune!==undefined?{commune:string(o.commune,'Ville ou commune',100)}:{}),...(o.contractType!==undefined?{contractType:string(o.contractType,'Type de contrat',40)}:{}),...(o.limit!==undefined?{limit:Number(o.limit)}:{})};
+      if(o.limit!==undefined&&(!Number.isInteger(criteria.limit)||Number(criteria.limit)<1||Number(criteria.limit)>200))throw new CareerError(400,'validation','Limite Remote OK invalide.');
+      const discovered=await context.remoteOkOfferSearch.search(criteria);
+      if(!Array.isArray(discovered.offers)||discovered.offers.length>200)throw new CareerError(400,'validation','Résultat Remote OK invalide.');
+      const jobs:JobOffer[]=discovered.offers.map(offer=>store.saveJob(offer));
+      reply(res,200,{jobs,note:String(discovered.note||'').slice(0,1000)});return true;
+    }
+    if(method==='POST'&&relative==='/sources/himalayas/search'){
+      noDemo(context,'Recherche Himalayas');
+      if(runner.isBusy()||runner.hasPausedSession?.())throw new CareerError(409,'browser_busy','Navigateur occupé ou en attente d’une intervention.');
+      if(!context.himalayasOfferSearch)throw new CareerError(503,'source_unavailable','Recherche Himalayas indisponible.');
+      const o=await json(req);fields(o,['keywords','commune','contractType','limit']);
+      const criteria:OfferSearchCriteria={keywords:string(o.keywords,'Métier ou mot-clé',300),...(o.commune!==undefined?{commune:string(o.commune,'Ville ou commune',100)}:{}),...(o.contractType!==undefined?{contractType:string(o.contractType,'Type de contrat',40)}:{}),...(o.limit!==undefined?{limit:Number(o.limit)}:{})};
+      if(o.limit!==undefined&&(!Number.isInteger(criteria.limit)||Number(criteria.limit)<1||Number(criteria.limit)>200))throw new CareerError(400,'validation','Limite Himalayas invalide.');
+      const discovered=await context.himalayasOfferSearch.search(criteria);
+      if(!Array.isArray(discovered.offers)||discovered.offers.length>200)throw new CareerError(400,'validation','Résultat Himalayas invalide.');
+      const jobs:JobOffer[]=discovered.offers.map(offer=>store.saveJob(offer));
+      reply(res,200,{jobs,note:String(discovered.note||'').slice(0,1000)});return true;
+    }
+    if(method==='POST'&&relative==='/sources/remotive/search'){
+      noDemo(context,'Recherche Remotive');
+      if(runner.isBusy()||runner.hasPausedSession?.())throw new CareerError(409,'browser_busy','Navigateur occupé ou en attente d’une intervention.');
+      if(!context.remotiveOfferSearch)throw new CareerError(503,'source_unavailable','Recherche Remotive indisponible.');
+      const o=await json(req);fields(o,['keywords','contractType','limit']);
+      const criteria:OfferSearchCriteria={keywords:string(o.keywords,'Métier ou mot-clé',300),...(o.contractType!==undefined?{contractType:string(o.contractType,'Type de contrat',40)}:{}),...(o.limit!==undefined?{limit:Number(o.limit)}:{})};
+      if(o.limit!==undefined&&(!Number.isInteger(criteria.limit)||Number(criteria.limit)<1||Number(criteria.limit)>200))throw new CareerError(400,'validation','Limite Remotive invalide.');
+      const discovered=await context.remotiveOfferSearch.search(criteria);
+      if(!Array.isArray(discovered.offers)||discovered.offers.length>200)throw new CareerError(400,'validation','Résultat Remotive invalide.');
+      const jobs:JobOffer[]=discovered.offers.map(offer=>store.saveJob(offer));
+      reply(res,200,{jobs,note:String(discovered.note||'').slice(0,1000)});return true;
+    }
+    if(method==='POST'&&relative==='/sources/all-public/search'){
+      noDemo(context,'Recherche multi-source');
+      if(runner.isBusy()||runner.hasPausedSession?.())throw new CareerError(409,'browser_busy','Navigateur occupé ou en attente d’une intervention.');
+      if(!context.allPublicOfferSearch)throw new CareerError(503,'source_unavailable','Recherche multi-source indisponible.');
+      const o=await json(req);fields(o,['keywords','commune','contractType','limit']);
+      const criteria:OfferSearchCriteria={keywords:string(o.keywords,'Métier ou mot-clé',300),...(o.commune!==undefined?{commune:string(o.commune,'Ville ou commune',100)}:{}),...(o.contractType!==undefined?{contractType:string(o.contractType,'Type de contrat',40)}:{}),...(o.limit!==undefined?{limit:Number(o.limit)}:{})};
+      if(o.limit!==undefined&&(!Number.isInteger(criteria.limit)||Number(criteria.limit)<1||Number(criteria.limit)>200))throw new CareerError(400,'validation','La recherche multi-source est limitée à 200 offres.');
+      const discovered=await context.allPublicOfferSearch.search(criteria);
+      if(!Array.isArray(discovered.offers)||discovered.offers.length>200)throw new CareerError(400,'validation','Résultat multi-source invalide.');
+      const jobs:JobOffer[]=discovered.offers.map(offer=>store.saveJob(offer));
+      reply(res,200,{jobs,note:String(discovered.note||'').slice(0,1000)});return true;
+    }
     if(method==='GET'&&relative==='/bootstrap'){reply(res,200,{profile:store.getProfile(),resumes:store.listResumes(),credentials:vault.listCredentials(),jobs:store.listJobs(),applications:store.listApplications(),events:store.listEvents(),metrics:store.getMetrics(),vault:vault.status()});return true;}
     if(relative.startsWith('/ai/')){
       if(context.demo)throw new CareerError(403,'demo_disabled','Fonctions IA désactivées en démonstration.');
@@ -71,3 +140,4 @@ export async function handleCareerApi(req:IncomingMessage,res:ServerResponse,url
     return false;
   }catch(error){const e=error instanceof CareerError?error:new CareerError(500,'internal','Erreur interne de candidature.');reply(res,e.status,{error:e.message,code:e.code});return true;}
 }
+

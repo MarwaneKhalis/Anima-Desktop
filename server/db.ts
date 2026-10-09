@@ -17,6 +17,7 @@ import {
   type Status,
   type Template,
 } from "../src/shared/types.ts";
+import { ensureProtectedScope, LocalDataProtector, protectedRowId, PROTECTED_SCOPES } from "./data-protection.ts";
 
 type Row = Record<string, unknown>;
 type ProspectInput = Partial<Prospect> & {
@@ -37,8 +38,10 @@ const json = (value: unknown, fallback: unknown) => {
 
 export class Store {
   db: DatabaseSync;
-  constructor(path: string) {
+  private readonly protectedData: LocalDataProtector;
+  constructor(path: string, dataProtectionKey?: Buffer) {
     this.db = new DatabaseSync(path);
+    this.protectedData = new LocalDataProtector(dataProtectionKey);
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS searches (
@@ -80,6 +83,9 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_queue_state ON queue(state, created_at);
       CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
     `);
+    const crmScope = PROTECTED_SCOPES.find((scope) => scope.name === "crm");
+    if (!crmScope) throw new Error("Schéma de protection CRM absent.");
+    ensureProtectedScope(this.db, crmScope, dataProtectionKey);
     this.db
       .prepare("INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)")
       .run("invitation_limit", "10");
@@ -118,17 +124,19 @@ export class Store {
     detail: string,
     happenedAt = now(),
   ) {
+    const id = randomUUID();
     this.db
       .prepare("INSERT INTO events VALUES (?,?,?,?,?,?)")
-      .run(randomUUID(), prospectId, kind, detail, happenedAt, now());
+      .run(id, prospectId, kind, this.protectedData.writeText("events", id, "detail", detail), happenedAt, now());
   }
   private searchRow(row: Row): SavedSearch {
+    const id = str(row.id);
     return {
-      id: str(row.id),
-      name: str(row.name),
-      filters: cleanFilters(json(row.filters, EMPTY_FILTERS)),
-      linkedinUrl: str(row.linkedin_url),
-      notes: str(row.notes),
+      id,
+      name: this.protectedData.readText("searches", id, "name", row.name),
+      filters: cleanFilters(json(this.protectedData.readText("searches", id, "filters", row.filters), EMPTY_FILTERS)),
+      linkedinUrl: this.protectedData.readText("searches", id, "linkedin_url", row.linkedin_url),
+      notes: this.protectedData.readText("searches", id, "notes", row.notes),
       createdAt: str(row.created_at),
       updatedAt: str(row.updated_at),
     };
@@ -168,7 +176,12 @@ export class Store {
         .prepare(
           "UPDATE searches SET name=?, filters=?, linkedin_url=?, notes=?, updated_at=? WHERE id=?",
         )
-        .run(name, JSON.stringify(filters), url, str(input.notes), stamp, id);
+        .run(
+          this.protectedData.writeText("searches", id, "name", name),
+          this.protectedData.writeText("searches", id, "filters", JSON.stringify(filters)),
+          this.protectedData.writeText("searches", id, "linkedin_url", url),
+          this.protectedData.writeText("searches", id, "notes", str(input.notes)), stamp, id,
+        );
       return this.getSearch(id);
     }
     const newId = randomUUID();
@@ -176,10 +189,10 @@ export class Store {
       .prepare("INSERT INTO searches VALUES (?,?,?,?,?,?,?)")
       .run(
         newId,
-        name,
-        JSON.stringify(filters),
-        url,
-        str(input.notes),
+        this.protectedData.writeText("searches", newId, "name", name),
+        this.protectedData.writeText("searches", newId, "filters", JSON.stringify(filters)),
+        this.protectedData.writeText("searches", newId, "linkedin_url", url),
+        this.protectedData.writeText("searches", newId, "notes", str(input.notes)),
         stamp,
         stamp,
       );
@@ -190,19 +203,20 @@ export class Store {
     return this.saveSearch({ ...source, name: `${source.name} — copie` });
   }
   private prospectRow(row: Row): Prospect {
+    const id = str(row.id);
     return {
-      id: str(row.id),
-      linkedinUrl: str(row.linkedin_url),
-      firstName: str(row.first_name),
-      lastName: str(row.last_name),
-      title: str(row.title),
-      company: str(row.company),
-      location: str(row.location),
-      school: str(row.school),
+      id,
+      linkedinUrl: this.protectedData.readText("prospects", id, "linkedin_url", row.linkedin_url),
+      firstName: this.protectedData.readText("prospects", id, "first_name", row.first_name),
+      lastName: this.protectedData.readText("prospects", id, "last_name", row.last_name),
+      title: this.protectedData.readText("prospects", id, "title", row.title),
+      company: this.protectedData.readText("prospects", id, "company", row.company),
+      location: this.protectedData.readText("prospects", id, "location", row.location),
+      school: this.protectedData.readText("prospects", id, "school", row.school),
       status: str(row.status) as Status,
-      tags: json(row.tags, []),
-      notes: str(row.notes),
-      nextAction: str(row.next_action),
+      tags: json(this.protectedData.readText("prospects", id, "tags", row.tags), []),
+      notes: this.protectedData.readText("prospects", id, "notes", row.notes),
+      nextAction: this.protectedData.readText("prospects", id, "next_action", row.next_action),
       nextActionAt: str(row.next_action_at),
       createdAt: str(row.created_at),
       updatedAt: str(row.updated_at),
@@ -223,8 +237,8 @@ export class Store {
         .get(id)!
         .push({
           searchId: str(row.search_id),
-          searchName: str(row.search_name),
-          filters: cleanFilters(json(row.filters, EMPTY_FILTERS)),
+          searchName: this.protectedData.readText("searches", str(row.search_id), "name", row.search_name),
+          filters: cleanFilters(json(this.protectedData.readText("prospect_sources", protectedRowId(id, str(row.search_id)), "filters", row.filters), EMPTY_FILTERS)),
           importedAt: str(row.imported_at),
         });
     }
@@ -239,10 +253,10 @@ export class Store {
     prospect.sources = this.all(
       `SELECT ps.*, s.name AS search_name FROM prospect_sources ps JOIN searches s ON s.id=ps.search_id WHERE ps.prospect_id=? ORDER BY ps.imported_at DESC`,
       id,
-    ).map((source) => ({
+      ).map((source) => ({
       searchId: str(source.search_id),
-      searchName: str(source.search_name),
-      filters: cleanFilters(json(source.filters, EMPTY_FILTERS)),
+        searchName: this.protectedData.readText("searches", str(source.search_id), "name", source.search_name),
+        filters: cleanFilters(json(this.protectedData.readText("prospect_sources", protectedRowId(id, str(source.search_id)), "filters", source.filters), EMPTY_FILTERS)),
       importedAt: str(source.imported_at),
     }));
     prospect.events = this.all(
@@ -252,7 +266,7 @@ export class Store {
       id: str(e.id),
       prospectId: id,
       kind: str(e.kind),
-      detail: str(e.detail),
+      detail: this.protectedData.readText("events", str(e.id), "detail", e.detail),
       happenedAt: str(e.happened_at),
       createdAt: str(e.created_at),
     }));
@@ -263,7 +277,7 @@ export class Store {
       id: str(m.id),
       prospectId: id,
       kind: str(m.kind) as ActionKind,
-      content: String(m.content ?? ""),
+      content: this.protectedData.readText("messages", str(m.id), "content", m.content),
       state: str(m.state) as "draft" | "sent",
       createdAt: str(m.created_at),
       sentAt: str(m.sent_at),
@@ -301,7 +315,7 @@ export class Store {
         if (!url && !firstName && !lastName)
           throw new Error("Ajoutez une URL ou un nom pour chaque prospect.");
         const existing = url
-          ? this.one("SELECT * FROM prospects WHERE linkedin_url=?", url)
+          ? this.all("SELECT * FROM prospects").find((row) => this.prospectRow(row).linkedinUrl === url)
           : undefined;
         const possibleDuplicates = this.possibleDuplicates(
           item,
@@ -317,12 +331,12 @@ export class Store {
               `UPDATE prospects SET first_name=?, last_name=?, title=?, company=?, location=?, school=?, updated_at=? WHERE id=?`,
             )
             .run(
-              old.firstName || firstName,
-              old.lastName || lastName,
-              old.title || str(item.title),
-              old.company || str(item.company),
-              old.location || str(item.location),
-              old.school || str(item.school),
+              this.protectedData.writeText("prospects", id, "first_name", old.firstName || firstName),
+              this.protectedData.writeText("prospects", id, "last_name", old.lastName || lastName),
+              this.protectedData.writeText("prospects", id, "title", old.title || str(item.title)),
+              this.protectedData.writeText("prospects", id, "company", old.company || str(item.company)),
+              this.protectedData.writeText("prospects", id, "location", old.location || str(item.location)),
+              this.protectedData.writeText("prospects", id, "school", old.school || str(item.school)),
               now(),
               id,
             );
@@ -340,17 +354,17 @@ export class Store {
             )
             .run(
               id,
-              url || null,
-              firstName,
-              lastName,
-              str(item.title),
-              str(item.company),
-              str(item.location),
-              str(item.school),
+              url ? this.protectedData.writeText("prospects", id, "linkedin_url", url) : null,
+              this.protectedData.writeText("prospects", id, "first_name", firstName),
+              this.protectedData.writeText("prospects", id, "last_name", lastName),
+              this.protectedData.writeText("prospects", id, "title", str(item.title)),
+              this.protectedData.writeText("prospects", id, "company", str(item.company)),
+              this.protectedData.writeText("prospects", id, "location", str(item.location)),
+              this.protectedData.writeText("prospects", id, "school", str(item.school)),
               status,
-              JSON.stringify(Array.isArray(item.tags) ? item.tags : []),
-              str(item.notes),
-              str(item.nextAction),
+              this.protectedData.writeText("prospects", id, "tags", JSON.stringify(Array.isArray(item.tags) ? item.tags : [])),
+              this.protectedData.writeText("prospects", id, "notes", str(item.notes)),
+              this.protectedData.writeText("prospects", id, "next_action", str(item.nextAction)),
               str(item.nextActionAt),
               stamp,
               stamp,
@@ -361,7 +375,7 @@ export class Store {
           const search = this.getSearch(searchId);
           this.db
             .prepare("INSERT OR IGNORE INTO prospect_sources VALUES (?,?,?,?)")
-            .run(id, searchId, JSON.stringify(search.filters), now());
+            .run(id, searchId, this.protectedData.writeText("prospect_sources", protectedRowId(id, searchId), "filters", JSON.stringify(search.filters)), now());
           if (created)
             this.event(id, "source", `Trouvé via « ${search.name} »`);
         }
@@ -380,6 +394,8 @@ export class Store {
       patch.linkedinUrl === undefined
         ? old.linkedinUrl
         : normalizeLinkedInUrl(str(patch.linkedinUrl));
+    if (url && this.all("SELECT * FROM prospects").some((row) => str(row.id) !== id && this.prospectRow(row).linkedinUrl === url))
+      throw new Error("Cette URL LinkedIn est déjà associée à un prospect.");
     const status = patch.status === undefined ? old.status : str(patch.status);
     if (!isStatus(status)) throw new Error("Statut inconnu.");
     const tags = patch.tags === undefined ? old.tags : patch.tags;
@@ -401,17 +417,17 @@ export class Store {
           `UPDATE prospects SET linkedin_url=?,first_name=?,last_name=?,title=?,company=?,location=?,school=?,status=?,tags=?,notes=?,next_action=?,next_action_at=?,updated_at=? WHERE id=?`,
         )
         .run(
-          url || null,
-          str(next.firstName),
-          str(next.lastName),
-          str(next.title),
-          str(next.company),
-          str(next.location),
-          str(next.school),
+          url ? this.protectedData.writeText("prospects", id, "linkedin_url", url) : null,
+          this.protectedData.writeText("prospects", id, "first_name", str(next.firstName)),
+          this.protectedData.writeText("prospects", id, "last_name", str(next.lastName)),
+          this.protectedData.writeText("prospects", id, "title", str(next.title)),
+          this.protectedData.writeText("prospects", id, "company", str(next.company)),
+          this.protectedData.writeText("prospects", id, "location", str(next.location)),
+          this.protectedData.writeText("prospects", id, "school", str(next.school)),
           status,
-          JSON.stringify(tags.map(str).filter(Boolean)),
-          str(next.notes),
-          str(next.nextAction),
+          this.protectedData.writeText("prospects", id, "tags", JSON.stringify(tags.map(str).filter(Boolean))),
+          this.protectedData.writeText("prospects", id, "notes", str(next.notes)),
+          this.protectedData.writeText("prospects", id, "next_action", str(next.nextAction)),
           str(next.nextActionAt),
           now(),
           id,
@@ -454,10 +470,10 @@ export class Store {
       id: str(e.id),
       prospectId: str(e.prospect_id),
       kind: str(e.kind),
-      detail: str(e.detail),
+      detail: this.protectedData.readText("events", str(e.id), "detail", e.detail),
       happenedAt: str(e.happened_at),
       createdAt: str(e.created_at),
-      prospectName: `${e.first_name} ${e.last_name}`.trim(),
+      prospectName: `${this.protectedData.readText("prospects", str(e.prospect_id), "first_name", e.first_name)} ${this.protectedData.readText("prospects", str(e.prospect_id), "last_name", e.last_name)}`.trim(),
     }));
   }
   getMetrics() {
@@ -492,31 +508,33 @@ export class Store {
   }
   private seedTemplates() {
     const stamp = now();
+    const invitationId = randomUUID();
     this.db
       .prepare("INSERT INTO templates VALUES (?,?,?,?,?)")
       .run(
-        randomUUID(),
-        "Invitation courte",
+        invitationId,
+        this.protectedData.writeText("templates", invitationId, "name", "Invitation courte"),
         "invitation",
-        "Bonjour {prenom}, votre parcours en {poste} chez {entreprise} a retenu mon attention. Au plaisir d’échanger !",
+        this.protectedData.writeText("templates", invitationId, "content", "Bonjour {prenom}, votre parcours en {poste} chez {entreprise} a retenu mon attention. Au plaisir d’échanger !"),
         stamp,
       );
+    const followupId = randomUUID();
     this.db
       .prepare("INSERT INTO templates VALUES (?,?,?,?,?)")
       .run(
-        randomUUID(),
-        "Suivi après connexion",
+        followupId,
+        this.protectedData.writeText("templates", followupId, "name", "Suivi après connexion"),
         "suivi",
-        "Bonjour {prenom}, merci pour la connexion. J’aimerais échanger avec vous au sujet de {entreprise}. Seriez-vous disponible pour un court échange ?",
+        this.protectedData.writeText("templates", followupId, "content", "Bonjour {prenom}, merci pour la connexion. J’aimerais échanger avec vous au sujet de {entreprise}. Seriez-vous disponible pour un court échange ?"),
         stamp,
       );
   }
   listTemplates(): Template[] {
     return this.all("SELECT * FROM templates ORDER BY created_at").map((t) => ({
       id: str(t.id),
-      name: str(t.name),
+      name: this.protectedData.readText("templates", str(t.id), "name", t.name),
       kind: str(t.kind) as ActionKind,
-      content: str(t.content),
+      content: this.protectedData.readText("templates", str(t.id), "content", t.content),
       createdAt: str(t.created_at),
     }));
   }
@@ -535,12 +553,16 @@ export class Store {
         throw new Error("Modèle introuvable.");
       this.db
         .prepare("UPDATE templates SET name=?,kind=?,content=? WHERE id=?")
-        .run(str(input.name), input.kind, input.content, id);
+        .run(
+          this.protectedData.writeText("templates", id, "name", str(input.name)), input.kind,
+          this.protectedData.writeText("templates", id, "content", input.content), id,
+        );
     } else {
       id = randomUUID();
       this.db
         .prepare("INSERT INTO templates VALUES (?,?,?,?,?)")
-        .run(id, str(input.name), input.kind, input.content, now());
+        .run(id, this.protectedData.writeText("templates", id, "name", str(input.name)), input.kind,
+          this.protectedData.writeText("templates", id, "content", input.content), now());
     }
     return this.listTemplates().find((t) => t.id === id)!;
   }
@@ -552,7 +574,7 @@ export class Store {
     const id = randomUUID();
     this.db
       .prepare("INSERT INTO messages VALUES (?,?,?,?,?,?,?)")
-      .run(id, prospectId, template.kind, content, "draft", now(), "");
+      .run(id, prospectId, template.kind, this.protectedData.writeText("messages", id, "content", content), "draft", now(), "");
     this.event(prospectId, "draft", `Brouillon ${template.kind} créé`);
     if (
       template.kind === "invitation" &&
@@ -575,7 +597,7 @@ export class Store {
     if (!content.trim()) throw new Error("Le message ne peut pas être vide.");
     this.db
       .prepare("UPDATE messages SET content=? WHERE id=?")
-      .run(content, messageId);
+      .run(this.protectedData.writeText("messages", messageId, "content", content), messageId);
     return this.getProspect(str(message.prospect_id)).messages!.find(
       (m) => m.id === messageId,
     )!;
@@ -690,9 +712,10 @@ export class Store {
     const message = this.one("SELECT * FROM messages WHERE id=?", messageId);
     if (!message || message.state !== "draft")
       throw new Error("Brouillon introuvable.");
+    const messageContent = this.protectedData.readText("messages", messageId, "content", message.content);
     if (
       /\{(?:prenom|nom|poste|entreprise|ecole|localisation)\}/i.test(
-        String(message.content),
+        messageContent,
       )
     )
       throw new Error(
@@ -725,7 +748,7 @@ export class Store {
       stamp = now();
     this.db
       .prepare("INSERT INTO queue VALUES (?,?,?,?,?,?,?,?)")
-      .run(id, prospectId, messageId, kind, "pending", "", stamp, stamp);
+      .run(id, prospectId, messageId, kind, "pending", this.protectedData.writeText("queue", id, "error", ""), stamp, stamp);
     this.updateProspect(prospectId, {
       status:
         kind === "invitation"
@@ -741,13 +764,13 @@ export class Store {
     ).map((row) => ({
       id: str(row.id),
       prospectId: str(row.prospect_id),
-      prospectName: `${row.first_name} ${row.last_name}`.trim(),
-      linkedinUrl: str(row.linkedin_url),
+      prospectName: `${this.protectedData.readText("prospects", str(row.prospect_id), "first_name", row.first_name)} ${this.protectedData.readText("prospects", str(row.prospect_id), "last_name", row.last_name)}`.trim(),
+      linkedinUrl: this.protectedData.readText("prospects", str(row.prospect_id), "linkedin_url", row.linkedin_url),
       messageId: str(row.message_id),
       kind: str(row.kind) as ActionKind,
-      content: String(row.content ?? ""),
+      content: this.protectedData.readText("messages", str(row.message_id), "content", row.content),
       state: str(row.state) as QueueItem["state"],
-      error: str(row.error),
+      error: this.protectedData.readText("queue", str(row.id), "error", row.error),
       createdAt: str(row.created_at),
       updatedAt: str(row.updated_at),
     }));
@@ -799,9 +822,9 @@ export class Store {
         .run(sentAt, item.messageId);
       this.db
         .prepare(
-          "UPDATE queue SET state='sent',error='',updated_at=? WHERE id=?",
+          "UPDATE queue SET state='sent',error=?,updated_at=? WHERE id=?",
         )
-        .run(now(), id);
+        .run(this.protectedData.writeText("queue", id, "error", ""), now(), id);
       const status =
         item.kind === "invitation" ? "Invitation envoyée" : "Message envoyé";
       const old = this.getProspect(item.prospectId).status;
@@ -832,7 +855,7 @@ export class Store {
         .prepare(
           "UPDATE queue SET state='uncertain',error=?,updated_at=? WHERE id=?",
         )
-        .run(reason || "Résultat incertain", now(), id);
+        .run(this.protectedData.writeText("queue", id, "error", reason || "Résultat incertain"), now(), id);
       this.setSetting("queue_paused", "1");
       this.event(
         item.prospectId,

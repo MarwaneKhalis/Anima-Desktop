@@ -597,8 +597,150 @@
 .cw-details form > label {
   margin-bottom: 18px;
 }
+.cw-source-title,
+.cw-search-actions,
+.cw-campaign-row,
+.cw-campaign-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.cw-source-title {
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.cw-source-title h2 {
+  margin: 5px 0;
+}
+.cw-source-title p,
+.cw-details p {
+  max-width: 780px;
+  margin: 7px 0;
+}
+.cw-source-status {
+  flex-shrink: 0;
+  border-radius: 20px;
+  padding: 7px 11px;
+  background: #f5f0e3;
+  color: #806b37;
+  font-size: 10px;
+  font-weight: 700;
+}
+.cw-source-status.is-ready {
+  background: #e9f2e7;
+  color: #28634e;
+}
+.cw-search-form {
+  display: grid;
+  gap: 16px;
+}
+.cw-search-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.cw-search-actions {
+  align-items: flex-end;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.cw-search-actions > button {
+  min-height: 42px;
+}
+.cw-search-actions .cw-cap {
+  width: 190px;
+}
+.cw-search-actions .cw-apply-button {
+  margin-left: auto;
+}
+.cw-help {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 9px;
+  padding: 11px 13px;
+  margin: 12px 0;
+  background: #f6f8f3;
+  color: #68766c;
+  font-size: 11px;
+}
+.cw-help button {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 7px 10px;
+  font-size: 10px;
+}
+.cw-configured-note {
+  color: #28634e !important;
+  font-size: 11px;
+}
+.cw-campaigns {
+  margin-top: 4px;
+}
+.cw-campaign-list {
+  margin: 15px 0;
+}
+.cw-campaign-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 13px 0;
+  border-top: 1px solid var(--line);
+}
+.cw-campaign-main {
+  display: grid;
+  gap: 5px;
+}
+.cw-campaign-main small {
+  font-size: 10px;
+}
+.cw-campaign-actions {
+  flex-shrink: 0;
+}
+.cw-campaign-actions button {
+  padding: 7px 10px;
+  font-size: 10px;
+}
+.cw-campaign-items {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+}
+.cw-campaign-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.cw-campaign-item > span,
+.cw-campaign-item > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cw-campaign-item small {
+  color: #768078;
+  font-size: 10px;
+}
+.cw-campaign-item button {
+  padding: 7px 10px;
+  font-size: 10px;
+}
 .cw-search {
   max-width: 260px;
+}
+.cw-automation-note {
+  display: block;
+  max-width: 850px;
+  margin-top: 14px;
+  color: #758078;
+  line-height: 1.65;
 }
 .cw-jobs {
   display: grid;
@@ -983,6 +1125,39 @@
   .cw-jobs,
   .cw-grid {
     grid-template-columns: 1fr;
+  }
+  .cw-search-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cw-search-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .cw-search-actions .cw-cap,
+  .cw-search-actions .cw-apply-button {
+    width: 100%;
+    margin-left: 0;
+  }
+  .cw-source-title,
+  .cw-help {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .cw-campaign-row {
+    grid-template-columns: 1fr;
+  }
+  .cw-campaign-items {
+    grid-column: 1;
+  }
+  .cw-campaign-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .cw-help button {
+    margin-left: 0;
+  }
+  .cw-campaign-actions {
+    flex-wrap: wrap;
   }
   .cw-inline {
     flex-wrap: wrap;

@@ -32,6 +32,19 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($process.ExitCode)." }
           $installedExe = Join-Path $installDir "Anima Connect.exe"
           if (!(Test-Path -LiteralPath $installedExe)) { throw "Installed executable was not found: $installedExe" }
+          $icuData = Join-Path $installDir "icudtl.dat"
+          if (!(Test-Path -LiteralPath $icuData)) { throw "Installed Electron sandbox data was not found: $icuData" }
+          $icuAcl = Get-Acl -LiteralPath $icuData
+          $requiredMask = [Convert]::ToUInt32("120089", 16)
+          $hasReadAce = {
+            param($sid)
+            $pattern = "\(A;[^;]*;0x([0-9a-fA-F]+);;;$([regex]::Escape($sid))\)"
+            $match = [regex]::Match($icuAcl.Sddl, $pattern)
+            if (!$match.Success) { return $false }
+            $actualMask = [Convert]::ToUInt32($match.Groups[1].Value, 16)
+            return (($actualMask -band $requiredMask) -eq $requiredMask)
+          }
+          if (!(& $hasReadAce "AC")) { throw "Installed icudtl.dat is missing an ALL APPLICATION PACKAGES read ACE: $(icacls $icuData | Out-String)" }
           $env:ANIMA_DESKTOP_EXECUTABLE = $installedExe
           pnpm desktop:smoke
           if ($LASTEXITCODE -ne 0) { throw "Installed app smoke test failed with exit code $LASTEXITCODE." }

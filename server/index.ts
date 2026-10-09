@@ -16,27 +16,50 @@ import { extname, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { decryptPortableBackup, deserializeDatabase, encryptPortableBackup, ensureAllProtectedScopes, serializeDatabase, unprotectAllScopes, validatePortableDatabase } from "./data-protection.ts";
 import { LocalBrowser } from "./browser.ts";
 import { Store } from "./db.ts";
-import { CareerStore } from "./career-store.ts";
+import { CareerError, CareerStore } from "./career-store.ts";
 import { Vault } from "./vault.ts";
 import { CareerBrowser } from "./career-browser.ts";
 import { CareerRunner } from "./career-runner.ts";
 import { CareerAI } from "./career-ai.ts";
 import { handleCareerApi } from "./career-api.ts";
+import { createCareerCampaignRuntime } from "./career-campaign-runtime.ts";
+import { handleCareerCampaignApi } from "./career-campaign-api.ts";
 import { JobDiscovery } from "./job-discovery.ts";
+import { FranceTravailDiscovery } from "./france-travail-discovery.ts";
+import { ArbeitnowFranceDiscovery } from "./arbeitnow-france-discovery.ts";
+import { JobicyRemoteDiscovery } from "./jobicy-remote-discovery.ts";
+import { RemoteOkDiscovery } from "./remoteok-discovery.ts";
+import { HimalayasDiscovery } from "./himalayas-discovery.ts";
+import { RemotiveDiscovery } from "./remotive-discovery.ts";
+import { PublicOfferAggregator } from "./public-offer-aggregator.ts";
+import { resolveTestFixtureUrl } from "./test-fixtures.ts";
 import { csvParse, csvStringify, makeSearchUrl } from "./domain.ts";
 import type { Prospect, SavedSearch, Template } from "../src/shared/types.ts";
+import type { OfferSearchService } from "../src/shared/career.ts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const electronMode = process.env.ANIMA_ELECTRON_MODE === "1";
 const dataDir = process.env.ANIMA_DATA_DIR
   ? resolve(process.env.ANIMA_DATA_DIR)
   : join(root, "data");
 mkdirSync(dataDir, { recursive: true });
+const encodedLocalKey = process.env.ANIMA_LOCAL_DATA_KEY_BASE64;
+delete process.env.ANIMA_LOCAL_DATA_KEY_BASE64;
+let dataProtectionKey: Buffer | undefined;
+if (electronMode) {
+  if (!encodedLocalKey || !/^(?:[A-Za-z0-9+/]{4}){10}[A-Za-z0-9+/]{3}=$/.test(encodedLocalKey))
+    throw new Error("La clé de protection locale fournie par Windows est absente ou invalide.");
+  dataProtectionKey = Buffer.from(encodedLocalKey, "base64");
+  if (dataProtectionKey.length !== 32 || dataProtectionKey.toString("base64") !== encodedLocalKey)
+    throw new Error("La clé de protection locale fournie par Windows est absente ou invalide.");
+}
 const realPath = join(dataDir, "anima-connect.sqlite");
 const demoPath = join(dataDir, "demo.sqlite");
-let realStore = new Store(realPath);
-const demoStore = new Store(demoPath);
+let realStore = new Store(realPath, dataProtectionKey);
+const demoStore = new Store(demoPath, dataProtectionKey);
 demoStore.seedDemo();
 const browser = new LocalBrowser(join(dataDir, "browser-profile"));
 const port = Number(process.env.PORT || 4174);
@@ -53,21 +76,93 @@ if (
   )
 )
   throw new Error("Origines de test invalides.");
-const careerOptions = { allowedTestOrigins };
+const careerOptions = { allowedTestOrigins, dataProtectionKey };
+const testMode = process.env.ANIMA_TEST_MODE === "1";
+const testFixtureUrl = (name: string) => testMode ? resolveTestFixtureUrl(process.env[name], allowedTestOrigins) : undefined;
 const careerBrowser = new CareerBrowser({
   ...careerOptions,
   headless: process.env.CAREER_HEADLESS === "1",
 });
 const discovery = new JobDiscovery(allowedTestOrigins);
+const testFranceTravailUrl = testFixtureUrl("CAREER_TEST_FRANCE_TRAVAIL_URL");
+const testOfferSearch: OfferSearchService | undefined = testFranceTravailUrl
+  ? {
+      search: async (criteria) => ({
+        offers: [{
+          url: testFranceTravailUrl,
+          title: "Offre de test France Travail",
+          company: "Entreprise de test",
+          location: "Paris",
+          description: "Offre synthétique pour test de bout en bout.",
+          sourceUrl: testFranceTravailUrl,
+        }],
+        note: `Résultat de test pour ${criteria.keywords}.`,
+      }),
+    }
+  : undefined;
+const testArbeitnowUrl = testFixtureUrl("CAREER_TEST_ARBEITNOW_URL");
+const testPublicOfferSearch: OfferSearchService | undefined = testArbeitnowUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testArbeitnowUrl, title: "Offre de test Arbeitnow France", company: "Entreprise de test", location: "Paris, France", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://www.arbeitnow.fr" }], note: `Résultat de test pour ${criteria.keywords}.` }) }
+  : undefined;
+const testJobicyUrl = testFixtureUrl("CAREER_TEST_JOBICY_URL");
+const testJobicyOfferSearch: OfferSearchService | undefined = testJobicyUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testJobicyUrl, title: "Offre de test Jobicy France", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://jobicy.com/jobs/test" }], note: `Résultat de test Jobicy pour ${criteria.keywords}.` }) }
+  : undefined;
+const testRemoteOkUrl = testFixtureUrl("CAREER_TEST_REMOTEOK_URL");
+const testRemoteOkOfferSearch: OfferSearchService | undefined = testRemoteOkUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testRemoteOkUrl, title: "Offre de test Remote OK", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://remoteok.com/remote-jobs/test" }], note: `Résultat de test Remote OK pour ${criteria.keywords}.` }) }
+  : undefined;
+const testHimalayasUrl = testFixtureUrl("CAREER_TEST_HIMALAYAS_URL");
+const testHimalayasOfferSearch: OfferSearchService | undefined = testHimalayasUrl
+  ? { search: async (criteria) => {
+      if (criteria.commune?.trim()) throw new CareerError(400, "unsupported_filter", "Himalayas ne filtre pas par ville.");
+      return { offers: [{ url: testHimalayasUrl, title: "Offre de test Himalayas", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://himalayas.app/companies/test/jobs/test-role" }], note: `Résultat de test Himalayas pour ${criteria.keywords}.` };
+    } }
+  : undefined;
+const testRemotiveUrl = testFixtureUrl("CAREER_TEST_REMOTIVE_URL");
+const testRemotiveOfferSearch: OfferSearchService | undefined = testRemotiveUrl
+  ? { search: async (criteria) => ({ offers: [{ url: testRemotiveUrl, title: "Offre de test Remotive", company: "Entreprise de test", location: "France (Remote)", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://remotive.com/remote-jobs/test" }], note: `Résultat de test Remotive pour ${criteria.keywords}.` }) }
+  : undefined;
+const disabledTestOfferSearch: OfferSearchService = {
+  search: async () => ({ offers: [], note: "Flux externe neutralisé en mode test." }),
+};
+const testFranceTravailRequest: typeof fetch = async (input) => {
+  const url = new URL(String(input));
+  if (url.hostname === "geo.api.gouv.fr") {
+    const department = url.searchParams.get("codeDepartement") || "";
+    const code = department === "2A" ? "2A004" : department === "2B" ? "2B004" : department ? `${department}000`.slice(0, 5) : "75056";
+    return Response.json([{ code, nom: url.searchParams.get("nom") || "Paris", codeDepartement: department || "75" }]);
+  }
+  if (url.hostname === "entreprise.francetravail.fr") return Response.json({ access_token: "anima-test-token", expires_in: 3600 });
+  if (url.hostname === "api.francetravail.io") return Response.json({ resultats: [] });
+  throw new Error("Appel externe inattendu dans le transport France Travail simulé.");
+};
+const publicOfferSearch = testPublicOfferSearch || (testMode ? disabledTestOfferSearch : new ArbeitnowFranceDiscovery());
+const jobicyOfferSearch = testJobicyOfferSearch || (testMode ? disabledTestOfferSearch : new JobicyRemoteDiscovery());
+const remoteOkOfferSearch = testRemoteOkOfferSearch || (testMode ? disabledTestOfferSearch : new RemoteOkDiscovery());
+const himalayasOfferSearch = testHimalayasOfferSearch || (testMode ? disabledTestOfferSearch : new HimalayasDiscovery());
+const remotiveOfferSearch = testRemotiveOfferSearch || (testMode ? disabledTestOfferSearch : new RemotiveDiscovery({ cachePath: join(dataDir, "remotive-cache.json") }));
+const allPublicOfferSearch = new PublicOfferAggregator([
+  { name: "Arbeitnow", service: publicOfferSearch },
+  { name: "Jobicy", service: jobicyOfferSearch },
+  { name: "Remote OK", service: remoteOkOfferSearch },
+  { name: "Himalayas", service: himalayasOfferSearch, supportsCommune: false },
+  { name: "Remotive", service: remotiveOfferSearch, supportsCommune: false },
+], allowedTestOrigins);
 let careerStore = new CareerStore(realStore.db, careerOptions);
 let vault = new Vault(realStore.db, careerOptions);
 let runner = new CareerRunner(careerStore, vault, careerBrowser);
 careerStore.recoverInterruptedRuns();
-const demoCareerStore = new CareerStore(demoStore.db);
-const demoVault = new Vault(demoStore.db);
+let campaignRuntime = createCareerCampaignRuntime(careerStore, runner, dataProtectionKey);
+void campaignRuntime.engine.recoverAfterRestart().catch((error) =>
+  console.error("Échec de reprise des campagnes de candidature :", error),
+);
+const demoCareerStore = new CareerStore(demoStore.db, careerOptions);
+const demoVault = new Vault(demoStore.db, careerOptions);
 const demoBrowser = new CareerBrowser();
 const demoRunner = new CareerRunner(demoCareerStore, demoVault, demoBrowser);
 demoCareerStore.seedDemo();
+const demoCampaignRuntime = createCareerCampaignRuntime(demoCareerStore, demoRunner, dataProtectionKey);
 
 function respond(res: ServerResponse, status: number, value: unknown) {
   res.writeHead(status, {
@@ -184,6 +279,28 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   const demo = url.searchParams.get("demo") === "1";
   const store = demo ? demoStore : realStore;
   try {
+    const campaigns = demo ? demoCampaignRuntime : campaignRuntime;
+    if (
+      await handleCareerCampaignApi(req, res, url, {
+        careerStore: demo ? demoCareerStore : careerStore,
+        campaigns: campaigns.campaigns,
+        engine: campaigns.engine,
+        demo,
+          credentialExists: (id) => (demo ? demoVault : vault).listCredentials().some((credential) => credential.id === id),
+          closePausedRunnerFor: async (applicationId) => {
+            const selectedRunner = demo ? demoRunner : runner;
+            if (selectedRunner.pausedApplicationId() === applicationId) await selectedRunner.stop();
+          },
+        ensureRunnerAvailable: () => {
+          const selectedRunner = demo ? demoRunner : runner;
+          if (selectedRunner.isBusy() || selectedRunner.hasPausedSession())
+            throw new CareerError(409, "browser_busy", "Le navigateur traite déjà une candidature ou attend une intervention.");
+        },
+        onBackgroundError: (error, campaignId) =>
+          console.error(`Campagne ${campaignId} interrompue :`, error),
+      })
+    )
+      return;
     if (
       await handleCareerApi(req, res, url, {
         store: demo ? demoCareerStore : careerStore,
@@ -191,6 +308,15 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         ai: electronMode && !demo ? new CareerAI(careerStore, vault) : undefined,
         runner: demo ? demoRunner : runner,
         discovery,
+        offerSearch: demo
+          ? new FranceTravailDiscovery(demoVault, testMode ? testFranceTravailRequest : fetch)
+          : testOfferSearch || new FranceTravailDiscovery(vault, testMode ? testFranceTravailRequest : fetch),
+        publicOfferSearch: demo && !testPublicOfferSearch ? undefined : publicOfferSearch,
+        jobicyOfferSearch: demo && !testJobicyOfferSearch ? undefined : jobicyOfferSearch,
+        remoteOkOfferSearch: demo && !testRemoteOkOfferSearch ? undefined : remoteOkOfferSearch,
+        himalayasOfferSearch: demo && !testHimalayasOfferSearch ? undefined : himalayasOfferSearch,
+        remotiveOfferSearch: demo && !testRemotiveOfferSearch ? undefined : remotiveOfferSearch,
+        allPublicOfferSearch: demo ? undefined : allPublicOfferSearch,
         demo,
         allowedTestOrigins,
       })
@@ -458,18 +584,23 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       });
       return;
     }
-    if (method === "GET" && path === "/api/backup") {
-      const temp = join(dataDir, `backup-${randomUUID()}.sqlite`);
+    if (method === "POST" && path === "/api/backup") {
+      const input = await json(req);
+      const scratch = new DatabaseSync(":memory:");
       try {
-        store.db.exec(`VACUUM INTO '${temp.replaceAll("'", "''")}'`);
+        deserializeDatabase(scratch, serializeDatabase(store.db));
+        unprotectAllScopes(scratch, dataProtectionKey);
+        const portable = encryptPortableBackup(serializeDatabase(scratch), String(input.passphrase ?? ""));
+        if (portable.length > 75 * 1024 * 1024)
+          throw new Error("Sauvegarde trop volumineuse pour l’export intégré. Réduisez la taille des CV enregistrés.");
         download(
           res,
-          `anima-connect-${demo ? "demo-" : ""}${new Date().toISOString().slice(0, 10)}.sqlite`,
-          readFileSync(temp),
-          "application/vnd.sqlite3",
+          `anima-connect-${demo ? "demo-" : ""}${new Date().toISOString().slice(0, 10)}.anima-backup`,
+          portable,
+          "application/vnd.anima.backup",
         );
       } finally {
-        rmSync(temp, { force: true });
+        scratch.close();
       }
       return;
     }
@@ -477,25 +608,31 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       if (demo)
         throw new Error("Quittez le mode démo pour restaurer une sauvegarde.");
       if (req.headers["content-type"] !== "application/octet-stream")
-        throw new Error("Fichier SQLite attendu.");
-      const bytes = await body(req, 100_000_000);
-      if (bytes.subarray(0, 16).toString("ascii") !== "SQLite format 3\0")
-        throw new Error("Ce fichier n’est pas une base SQLite.");
-      const temp = join(dataDir, `restore-${randomUUID()}.sqlite`);
-      writeFileSync(temp, bytes);
+        throw new Error("Fichier de sauvegarde attendu.");
+      const bytes = await body(req, 90 * 1024 * 1024);
+      const encodedPassphrase = String(req.headers["x-anima-backup-passphrase-base64"] ?? "");
+      if (encodedPassphrase && (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encodedPassphrase) || encodedPassphrase.length > 1400))
+        throw new Error("Phrase de sauvegarde invalide.");
+      let passphrase: string;
       try {
-        const check = new DatabaseSync(temp, { readOnly: true });
-        const tables = check
-          .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-          .all() as { name: string }[];
-        check.close();
-        if (
-          !["prospects", "searches", "events", "messages", "queue"].every(
-            (name) => tables.some((t) => t.name === name),
-          )
-        )
-          throw new Error("Sauvegarde Anima Connect incomplète.");
+        const phraseBytes = Buffer.from(encodedPassphrase, "base64");
+        if (phraseBytes.toString("base64") !== encodedPassphrase) throw new Error();
+        passphrase = new TextDecoder("utf-8", { fatal: true }).decode(phraseBytes);
+      } catch {
+        throw new Error("Phrase de sauvegarde invalide.");
+      }
+      const legacyAllowed = req.headers["x-anima-allow-legacy-backup"] === "1";
+      const decrypted = decryptPortableBackup(bytes, passphrase, legacyAllowed);
+      const scratch = new DatabaseSync(":memory:");
+      const temp = join(dataDir, `restore-${randomUUID()}.sqlite`);
+      try {
+        deserializeDatabase(scratch, decrypted.database);
+        validatePortableDatabase(scratch, { legacy: decrypted.legacy });
+        ensureAllProtectedScopes(scratch, dataProtectionKey);
+        writeFileSync(temp, serializeDatabase(scratch), { flag: "wx" });
+        campaignRuntime.engine.pauseAll();
         await runner.stop();
+        await campaignRuntime.engine.waitAll();
         vault.lock();
         await browser.close();
         realStore.close();
@@ -506,22 +643,28 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         copyFileSync(realPath, rollback);
         try {
           renameSync(temp, realPath);
-          realStore = new Store(realPath);
+          realStore = new Store(realPath, dataProtectionKey);
           careerStore = new CareerStore(realStore.db, careerOptions);
           vault = new Vault(realStore.db, careerOptions);
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
+          campaignRuntime = createCareerCampaignRuntime(careerStore, runner, dataProtectionKey);
+          void campaignRuntime.engine.recoverAfterRestart().catch((error) =>
+            console.error("Échec de reprise des campagnes après restauration :", error),
+          );
         } catch (error) {
           copyFileSync(rollback, realPath);
-          realStore = new Store(realPath);
+          realStore = new Store(realPath, dataProtectionKey);
           careerStore = new CareerStore(realStore.db, careerOptions);
           vault = new Vault(realStore.db, careerOptions);
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
+          campaignRuntime = createCareerCampaignRuntime(careerStore, runner, dataProtectionKey);
           throw error;
         }
         respond(res, 200, { restored: true, safetyCopy: rollback });
       } finally {
+        scratch.close();
         rmSync(temp, { force: true });
       }
       return;
@@ -531,7 +674,6 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     fail(res, error);
   }
 }
-const electronMode = process.env.ANIMA_ELECTRON_MODE === "1";
 const server = electronMode ? undefined : createServer(handleRequest);
 
 if (server)
@@ -539,8 +681,12 @@ if (server)
     console.log(`Anima Connect : http://127.0.0.1:${port}`),
   );
 async function shutdown() {
+  campaignRuntime.engine.pauseAll();
+  demoCampaignRuntime.engine.pauseAll();
   await runner.stop();
   await demoRunner.stop();
+  await campaignRuntime.engine.waitAll();
+  await demoCampaignRuntime.engine.waitAll();
   vault.lock();
   demoVault.lock();
   await browser.close();

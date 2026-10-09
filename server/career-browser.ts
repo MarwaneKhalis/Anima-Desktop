@@ -1,21 +1,30 @@
 import { isIP } from "node:net";
-import { lookup } from "node:dns/promises";
+import { request as httpsRequest } from "node:https";
+import { isPublicAIAddress } from "./career-ai.ts";
+import { CHROMIUM_EGRESS_FLAGS, PinnedBrowserProxy, resolveBrowserAddresses, type BrowserProxyDialer, type BrowserProxyResolver } from "./career-egress-proxy.ts";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type {
   Application, CareerProfile, JobOffer, MissingField, Receipt, Resume, RunMode, RunResult,
 } from "../src/shared/career.ts";
+import { allowsCareerAtsNavigation, allowsCareerAtsResource, careerAtsForUrl, findApplyLink, isRemoteOkApplyRedirectorUrl } from "./career-ats.ts";
 
-export interface CareerBrowserOptions { headless?: boolean; allowedTestOrigins?: string[] }
+export interface CareerBrowserOptions {
+  headless?: boolean;
+  allowedTestOrigins?: string[];
+  /** Deterministic network seams used by tests; never wired to user input. */
+  testNetwork?: { resolveAddresses?: BrowserProxyResolver; dial?: BrowserProxyDialer };
+}
 type Control = { index: number; tag: string; type: string; label: string; name: string; key: string; required: boolean; value: string; checked: boolean; uploaded: boolean; options: string[] };
 type Button = { index: number; text: string; disabled: boolean };
 type BrowserRunInput = {
   application: Application; job: JobOffer; profile: CareerProfile;
   resume: { meta: Resume; bytes: Buffer }; mode: RunMode;
   getCredential: (origin: string) => { username: string; password: string } | null;
-  beforeSubmit: () => void; signal?: AbortSignal; fileFieldKey?: string;
+  beforeSubmit: () => void; signal?: AbortSignal; fileFieldKey?: string; closeOnNeedsInput?: boolean;
 };
 type BrowserSession = {
   input: BrowserRunInput; page: Page; flowOrigin: string; initialNavigation: boolean;
+  pendingAtsOrigin?: string;
   seen: Set<string>; loggedIn: boolean; resumeCount: number; initialValues: Map<string, string>;
   submittedClick: boolean;
   pausedPageBody?: string;
@@ -29,20 +38,68 @@ function safeUrl(value: string, testOrigins: Set<string>): URL {
   const host = url.hostname.toLowerCase();
   if (url.username || url.password || url.hash) throw new Error("Adresse de candidature non prise en charge.");
   if (testOrigins.has(url.origin) && url.protocol === "http:") return url;
-  if (url.protocol !== "https:" || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || isIP(host) || !host.includes(".")) {
+  if (url.protocol !== "https:" || url.port || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || isIP(host) || !host.includes(".")) {
     throw new Error("La candidature exige une adresse HTTPS publique.");
   }
   return url;
 }
-async function assertPublic(url: URL, testOrigins: Set<string>): Promise<void> {
+async function assertPublic(url: URL, testOrigins: Set<string>, resolveAddresses: BrowserProxyResolver): Promise<void> {
   safeUrl(url.href, testOrigins);
   if (testOrigins.has(url.origin)) return;
-  const addresses = await lookup(url.hostname, { all: true });
-  if (!addresses.length || addresses.some(({ address }) => {
-    const ip = address.toLowerCase();
-    return /^10\.|^127\.|^0\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)
-      || ip === "::1" || ip === "::" || ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80:");
-  })) throw new Error("Destination réseau privée interdite.");
+  const addresses = await resolveAddresses(url.hostname);
+  if (!addresses.length || addresses.some(({ address, family }) => !isPublicAIAddress(address, family))) throw new Error("Destination réseau privée interdite.");
+}
+
+async function resolveRemoteOkApplyTarget(value: string, testOrigins: Set<string>, resolveAddresses: BrowserProxyResolver): Promise<URL> {
+  const source = new URL(value);
+  if (!isRemoteOkApplyRedirectorUrl(source.href, testOrigins)) throw new Error("Lien Remote OK invalide.");
+  let status = 0;
+  let location: string | null = null;
+  if (testOrigins.has(source.origin)) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const response = await fetch(source, { method: "GET", redirect: "manual", headers: { Accept: "text/html,*/*" }, signal: controller.signal });
+      status = response.status;
+      location = response.headers.get("location");
+      await response.body?.cancel().catch(() => {});
+    } finally { clearTimeout(timer); }
+  } else {
+    const addresses = await resolveAddresses(source.hostname);
+    if (!addresses.length || addresses.some(({ address, family }) => !isPublicAIAddress(address, family)))
+      throw new Error("Résolution Remote OK non publique.");
+    let lastError: unknown;
+    for (const address of addresses) {
+      try {
+        const result = await new Promise<{ status: number; location: string | null }>((resolve, reject) => {
+          const request = httpsRequest({
+            hostname: address.address, family: address.family, port: 443, method: "GET",
+            path: source.pathname + source.search, servername: source.hostname, agent: false,
+            headers: { Host: source.host, Accept: "text/html,*/*" },
+          }, response => {
+            const result = { status: response.statusCode || 0, location: response.headers.location || null };
+            response.destroy();
+            resolve(result);
+          });
+          request.setTimeout(5_000, () => request.destroy(new Error("Délai Remote OK dépassé.")));
+          request.once("error", reject);
+          request.end();
+        });
+        status = result.status;
+        location = result.location;
+        break;
+      } catch (error) { lastError = error; }
+    }
+    if (!status) throw lastError instanceof Error ? lastError : new Error("Redirection Remote OK indisponible.");
+  }
+  if (status < 300 || status >= 400 || !location) throw new Error("Remote OK n’a pas fourni une redirection de candidature vérifiable.");
+  const target = new URL(location, source);
+  if (target.username || target.password || target.hash) throw new Error("Destination de candidature Remote OK invalide.");
+  const isTestTarget = testOrigins.has(target.origin);
+  if (!isTestTarget && (target.protocol !== "https:" || target.port || !careerAtsForUrl(target.href)))
+    throw new Error("La redirection Remote OK ne mène pas à un ATS pris en charge.");
+  await assertPublic(target, testOrigins, resolveAddresses);
+  return target;
 }
 
 const knownValue = (key: string, p: CareerProfile): string | undefined => {
@@ -52,7 +109,7 @@ const knownValue = (key: string, p: CareerProfile): string | undefined => {
     [/^(full name|your name|nom complet)$/, [p.firstName, p.lastName].filter(Boolean).join(" ")],
     [/^(e mail|email|email address|adresse e mail|courriel)$/, p.email],
     [/^(phone|phone number|telephone|numero de telephone|mobile)$/, p.phone],
-    [/^(city|ville|current city)$/, p.city],
+    [/^(city|ville|current city|location city|current location)$/, p.city],
     [/^(country|pays)$/, p.country],
     [/^(address|street address|adresse)$/, p.address],
     [/^(postal code|zip code|code postal)$/, p.postalCode],
@@ -61,10 +118,44 @@ const knownValue = (key: string, p: CareerProfile): string | undefined => {
   ];
   return rules.find(([re]) => re.test(key))?.[1];
 };
+type RepeatedProfileField = { collection: "experiences" | "education"; field: string };
+const repeatedProfileField = (control: Control): RepeatedProfileField | undefined => {
+  const label = tidy(control.label);
+  const key = tidy([control.name, control.key].filter(Boolean).join(" "));
+  const combined = `${label} ${key}`.trim();
+  const hasExperienceContext = /\b(experience|employment|work history|previous job|prior job)\b/.test(combined);
+  const hasEducationContext = /\b(education|school history|academic history|study history)\b/.test(combined);
+
+  if (/\b(school|school name|university|college|institution|institution name)\b/.test(combined)) return { collection: "education", field: "school" };
+  if (/\b(degree|degree name|qualification|diploma)\b/.test(combined)) return { collection: "education", field: "degree" };
+  if (/\b(education|school|study|academic) (start|from) date\b/.test(combined) || (hasEducationContext && /\b(start|from) date\b/.test(label))) return { collection: "education", field: "start" };
+  if (/\b(education|school|study|academic) (end|to) date\b/.test(combined) || (hasEducationContext && /\b(end|to) date\b/.test(label))) return { collection: "education", field: "end" };
+
+  if (/\b(company|company name|employer|employer name|organization|organization name)\b/.test(combined)) return { collection: "experiences", field: "company" };
+  if (/\b(job title|position title|role title|employment title|job position|position|role)\b/.test(combined)) return { collection: "experiences", field: "title" };
+  if (/\b(experience|employment|work) (start|from) date\b/.test(combined) || (hasExperienceContext && /\b(start|from) date\b/.test(label)) || /\b(employment|work|experience)[ _-]?(start|from)[ _-]?(date|year)\b/.test(key)) return { collection: "experiences", field: "start" };
+  if (/\b(experience|employment|work) (end|to) date\b/.test(combined) || (hasExperienceContext && /\b(end|to) date\b/.test(label)) || /\b(employment|work|experience)[ _-]?(end|to)[ _-]?(date|year)\b/.test(key)) return { collection: "experiences", field: "end" };
+  if (/\b(job duties|responsibilities|duties|role description|employment description|experience description)\b/.test(combined)) return { collection: "experiences", field: "description" };
+  return undefined;
+};
+const profileValuesFor = (controls: Control[], profile: CareerProfile): Map<number, string | undefined> => {
+  const counts = new Map<string, number>();
+  const values = new Map<number, string | undefined>();
+  for (const control of controls) {
+    const field = repeatedProfileField(control);
+    if (!field) continue;
+    const countKey = `${field.collection}.${field.field}`;
+    const index = counts.get(countKey) || 0;
+    counts.set(countKey, index + 1);
+    const entry = profile[field.collection][index] as unknown as Record<string, string> | undefined;
+    values.set(control.index, entry?.[field.field]);
+  }
+  return values;
+};
 const missingType = (c: Control): MissingField["type"] => c.type === "file" ? "file" : c.tag === "select" ? "select" : ["checkbox", "radio"].includes(c.type) ? "boolean" : ["text", "email", "tel", "url", "textarea"].includes(c.type) ? "text" : "unknown";
 const loginButton = (s: string) => /^(log in|login|sign in|connexion|se connecter|connecter|submit)$/i.test(s.trim());
 const loginField = (c: Control) => c.type === "email" || [c.name, c.label, c.key].some(value => /(^| )(username|user name|email|e mail|identifiant|login)( |$)/i.test(tidy(value)));
-const nextButton = (s: string) => /^(next|continue|suivant|suivante|continuer|prochaine etape)$/i.test(tidy(s));
+const nextButton = (s: string) => /^(next|continue|save and continue|suivant|suivante|continuer|enregistrer et continuer|prochaine etape)$/i.test(tidy(s));
 const finalButton = (s: string) => /^(submit( application)?|send( application)?|apply( now)?|complete application|envoyer( ma candidature| la candidature)?|soumettre( ma candidature)?|postuler|valider la candidature)$/i.test(tidy(s));
 const resumeField = (c: Control) => /\b(cv|resume)\b|curriculum vitae/i.test(tidy([c.label, c.name, c.key].join(" ")));
 const controlValue = (c: Control) => c.type === "file" ? `file:${c.uploaded}` : ["checkbox", "radio"].includes(c.type) ? `checked:${c.checked}` : c.value;
@@ -127,18 +218,30 @@ async function advance(page: Page, control: ReturnType<Page["locator"]>): Promis
 export class CareerBrowser {
   private browser: Browser | undefined;
   private context: BrowserContext | undefined;
+  private proxy: PinnedBrowserProxy | undefined;
   private active = false;
   private pausedSession: BrowserSession | undefined;
   private options: CareerBrowserOptions;
   private readonly testOrigins: Set<string>;
-  constructor(options: CareerBrowserOptions = {}) { this.options = options; this.testOrigins = new Set(options.allowedTestOrigins || []); }
+  private readonly resolveAddresses: BrowserProxyResolver;
+  constructor(options: CareerBrowserOptions = {}) {
+    this.options = options;
+    this.testOrigins = new Set(options.allowedTestOrigins || []);
+    this.resolveAddresses = options.testNetwork?.resolveAddresses ?? resolveBrowserAddresses;
+  }
 
   hasPausedSession(): boolean { return Boolean(this.pausedSession && this.isLive(this.pausedSession)); }
 
   async close(): Promise<void> {
     this.pausedSession = undefined;
-    await this.context?.close().catch(() => {}); this.context = undefined;
-    await this.browser?.close().catch(() => {}); this.browser = undefined;
+    const context = this.context; this.context = undefined;
+    const browser = this.browser; this.browser = undefined;
+    const proxy = this.proxy; this.proxy = undefined;
+    try { await context?.close().catch(() => {}); }
+    finally {
+      try { await browser?.close().catch(() => {}); }
+      finally { await proxy?.close().catch(() => {}); }
+    }
   }
 
   private isLive(session: BrowserSession): boolean {
@@ -146,7 +249,8 @@ export class CareerBrowser {
   }
 
   private async finish(session: BrowserSession, outcome: RunResult): Promise<RunResult> {
-    if ((outcome.state === "needs_input" || outcome.state === "blocked") && this.isLive(session)) {
+    if (outcome.state === "needs_input" && session.input.closeOnNeedsInput) await this.close();
+    else if ((outcome.state === "needs_input" || outcome.state === "blocked") && this.isLive(session)) {
       const cs = await controls(session.page).catch(() => []);
       const pageSignature = session.page.url() + "|" + cs.map(c => c.name + ":" + c.key).join("|");
       for (const c of cs) session.initialValues.set(pageSignature + "|" + c.index + "|" + c.type + "|" + (c.name || c.key), controlValue(c));
@@ -176,27 +280,67 @@ export class CareerBrowser {
     let session: BrowserSession | undefined;
     try {
       const start = safeUrl(input.job.url, this.testOrigins);
-      await assertPublic(start, this.testOrigins);
-      this.browser = await chromium.launch({ headless: this.options.headless ?? false });
-      this.context = await this.browser.newContext({ acceptDownloads: false, viewport: { width: 1365, height: 900 } });
+      await assertPublic(start, this.testOrigins, this.resolveAddresses);
+      this.proxy = new PinnedBrowserProxy({ testOrigins: [...this.testOrigins], ...this.options.testNetwork });
+      const proxyServer = await this.proxy.listen();
+      this.browser = await chromium.launch({
+        headless: this.options.headless ?? false,
+        proxy: { server: proxyServer, bypass: "<-loopback>" },
+        // Keep destination DNS and non-proxied transports out of Chromium.
+        args: [...CHROMIUM_EGRESS_FLAGS],
+      });
+      this.context = await this.browser.newContext({ acceptDownloads: false, serviceWorkers: "block", viewport: { width: 1365, height: 900 } });
       this.context.setDefaultTimeout(10_000);
       this.context.setDefaultNavigationTimeout(20_000);
       const page = await this.context.newPage();
       session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false };
+      await this.context.routeWebSocket("**/*", async socket => {
+        let origin: string | null = null;
+        try {
+          const url = new URL(socket.url());
+          if (!url.username && !url.password) {
+            if (url.protocol === "wss:") url.protocol = "https:";
+            else if (url.protocol === "ws:") url.protocol = "http:";
+            if (url.protocol === "https:" || url.protocol === "http:") origin = url.origin;
+          }
+        } catch { /* malformed WebSocket destinations stay blocked */ }
+        if (origin && origin === session?.flowOrigin) {
+          socket.connectToServer();
+          return;
+        }
+        await socket.close({ code: 1008, reason: "WebSocket externe bloqué pendant la candidature." });
+      });
       await this.context.route("**/*", async route => {
         const request = route.request();
         let url: URL;
         try { url = new URL(request.url()); } catch { return route.abort(); }
         if (url.origin !== session!.flowOrigin) {
-          if (session!.initialNavigation && request.isNavigationRequest() && request.redirectedFrom()) {
-            try { await assertPublic(url, this.testOrigins); session!.flowOrigin = url.origin; } catch { return route.abort(); }
+          const redirectedFrom = request.redirectedFrom();
+          if (request.isNavigationRequest() && session!.initialNavigation && redirectedFrom
+            && !session!.pendingAtsOrigin) return route.abort();
+          const allowedAtsNavigation = request.isNavigationRequest() && allowsCareerAtsNavigation({
+            from: session!.flowOrigin, to: url.href, pendingAtsOrigin: session!.pendingAtsOrigin,
+            initialNavigation: session!.initialNavigation, redirected: Boolean(redirectedFrom), testOrigins: this.testOrigins,
+          });
+          if (allowedAtsNavigation) {
+            try {
+              await assertPublic(url, this.testOrigins, this.resolveAddresses);
+              session!.flowOrigin = url.origin;
+              session!.pendingAtsOrigin = url.origin;
+            } catch { return route.abort(); }
+          } else if (allowsCareerAtsResource({ from: session!.page.url(), to: url.href, method: request.method(), kind: request.resourceType() as Parameters<typeof allowsCareerAtsResource>[0]["kind"] })) {
+            return route.continue();
           } else return route.abort();
         }
         return route.continue();
       });
       await page.goto(start.href, { waitUntil: "domcontentloaded" });
+      const landed = new URL(page.url());
+      if (landed.origin !== start.origin) {
+        return await this.finish(session, result("blocked", "Redirection initiale vers un autre site refusée. Ouvrez la fiche et sélectionnez son lien Apply visible."));
+      }
       session.initialNavigation = false;
-      session.flowOrigin = new URL(page.url()).origin;
+      session.flowOrigin = landed.origin;
       return await this.finish(session, await this.drive(session));
     } catch {
       const outcome = result(session?.submittedClick ? "uncertain" : input.signal?.aborted ? "failed" : "blocked", session?.submittedClick ? "L’envoi a peut-être eu lieu ; vérifiez manuellement avant toute nouvelle tentative." : input.signal?.aborted ? "Parcours interrompu avant l’envoi." : "Le navigateur n’a pas pu terminer ce formulaire.");
@@ -245,6 +389,30 @@ export class CareerBrowser {
         return result("blocked", "Vérification CAPTCHA ou MFA : effectuez-la dans le navigateur, puis reprenez la candidature.");
       }
       const cs = await controls(page);
+      const onSupportedAts = careerAtsForUrl(session.flowOrigin) !== null;
+      const onExplicitTestOrigin = this.testOrigins.has(session.flowOrigin);
+      if (!onSupportedAts && !onExplicitTestOrigin) {
+        // Never populate personal data on an arbitrary career-site form. We may only follow an
+        // explicit, visible Apply link to one of the named public ATS hosts above.
+        if (cs.length === 0) {
+          const apply = await findApplyLink(page, this.testOrigins);
+          if (apply === "ambiguous") return result("blocked", "Plusieurs liens de candidature sont possibles : sélectionnez le parcours manuellement.");
+          if (apply) {
+            if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
+            session.seen.add(apply.href);
+            if (apply.vendor === "remoteok") {
+              const target = await resolveRemoteOkApplyTarget(apply.href, this.testOrigins, this.resolveAddresses);
+              session.pendingAtsOrigin = target.origin;
+              await page.goto(target.href, { waitUntil: "domcontentloaded" });
+            } else {
+              session.pendingAtsOrigin = new URL(apply.href).origin;
+              await advance(page, page.locator("a[href]").nth(apply.index));
+            }
+            continue;
+          }
+        }
+        return result("blocked", "Ce site carrière n’est pas pris en charge. Les données personnelles ne seront pas transmises à cette origine.");
+      }
       const pageSignature = page.url() + "|" + cs.map(c => c.name + ":" + c.key).join("|");
       for (const c of cs) {
         const initialKey = pageSignature + "|" + c.index + "|" + c.type + "|" + (c.name || c.key);
@@ -256,6 +424,7 @@ export class CareerBrowser {
       };
       if (cs.some(c => c.type === "password")) {
         if (session.loggedIn) return result("blocked", "Connexion non terminée ; intervention manuelle requise.");
+        if (!onSupportedAts && !onExplicitTestOrigin) return result("blocked", "Le coffre n’est accessible que pour un ATS explicitement pris en charge.");
         const credential = input.getCredential(session.flowOrigin);
         if (!credential) return result("blocked", "Compte requis pour cette origine ; enregistrez ses identifiants dans le coffre.");
         const user = cs.find(loginField);
@@ -278,6 +447,7 @@ export class CareerBrowser {
         }
         return undefined;
       };
+      const profileValues = profileValuesFor(cs, input.profile);
       const radioGroups = new Map<string, Control[]>();
       for (const c of cs.filter(c => c.type === "radio")) {
         const groupKey = tidy(c.name || c.key);
@@ -316,7 +486,7 @@ export class CareerBrowser {
         }
         const aliases = new Set([key, tidy(c.label), tidy(c.key)]);
         const explicit = explicitFor(...aliases);
-        const value = explicit === undefined ? knownValue(tidy(c.label || c.key), input.profile) : explicit;
+        const value = explicit === undefined ? profileValues.get(c.index) ?? knownValue(tidy(c.label || c.key), input.profile) : explicit;
         if (c.type === "checkbox") {
           if (typeof value === "boolean") {
             if (value) await loc.check();
@@ -348,6 +518,31 @@ export class CareerBrowser {
         else if (!c.required && c.value && !changedByUser(c)) await loc.fill("");
       }
       if (missing.length) return result("needs_input", "Renseignez les champs requis dans l’application ou dans le navigateur, puis reprenez la candidature.", missing);
+      // Public ATS job details usually expose an Apply link before they render the application
+      // form. Follow exactly one visible link; never guess a button action or leave the vendor.
+      if ((onSupportedAts || onExplicitTestOrigin) && cs.length === 0) {
+        const apply = await findApplyLink(page, this.testOrigins);
+        if (apply === "ambiguous") return result("blocked", "Plusieurs liens de candidature sont possibles : sélectionnez le parcours manuellement.");
+        if (apply) {
+          if (apply.vendor === "remoteok") {
+            if (onSupportedAts || !isRemoteOkApplyRedirectorUrl(apply.href, this.testOrigins)) return result("blocked", "Le lien de redirection Remote OK ne peut pas être vérifié.");
+            if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
+            session.seen.add(apply.href);
+            const target = await resolveRemoteOkApplyTarget(apply.href, this.testOrigins, this.resolveAddresses);
+            session.pendingAtsOrigin = target.origin;
+            await page.goto(target.href, { waitUntil: "domcontentloaded" });
+            continue;
+          }
+          const targetAts = careerAtsForUrl(apply.href);
+          const currentAts = careerAtsForUrl(session.flowOrigin);
+          if (apply.vendor !== "test" && targetAts !== currentAts) return result("blocked", "Le lien de candidature sort du fournisseur ATS pris en charge.");
+          if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
+          session.seen.add(apply.href);
+          session.pendingAtsOrigin = new URL(apply.href).origin;
+          await advance(page, page.locator("a[href]").nth(apply.index));
+          continue;
+        }
+      }
       const actions = (await buttons(page)).filter(b => !b.disabled);
       const finals = actions.filter(b => finalButton(b.text));
       const nexts = actions.filter(b => nextButton(b.text));

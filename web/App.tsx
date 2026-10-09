@@ -116,6 +116,12 @@ const dateTime = (s: string) =>
     : "—";
 const fullName = (p: Pick<Prospect, "firstName" | "lastName">) =>
   `${p.firstName} ${p.lastName}`.trim() || "Sans nom";
+const base64Utf8 = (value: string) => {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+};
 const statusClass = (s: string) =>
   s === "À ne pas contacter" || s === "Sans suite"
     ? "muted"
@@ -178,6 +184,8 @@ export default function App({ initialTab = "accueil", demoMode, embedded = false
   const [sort, setSort] = useState("recent");
   const [templateEdit, setTemplateEdit] = useState<Template | null>(null);
   const [limit, setLimit] = useState(10);
+  const [backupPassphrase, setBackupPassphrase] = useState("");
+  const [restorePassphrase, setRestorePassphrase] = useState("");
 
   async function api<T = any>(
     path: string,
@@ -445,6 +453,23 @@ export default function App({ initialTab = "accueil", demoMode, embedded = false
       if (!response.ok) throw new Error((await response.json()).error);
       await downloadResponse(response, filename);
     }, "Fichier téléchargé.");
+  }
+  async function createPortableBackup() {
+    const passphrase = backupPassphrase;
+    if (passphrase.length < 12) {
+      setError("Utilisez une phrase de sauvegarde d’au moins 12 caractères.");
+      return;
+    }
+    await run(async () => {
+      const response = await apiFetch(`/api/backup?demo=${demo ? "1" : "0"}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passphrase }),
+      });
+      if (!response.ok) throw new Error((await response.json()).error);
+      await downloadResponse(response, `anima-connect-sauvegarde-${new Date().toISOString().slice(0, 10)}.anima-backup`);
+      setBackupPassphrase("");
+    }, "Sauvegarde chiffrée téléchargée.");
   }
 
   return (
@@ -1732,9 +1757,20 @@ export default function App({ initialTab = "accueil", demoMode, embedded = false
                 <section className="panel settings-card">
                   <h2>Export & sauvegarde</h2>
                   <p>
-                    Enregistrez vos prospects en CSV ou toutes vos données en
-                    base SQLite.
+                    Exportez vos prospects en CSV. La sauvegarde complète est chiffrée avec une phrase secrète que vous choisissez.
                   </p>
+                  <small>
+                    Gardez cette phrase séparément du fichier : elle n’est pas enregistrée par l’application. Les sessions du navigateur carrière ne sont pas incluses.
+                  </small>
+                  <small>
+                    {window.anima
+                      ? "Dans l’application bureau, le profil, les CV, les réponses, les notes et l’historique sont chiffrés localement avec une clé protégée par Windows."
+                      : "La protection locale par Windows est disponible dans l’application bureau ; cette version web de développement utilise les réglages de son hébergement."}
+                  </small>
+                  <label className="field">
+                    <span>Phrase de sauvegarde (12 caractères minimum)</span>
+                    <input type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={backupPassphrase} onChange={(event) => setBackupPassphrase(event.target.value)} />
+                  </label>
                   <div className="button-row">
                     <button
                       className="secondary"
@@ -1747,12 +1783,10 @@ export default function App({ initialTab = "accueil", demoMode, embedded = false
                     </button>
                     <button
                       className="secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        download("/backup", "anima-connect-sauvegarde.sqlite")
-                      }
+                      disabled={busy || backupPassphrase.length < 12}
+                      onClick={createPortableBackup}
                     >
-                      Sauvegarder la base ↓
+                      Sauvegarder chiffré ↓
                     </button>
                   </div>
                 </section>
@@ -1786,16 +1820,29 @@ export default function App({ initialTab = "accueil", demoMode, embedded = false
                 <section className="panel settings-card">
                   <h2>Restaurer une sauvegarde</h2>
                   <p>
-                    La base actuelle est copiée localement avant restauration.
-                    Utilisez un fichier .sqlite créé par Anima Connect.
+                    La base actuelle est conservée dans le dossier local avant restauration. Les fichiers .anima-backup nécessitent leur phrase secrète.
                   </p>
+                  <label className="field">
+                    <span>Phrase de sauvegarde</span>
+                    <input type="password" autoComplete="current-password" maxLength={1024} value={restorePassphrase} onChange={(event) => setRestorePassphrase(event.target.value)} />
+                  </label>
                   <input
                     type="file"
-                    accept=".sqlite,application/vnd.sqlite3"
+                    accept=".anima-backup,.sqlite,application/vnd.anima.backup,application/vnd.sqlite3"
                     disabled={demo}
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
+                      const legacy = file.name.toLowerCase().endsWith(".sqlite");
+                      if (!legacy && restorePassphrase.length < 12) {
+                        setError("Saisissez la phrase secrète de cette sauvegarde.");
+                        e.target.value = "";
+                        return;
+                      }
+                      if (legacy && !window.confirm("Cette ancienne sauvegarde SQLite est en clair. L’importer explicitement ? Elle sera chiffrée localement après restauration.")) {
+                        e.target.value = "";
+                        return;
+                      }
                       if (
                         !window.confirm(
                           `Restaurer cette sauvegarde ? Une copie de la base actuelle sera gardée ${window.anima ? "dans le dossier de données local" : "dans data/"} avant remplacement.`,
@@ -1807,12 +1854,15 @@ export default function App({ initialTab = "accueil", demoMode, embedded = false
                           method: "POST",
                           headers: {
                             "Content-Type": "application/octet-stream",
+                            "X-Anima-Backup-Passphrase-Base64": legacy ? "" : base64Utf8(restorePassphrase),
+                            ...(legacy ? { "X-Anima-Allow-Legacy-Backup": "1" } : {}),
                           },
                           body: await file.arrayBuffer(),
                         });
                         const payload = await response.json();
                         if (!response.ok) throw new Error(payload.error);
                       }, "Sauvegarde restaurée.");
+                      setRestorePassphrase("");
                       e.target.value = "";
                     }}
                   />

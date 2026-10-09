@@ -1,8 +1,22 @@
 # Vérification
 
-## Résultats actuels — 7 octobre 2026
+## Résultats actuels — 9 octobre 2026
 
-Windows, Node.js 24, Chromium Playwright. La suite complète compte **71 tests réussis, 0 échec, 0 ignoré**. `pnpm build` et `pnpm desktop:compile` réussissent ; l’installateur NSIS x64 a été généré.
+La branche desktop intégrée passe **193 tests sur 193**, `pnpm build` et `pnpm desktop:compile`. `pnpm desktop:dist` génère l’installateur NSIS x64. `pnpm desktop:smoke` vérifie le lancement du package dans un profil temporaire Windows, l’embarquement de Chromium, la création de la clé locale, la préparation sans envoi, un seul POST vers le serveur de fixture, le reçu et la persistance de la campagne après redémarrage. Le smoke confirme aussi qu’aucun serveur HTTP n’écoute dans l’application empaquetée. Aucune candidature n’a été envoyée à un employeur.
+
+La recherche publique agrège Arbeitnow, Jobicy, Remote OK, Himalayas et Remotive, garde les sources des annonces et déduplique les résultats. Remotive garde son flux localement, l’actualise au plus une fois par 24 heures, filtre les mots-clés sur l’appareil et conserve uniquement les annonces explicitement ouvertes à la France, à l’Europe/EMEA ou partout. Cette source ne fournit pas la ville. Sa réponse live n’a pas été vérifiée dans ce smoke; les filtres, limites, cache et erreurs sont testés avec des réponses synthétiques.
+
+Les données sensibles conservées dans SQLite sont chiffrées en AES-256-GCM avec une clé protégée par le stockage sécurisé Windows/DPAPI. Le démarrage répare aussi les lignes de candidatures créées par l’ancien mauvais ordre de colonnes, après vérification de la clé; un test couvre la base déjà marquée et la réouverture. Les sauvegardes portables sont chiffrées par phrase secrète et validées avant restauration. L’import d’une ancienne base SQLite nécessite une confirmation explicite.
+
+Le navigateur de candidature utilise un proxy éphémère. À chaque connexion HTTPS, le proxy résout à nouveau le nom, refuse les réponses privées ou mixtes et ouvre TCP vers l’adresse IP validée; TLS reste de bout en bout avec le nom d’hôte original. Remote OK est vérifié par un GET épinglé avant que le navigateur ouvre la destination; seule une URL ATS prise en charge ou une fixture exacte est admise. Les Service Workers et WebSockets externes sont bloqués, QUIC est désactivé et WebRTC est configuré pour ne pas utiliser d’UDP hors proxy. Ces protections Chromium ne constituent pas un pare-feu système : l’application ne garantit pas le confinement d’un navigateur compromis ou d’un transport réseau brut.
+
+Le smoke ATS live est resté en lecture seule sur l’environnement de démonstration public Lever : HTTP 200, lien Apply visible, aucun formulaire chargé, sept requêtes hors politique bloquées. Aucun clic, remplissage ou envoi n’a été effectué. Les adaptateurs Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday sont validés sur des formulaires synthétiques; CAPTCHA, MFA, nouveaux comptes et réponses inconnues demandent toujours l’intervention de l’utilisateur.
+
+L’installateur produit est non signé faute de certificat de signature fourni. La procédure de signature locale est décrite dans [RELEASING.md](RELEASING.md). Les workflows GitHub de cette branche restent à vérifier après sa mise à jour sur le PR.
+
+### Résultats historiques — 7 octobre 2026
+
+Windows, Node.js 24, Chromium Playwright. La suite complète comptait **71 tests réussis, 0 échec, 0 ignoré**. `pnpm build` et `pnpm desktop:compile` réussissaient ; l’installateur NSIS x64 avait été généré.
 
 | Vérification bureau                                        | Résultat                                                  |
 | ---------------------------------------------------------- | --------------------------------------------------------- |
