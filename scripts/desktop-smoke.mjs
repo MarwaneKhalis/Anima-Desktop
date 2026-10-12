@@ -233,8 +233,9 @@ try {
   // snapshot and explicitly choose the intended CV before creating the campaign.
   await window.reload();
   await window.waitForLoadState("load");
-  await window.getByRole("button", { name: "Offres", exact: true }).click();
+  await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByLabel("CV pour les candidatures").selectOption(selectedResume.id);
+  await window.getByRole("button", { name: "Offres", exact: true }).click();
   await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
   await window.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
   const campaign = await waitForCampaign(window);
