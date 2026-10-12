@@ -13,8 +13,9 @@ import type {
   JobOffer,
   RunMode,
 } from "../src/shared/career.ts";
+import type { Prospect } from "../src/shared/types.ts";
 import { profileFitScore, rankJobsForProfile } from "../src/shared/career-ranking.ts";
-import { dueFollowups, prioritizeAttention } from "../src/shared/career-dashboard.ts";
+import { dueFollowups, dueProspectFollowups, prioritizeAttention, summarizeDailyActions } from "../src/shared/career-dashboard.ts";
 
 type Tab = "home" | "jobs" | "applications" | "network" | "profile" | "settings" | "help";
 function jobSourceLabel(job: JobOffer): string {
@@ -182,6 +183,9 @@ export default function CareerWorkspace() {
   const [settingsSection, setSettingsSection] = useState<"connections" | "data" | "preferences" | "about">("connections");
   const [applicationsSection, setApplicationsSection] = useState<"all" | "attention" | "followups" | "campaigns">("all");
   const [campaignPage, setCampaignPage] = useState(0), [campaignTotal, setCampaignTotal] = useState(0);
+  const [campaignsActiveOnly, setCampaignsActiveOnly] = useState(false);
+  const [activeCampaigns, setActiveCampaigns] = useState<CampaignSummary[]>([]), [activeCampaignTotal, setActiveCampaignTotal] = useState(0);
+  const [focusedCampaignId, setFocusedCampaignId] = useState<string | null>(null);
   const [networkSection, setNetworkSection] = useState<"contacts" | "searches" | "messages" | "history">("contacts");
   const [jobsSection, setJobsSection] = useState<"search" | "saved" | "searches">("search");
   const [editingSavedSearchId, setEditingSavedSearchId] = useState<string | null>(null);
@@ -234,9 +238,9 @@ export default function CareerWorkspace() {
   const [answerKey, setAnswerKey] = useState(""),
     [answerValue, setAnswerValue] = useState(""),
     [answerBoolean, setAnswerBoolean] = useState(false);
-  const [prospects, setProspects] = useState<
-    { id: string; firstName: string; lastName: string; company: string }[]
-  >([]);
+  const [prospects, setProspects] = useState<Prospect[]>([]);
+  const [focusProspectId, setFocusProspectId] = useState<string | null>(null);
+  const [focusProspectVersion, setFocusProspectVersion] = useState(0);
   const modeRef = useRef(demo);
   modeRef.current = demo;
   async function api<T>(
@@ -263,11 +267,20 @@ export default function CareerWorkspace() {
       value.resumes.some((r) => r.id === id) ? id : value.resumes[0]?.id || "",
     );
     setCredentialId((id) => value.credentials.some((credential) => credential.id === id) ? id : "");
-    await refreshCampaigns();
+    await Promise.all([refreshCampaigns(), refreshActiveCampaigns()]);
   }
-  async function refreshCampaigns() {
+  async function refreshActiveCampaigns() {
     try {
-      const value = await api<{ campaigns: CampaignSummary[]; total?: number }>(`/campaigns?limit=10&offset=${campaignPage * 10}`);
+      const value = await api<{ campaigns: CampaignSummary[]; total?: number }>("/campaigns?active=1&limit=10&offset=0");
+      setActiveCampaigns(value.campaigns || []);
+      setActiveCampaignTotal(value.total ?? value.campaigns?.length ?? 0);
+    } catch (error) {
+      setCampaignError(error instanceof Error ? error.message : String(error));
+    }
+  }
+  async function refreshCampaigns(activeOnly = campaignsActiveOnly, page = campaignPage) {
+    try {
+      const value = await api<{ campaigns: CampaignSummary[]; total?: number }>(`/campaigns?${activeOnly ? "active=1&" : ""}limit=10&offset=${page * 10}`);
       setCampaigns(value.campaigns || []);
       setCampaignTotal(value.total ?? value.campaigns?.length ?? 0);
       setCampaignError("");
@@ -287,6 +300,19 @@ export default function CareerWorkspace() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+  async function openCampaign(campaignId: string) {
+    setFocusedCampaignId(campaignId);
+    setCampaignPage(0);
+    setCampaignsActiveOnly(true);
+    setApplicationsSection("campaigns");
+    setTab("applications");
+    try {
+      const detail = await api<CampaignDetail>(`/campaigns/${campaignId}`);
+      setCampaignDetails((current) => ({ ...current, [campaignId]: detail }));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  }
   async function refreshFranceTravail() {
     try {
       setFranceTravail(await api<FranceTravailStatus>("/sources/france-travail"));
@@ -304,10 +330,6 @@ export default function CareerWorkspace() {
       .then(() => recoverPendingCampaign())
       .catch((e) => setError(e.message));
     refreshFranceTravail();
-    apiFetch(`/api/bootstrap?demo=${demo ? 1 : 0}`)
-      .then((r) => r.json())
-      .then((v) => setProspects(v.prospects || []))
-      .catch(() => {});
   }, [demo]);
   useEffect(() => {
     if (!profile) return;
@@ -326,7 +348,7 @@ export default function CareerWorkspace() {
   }, [demo]);
   useEffect(() => {
     if (data && applicationsSection === "campaigns") void refreshCampaigns();
-  }, [campaignPage, applicationsSection]);
+  }, [campaignPage, applicationsSection, campaignsActiveOnly]);
   useEffect(() => {
     if (!focusResultsAfterSearch || !data) return;
     if (offerSearchAdvancedRef.current) offerSearchAdvancedRef.current.open = false;
@@ -556,6 +578,20 @@ export default function CareerWorkspace() {
     ) || [];
   const attention = data ? prioritizeAttention(data.applications) : [];
   const dueFollowupList = data ? dueFollowups(data.applications) : [];
+  const dueProspectList = dueProspectFollowups(prospects);
+  const dueActions = [
+    ...dueFollowupList.map((application) => ({ kind: "application" as const, date: application.nextActionAt, application })),
+    ...dueProspectList.map((prospect) => ({ kind: "prospect" as const, date: prospect.nextActionAt, prospect })),
+  ].sort((a, b) => Date.parse(a.date) - Date.parse(b.date) || (a.kind === b.kind ? 0 : a.kind === "application" ? -1 : 1));
+  const sortedActiveCampaigns = activeCampaigns.slice().sort((a, b) =>
+    (a.state === "running" ? 0 : a.state === "queued" ? 1 : 2) -
+    (b.state === "running" ? 0 : b.state === "queued" ? 1 : 2) || a.createdAt.localeCompare(b.createdAt),
+  );
+  const todayActions = summarizeDailyActions(sortedActiveCampaigns, attention, dueActions, activeCampaignTotal);
+  const pinnedCampaign = focusedCampaignId && campaignDetails[focusedCampaignId] && !campaigns.some((campaign) => campaign.id === focusedCampaignId)
+    ? [campaignDetails[focusedCampaignId].campaign]
+    : [];
+  const campaignPageItems = [...pinnedCampaign, ...campaigns];
   const visibleApplications = applicationsSection === "attention"
     ? attention
     : applicationsSection === "followups"
@@ -616,14 +652,14 @@ export default function CareerWorkspace() {
       {franceTravail.configured && <button disabled={busy || demo || !data.vault.unlocked} onClick={() => action(async () => { await api("/sources/france-travail", "DELETE", {}); setFranceTravail({ configured: false }); return "Accès France Travail supprimé."; })}>Supprimer les identifiants</button>}
     </section>
   );
-  const campaignPanel = campaignError ? <div className="cw-alert" role="alert">Impossible d’actualiser les campagnes : {campaignError} <button onClick={() => void refreshCampaigns()}>Réessayer</button></div> : campaigns.length ? (
+  const campaignPanel = campaignError ? <div className="cw-alert" role="alert">Impossible d’actualiser les campagnes : {campaignError} <button onClick={() => { void refreshCampaigns(); void refreshActiveCampaigns(); }}>Réessayer</button></div> : campaignPageItems.length ? (
     <section className="cw-panel cw-campaigns">
       <div className="cw-section-head">
-        <div><span className="cw-eyebrow">TRAITEMENT AUTOMATIQUE</span><h2>Campagnes de candidature</h2></div>
+        <div><span className="cw-eyebrow">TRAITEMENT AUTOMATIQUE</span><h2>{campaignsActiveOnly ? "Campagnes actives" : "Campagnes de candidature"}</h2></div>
         <span className="cw-pill">{campaignTotal} campagne(s)</span>
       </div>
       <div className="cw-campaign-list">
-        {campaigns.map((campaign) => (
+        {campaignPageItems.map((campaign) => (
           <article className="cw-campaign-row" key={campaign.id}>
             <div className="cw-campaign-main">
               <strong>{campaignStates[campaign.state]}</strong>
@@ -1017,14 +1053,34 @@ export default function CareerWorkspace() {
                     <section className="cw-panel">
                       <div className="cw-section-head">
                         <h2>À ne pas laisser passer</h2>
-                        <span className="cw-pill">{attention.length + dueFollowupList.length}</span>
+                        <span className="cw-pill">{todayActions.totalCount}</span>
                       </div>
-                      {attention.slice(0, 3).map((a) => (
+                      <p className="cw-muted">{todayActions.campaignCount} campagne(s) active(s) · {todayActions.attentionCount} candidature(s) à traiter · {todayActions.followupCount} relance(s) échue(s)</p>
+                      {sortedActiveCampaigns.map((campaign) => (
+                        <button
+                          className="cw-row"
+                          key={campaign.id}
+                          onClick={() => void openCampaign(campaign.id)}
+                        >
+                          <span>
+                            <strong>Campagne · {campaignStates[campaign.state]}</strong>
+                            <small>{campaign.counts.submitted}/{campaign.counts.total} envoyée(s) · {campaign.counts.running} en cours · {campaign.counts.needsInput} à compléter · {campaign.counts.uncertain} à vérifier</small>
+                          </span>
+                          <span>↗</span>
+                        </button>
+                      ))}
+                      {todayActions.hiddenCampaignCount > 0 && (
+                        <button className="cw-row cw-link" onClick={() => { setFocusedCampaignId(null); setCampaignsActiveOnly(true); setCampaignPage(0); setApplicationsSection("campaigns"); setTab("applications"); void refreshCampaigns(true, 0); }}>
+                          Voir les {activeCampaignTotal} campagnes actives →
+                        </button>
+                      )}
+                      {todayActions.visibleAttention.map((a) => (
                         <button
                           className="cw-row"
                           key={a.id}
                           onClick={() => {
                             setDetail(a.id);
+                            setApplicationsSection("attention");
                             setTab("applications");
                           }}
                         >
@@ -1035,38 +1091,49 @@ export default function CareerWorkspace() {
                           <span>→</span>
                         </button>
                       ))}
-                      {dueFollowupList
-                        .slice(0, 3)
-                        .map((a) => (
-                          <button
-                            className="cw-row"
-                            key={a.id}
-                            onClick={() => {
-                              setDetail(a.id);
-                              setTab("applications");
-                            }}
-                          >
-                            <span>
-                              <strong>
-                                Relance · {labelJob(data, a)?.company}
-                              </strong>
-                              <small>{date(a.nextActionAt)}</small>
-                            </span>
-                            <span>◷</span>
-                          </button>
-                        ))}
-                      {dueFollowupList.length > 3 && (
-                        <button
-                          type="button"
-                          onClick={() => { setApplicationsSection("followups"); setTab("applications"); }}
-                        >
-                          Voir les {dueFollowupList.length} relances dues →
+                      {todayActions.hiddenAttentionCount > 0 && (
+                        <button className="cw-row cw-link" onClick={() => { setApplicationsSection("attention"); setTab("applications"); }}>
+                          Voir les {todayActions.attentionCount} candidatures à traiter →
                         </button>
                       )}
-                      {!attention.length && !dueFollowupList.length && (
+                      {dueActions.map((action) => action.kind === "application" ? (
+                        <button
+                          className="cw-row"
+                          key={`application-${action.application.id}`}
+                          onClick={() => {
+                            setDetail(action.application.id);
+                            setApplicationsSection("followups");
+                            setTab("applications");
+                          }}
+                        >
+                          <span>
+                            <strong>Relance candidature · {labelJob(data, action.application)?.company}</strong>
+                            <small>{date(action.date)}</small>
+                          </span>
+                          <span>◷</span>
+                        </button>
+                      ) : (
+                        <button
+                          className="cw-row"
+                          key={`prospect-${action.prospect.id}`}
+                          onClick={() => {
+                            setNetworkSection("contacts");
+                            setLegacyTab("prospects");
+                            setFocusProspectId(action.prospect.id);
+                            setFocusProspectVersion((version) => version + 1);
+                            setTab("network");
+                          }}
+                        >
+                          <span>
+                            <strong>Relance contact · {action.prospect.firstName} {action.prospect.lastName}</strong>
+                            <small>{action.prospect.nextAction} · {date(action.date)}</small>
+                          </span>
+                          <span>↗</span>
+                        </button>
+                      ))}
+                      {!activeCampaignTotal && !attention.length && !dueActions.length && (
                         <p className="cw-muted">
-                          Aucun blocage ni rappel échu. Les prochaines actions
-                          apparaîtront ici quand elles seront à traiter.
+                          Aucune campagne active, aucun blocage ni rappel échu. Les prochaines actions apparaîtront ici quand elles seront à traiter.
                         </p>
                       )}
                       <div className="cw-network">
@@ -1455,7 +1522,7 @@ export default function CareerWorkspace() {
                   </div>
                   <div className="cw-subnav" aria-label="Vues des candidatures">
                     {([ ["all", "Toutes"], ["attention", "À traiter"], ["followups", `Relances (${dueFollowupList.length})`], ["campaigns", "Campagnes"] ] as const).map(([section, label]) => (
-                      <button key={section} className={applicationsSection === section ? "current" : ""} onClick={() => { setApplicationsSection(section); if (section === "campaigns") void refreshCampaigns(); }}>{label}</button>
+                      <button key={section} className={applicationsSection === section ? "current" : ""} onClick={() => { setApplicationsSection(section); if (section === "campaigns") { setFocusedCampaignId(null); setCampaignsActiveOnly(false); setCampaignPage(0); void refreshCampaigns(false, 0); } }}>{label}</button>
                     ))}
                   </div>
                   {applicationsSection === "campaigns" ? campaignPanel : (
@@ -2172,6 +2239,9 @@ export default function CareerWorkspace() {
                   initialTab={tab === "network" ? legacyTab : tab === "help" ? "erreurs" : "parametres"}
                   settingsSection={tab === "settings" ? settingsSection : undefined}
                   demoMode={demo}
+                  focusProspectId={focusProspectId}
+                  focusProspectVersion={focusProspectVersion}
+                  onProspectsChange={setProspects}
                   onFeedback={(kind, message) => {
                     setError(kind === "error" ? message : "");
                     setNotice(kind === "notice" ? message : "");
