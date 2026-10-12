@@ -758,6 +758,25 @@ test("today offers direct access to every due follow-up", async (t) => {
   assert.equal(await page.getByRole("button", { name: "Relances (4)", exact: true }).getAttribute("class"), "current");
 });
 
+test("keyboard tab focus has a visible outline in the active section accent", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.keyboard.press("Tab");
+  const focus = await page.evaluate(() => {
+    const element = document.activeElement;
+    const style = element ? getComputedStyle(element) : null;
+    return { tag: element?.tagName, outlineStyle: style?.outlineStyle, outlineWidth: style?.outlineWidth, outlineColor: style?.outlineColor };
+  });
+  assert.equal(focus.tag, "A", "the first keyboard stop is the app brand link");
+  assert.equal(focus.outlineStyle, "solid");
+  assert.equal(focus.outlineWidth, "3px");
+  assert.equal(focus.outlineColor, "rgb(128, 97, 31)", "the focus ring follows the Xenogears home accent");
+});
+
 test("application drawer records a structured employer response without changing the outcome", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
