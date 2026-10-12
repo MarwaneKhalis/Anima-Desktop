@@ -157,7 +157,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
       submissions.push(parseSubmission(req, await read(req), path));
       if (path === "/submit-slow") await new Promise(resolve => setTimeout(resolve, 3000));
       if (path === "/submit-uncertain") page(res, "<h1>Processing</h1>");
-      else if (path === "/submit-manual-nonstandard") page(res, `<h1>Your response has been added to our system.</h1>${simple("/submit-manual-nonstandard")}`);
+      else if (path.startsWith("/submit-manual-")) page(res, `<h1>Your response has been added to our system.</h1>${simple("/submit-manual-after-challenge")}`);
       else if (path === "/submit-false") page(res, `<p>Thank you for applying to our newsletter.</p>${simple("/submit-false")}`);
       else page(res, `<h1>Application received</h1><p>Reference: REC-${submissions.length.toString().padStart(4, "0")}</p>`);
       return;
@@ -202,7 +202,7 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     if (path === "/radio-authorization") { page(res, simple("/submit", `<fieldset><legend>Work authorization</legend><label><input type="radio" name="workAuthorization" value="Yes" required checked>Yes</label><label><input type="radio" name="workAuthorization" value="No" required>No</label></fieldset>`)); return; }
     if (path === "/consent") { page(res, simple("/submit", `<label>I agree to the terms <input type="checkbox" name="consent" required></label>`)); return; }
     if (path === "/challenge") { page(res, `<h1>Verify you are human</h1><div class="captcha">CAPTCHA</div>${simple("/submit")}<script>setInterval(()=>fetch('/challenge-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('.captcha')?.remove();document.querySelector('h1').textContent='Verification complete'}}),100)</script>`); return; }
-    if (path === "/challenge-manual-submit") { page(res, `<h1>Verify you are human</h1><div class="captcha">CAPTCHA</div><form action="/submit-manual-nonstandard" method="post"><button type="submit">Submit application</button></form><script>setInterval(()=>fetch('/manual-submit-challenge-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('.captcha')?.remove();document.querySelector('h1').textContent='Verification complete'}}),100)</script>`); return; }
+    if (path === "/challenge-manual-submit") { page(res, `<h1>Verify you are human</h1><div class="captcha">CAPTCHA</div><form action="/submit-manual-before-challenge" method="post"><button type="submit">Submit application</button></form><script>setInterval(()=>fetch('/manual-submit-challenge-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('.captcha')?.remove();document.querySelector('h1').textContent='Verification complete';document.querySelector('form').action='/submit-manual-after-challenge'}}),100)</script>`); return; }
     if (path === "/mfa") { page(res, `<h1>Two-factor authentication required</h1>${simple("/submit")}<script>setInterval(()=>fetch('/mfa-state').then(r=>r.text()).then(s=>{if(s==='solved')document.querySelector('h1').textContent='Authentication complete'}),100)</script>`); return; }
     if (path === "/uncertain") { page(res, simple("/submit-uncertain")); return; }
     if (path === "/slow") { await new Promise(resolve => setTimeout(resolve, 1500)); page(res, simple("/submit")); return; }

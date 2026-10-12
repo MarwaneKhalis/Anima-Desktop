@@ -197,6 +197,8 @@ async function buttons(page: Page): Promise<Button[]> {
   }));
 }
 const receiptPattern = /(?:application (?:received|submitted)|thank you for (?:applying|your application)|candidature (?:recue|reçue|envoyee|envoyée)|merci pour votre candidature)/i;
+const MANUAL_SUBMIT_PAUSED_KEY = "__anima_manual_submit_paused";
+const MANUAL_SUBMIT_OBSERVED_KEY = "__anima_manual_submit_observed";
 async function receipt(page: Page, previousText: string): Promise<Receipt | null> {
   const full = await page.locator("body").innerText().catch(() => "");
   const body = safeText(full);
@@ -283,6 +285,10 @@ export class CareerBrowser {
     else if ((outcome.state === "needs_input" || outcome.state === "blocked") && this.isLive(session)) {
       session.manualInterventionOpen = true;
       session.pausedRequests = [];
+      await session.page.evaluate(({ pausedKey }) => {
+        (window as Window & { __animaManualSubmitPaused?: boolean }).__animaManualSubmitPaused = true;
+        try { sessionStorage.setItem(pausedKey, "1"); } catch { /* Storage may be unavailable in unusual browser contexts. */ }
+      }, { pausedKey: MANUAL_SUBMIT_PAUSED_KEY }).catch(() => {});
       const cs = await controls(session.page).catch(() => []);
       const pageSignature = session.page.url() + "|" + cs.map(c => c.name + ":" + c.key).join("|");
       for (const c of cs) session.initialValues.set(pageSignature + "|" + c.index + "|" + c.type + "|" + (c.name || c.key), controlValue(c));
@@ -328,6 +334,30 @@ export class CareerBrowser {
       this.context.setDefaultNavigationTimeout(20_000);
       const page = await this.context.newPage();
       session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false, manualInterventionOpen: false, manualSubmissionObserved: false, pausedSubmitTargets: [], pausedRequests: [] };
+      await page.exposeFunction("__animaObserveManualSubmission", () => {
+        if (session?.manualInterventionOpen) session.manualSubmissionObserved = true;
+      });
+      await page.addInitScript(({ pausedKey, observedKey }) => {
+        const context = window as Window & { __animaManualSubmitPaused?: boolean; __animaManualSubmissionObserved?: boolean; __animaObserveManualSubmission?: () => Promise<void> };
+        try {
+          context.__animaManualSubmitPaused = sessionStorage.getItem(pausedKey) === "1";
+          context.__animaManualSubmissionObserved = sessionStorage.getItem(observedKey) === "1";
+        } catch { context.__animaManualSubmitPaused = false; context.__animaManualSubmissionObserved = false; }
+        const normalize = (value: string) => value.replace(/([a-z])([A-Z])/g, "$1 $2").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        const finalLabel = /^(submit( application)?|send( application)?|complete application|envoyer( ma candidature| la candidature)?|soumettre( ma candidature)?|postuler|valider la candidature)$/i;
+        const mark = () => {
+          context.__animaManualSubmissionObserved = true;
+          try { sessionStorage.setItem(observedKey, "1"); } catch { /* Node-side request observation remains active. */ }
+          void context.__animaObserveManualSubmission?.();
+        };
+        document.addEventListener("click", event => {
+          if (!context.__animaManualSubmitPaused) return;
+          const target = event.target instanceof Element ? event.target.closest('button, input[type="submit"]') as HTMLButtonElement | HTMLInputElement | null : null;
+          const label = target instanceof HTMLInputElement ? target.value : target?.textContent || target?.getAttribute("aria-label") || "";
+          if (target && finalLabel.test(normalize(label.trim()))) mark();
+        }, true);
+        document.addEventListener("submit", () => { if (context.__animaManualSubmitPaused) mark(); }, true);
+      }, { pausedKey: MANUAL_SUBMIT_PAUSED_KEY, observedKey: MANUAL_SUBMIT_OBSERVED_KEY });
       page.on("request", request => {
         if (!session?.manualInterventionOpen) return;
         session.pausedRequests.push({ url: request.url(), method: request.method() });
@@ -610,10 +640,24 @@ export class CareerBrowser {
       if (!await sameOriginForm(page, finalControl, session.flowOrigin)) return result("blocked", "Envoi vers une origine différente interdite.");
       if (input.mode === "prepare") return result("ready", "Formulaire prêt à être envoyé.");
       if (input.signal?.aborted) return result("failed", "Parcours interrompu avant l’envoi.");
+      const beforeText = await page.locator("body").innerText().catch(() => "");
       const lastChanceManualSubmission = await this.detectManualSubmission(session);
       if (lastChanceManualSubmission) return lastChanceManualSubmission;
+      const manualSubmissionAtClickBoundary = await page.evaluate(({ pausedKey, observedKey }) => {
+        const context = window as Window & { __animaManualSubmitPaused?: boolean; __animaManualSubmissionObserved?: boolean };
+        let observed = context.__animaManualSubmissionObserved === true;
+        try { observed ||= sessionStorage.getItem(observedKey) === "1"; } catch { /* Node-side request observation remains active. */ }
+        if (observed) return true;
+        context.__animaManualSubmitPaused = false;
+        try { sessionStorage.removeItem(pausedKey); } catch { /* Request monitoring remains active until the click. */ }
+        return false;
+      }, { pausedKey: MANUAL_SUBMIT_PAUSED_KEY, observedKey: MANUAL_SUBMIT_OBSERVED_KEY }).catch(() => false);
+      if (manualSubmissionAtClickBoundary) {
+        session.manualSubmissionObserved = true;
+        const boundarySubmission = await this.detectManualSubmission(session);
+        if (boundarySubmission) return boundarySubmission;
+      }
       session.manualInterventionOpen = false;
-      const beforeText = await page.locator("body").innerText().catch(() => "");
       // Persist the submitting marker before any final click so a retry cannot duplicate an uncertain send.
       input.beforeSubmit();
       session.submittedClick = true;
@@ -630,8 +674,11 @@ export class CareerBrowser {
   }
 
   private async detectManualSubmission(session: BrowserSession): Promise<RunResult | null> {
-    if (!session.manualInterventionOpen) return null;
     session.manualSubmissionObserved ||= session.pausedRequests.some(request => matchesFinalSubmissionRequest(request, session.pausedSubmitTargets));
+    if (session.manualInterventionOpen) session.manualSubmissionObserved ||= await session.page.evaluate(({ observedKey }) => {
+      try { return sessionStorage.getItem(observedKey) === "1" || (window as Window & { __animaManualSubmissionObserved?: boolean }).__animaManualSubmissionObserved === true; }
+      catch { return false; }
+    }, { observedKey: MANUAL_SUBMIT_OBSERVED_KEY }).catch(() => false);
     if (!session.manualSubmissionObserved) return null;
     const proof = await receipt(session.page, session.pausedPageBody || "");
     session.submittedClick = true;
