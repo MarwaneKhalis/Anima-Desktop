@@ -88,6 +88,20 @@
   border-color: var(--section-accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--section-accent) 16%, transparent);
 }
+.cw-shell input:focus-visible,
+.cw-shell select:focus-visible,
+.cw-shell textarea:focus-visible {
+  outline: 3px solid var(--section-accent);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .cw-shell input:focus-visible,
+  .cw-shell select:focus-visible,
+  .cw-shell textarea:focus-visible {
+    outline-color: Highlight;
+    box-shadow: none;
+  }
+}
 .cw-shell label {
   display: flex;
   flex-direction: column;
