@@ -66,6 +66,13 @@ const labelJob = (snapshot: CareerSnapshot, a: Application) =>
   snapshot.jobs.find((j) => j.id === a.jobId);
 const active = (a: Application) => ["running", "submitting"].includes(a.state);
 type FranceTravailStatus = { configured: boolean; scope?: string; updatedAt?: string };
+type SavedSearchDraft = {
+  keywords: string;
+  commune: string;
+  contractType: string;
+  limit: number;
+  intervalHours: CareerSavedSearch["intervalHours"];
+};
 type CampaignSummary = {
   id: string;
   resumeId: string;
@@ -98,6 +105,8 @@ export default function CareerWorkspace() {
   const [campaignPage, setCampaignPage] = useState(0), [campaignTotal, setCampaignTotal] = useState(0);
   const [networkSection, setNetworkSection] = useState<"contacts" | "searches" | "messages" | "history">("contacts");
   const [jobsSection, setJobsSection] = useState<"search" | "saved" | "searches">("search");
+  const [editingSavedSearchId, setEditingSavedSearchId] = useState<string | null>(null);
+  const [savedSearchDraft, setSavedSearchDraft] = useState<SavedSearchDraft | null>(null);
   const [demo, setDemo] = useState(
     () => localStorage.getItem("anima-demo") === "1",
   );
@@ -406,8 +415,23 @@ export default function CareerWorkspace() {
     await api<CareerSavedSearch>("/saved-searches", "POST", { source, criteria, intervalHours: searchIntervalHours, enabled: true });
     return "Recherche enregistrée. La collecte se fera automatiquement tant qu’Anima Desktop est ouvert.";
   }
-  async function updateRecurringSearch(search: CareerSavedSearch, changes: { enabled?: boolean }) {
-    return api<CareerSavedSearch>(`/saved-searches/${search.id}`, "PATCH", { source: search.source, criteria: search.criteria, intervalHours: search.intervalHours, ...changes });
+  async function updateRecurringSearch(search: CareerSavedSearch, changes: Partial<Pick<CareerSavedSearch, "source" | "criteria" | "intervalHours" | "enabled">>) {
+    return api<CareerSavedSearch>(`/saved-searches/${search.id}`, "PATCH", {
+      source: changes.source ?? search.source,
+      criteria: changes.criteria ?? search.criteria,
+      intervalHours: changes.intervalHours ?? search.intervalHours,
+      enabled: changes.enabled ?? search.enabled,
+    });
+  }
+  function beginSavedSearchEdit(search: CareerSavedSearch) {
+    setEditingSavedSearchId(search.id);
+    setSavedSearchDraft({
+      keywords: search.criteria.keywords,
+      commune: search.criteria.commune || "",
+      contractType: search.criteria.contractType || "",
+      limit: search.criteria.limit || 50,
+      intervalHours: search.intervalHours,
+    });
   }
   async function saveFranceTravailCredentials() {
     const saved = await api<FranceTravailStatus>("/sources/france-travail", "POST", franceCredentials);
@@ -1117,7 +1141,7 @@ export default function CareerWorkspace() {
                                   ? <>Les offres viennent de l’<a href="https://himalayas.app/api" target="_blank" rel="noreferrer">API publique Himalayas</a>. Cette source ne filtre pas par ville; les annonces limitées à un autre pays sont écartées. Le lien Himalayas reste attribué et les données sont mises à jour quotidiennement.</>
                                 : searchSource === "remotive"
                                   ? <>Les offres viennent du <a href="https://remotive.com/remote-jobs/api" target="_blank" rel="noreferrer">flux public Remotive</a>, retardé de 24 h et mis en cache localement au plus une fois par jour. Cette source ne précise pas la ville; seules les annonces ouvertes à la France, à l’Europe/EMEA ou partout sont conservées.</>
-                                : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
+                            : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} Des adaptateurs ciblent Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday. Les scénarios automatisés sont vérifiés sur des pages de test, sans garantie de compatibilité complète avec les portails réels. Les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
                         </small>
                       </details>
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
@@ -1126,13 +1150,42 @@ export default function CareerWorkspace() {
                     </div>
                     <section className="cw-panel" aria-label="Recherches récurrentes" hidden={jobsSection !== "searches"}>
                       <div className="cw-section-head"><h3>Recherches enregistrées</h3><span className="cw-pill">{data.savedSearches.length}</span></div>
-                      {data.savedSearches.length ? data.savedSearches.map((search) => <div className="cw-section-head" key={search.id}>
-                        <div><strong>{search.criteria.keywords}</strong><small>{search.source} · {search.intervalHours < 24 ? `toutes les ${search.intervalHours} h` : search.intervalHours === 24 ? "quotidienne" : "hebdomadaire"} · {search.lastResultCount} offre(s) au dernier passage</small>{search.lastRunAt && <small>Dernière collecte : {date(search.lastRunAt)}</small>}{search.lastError && <small role="status">{search.lastError}</small>}{search.enabled && search.nextRunAt && <small>Prochaine collecte : {date(search.nextRunAt)}</small>}</div>
-                        <div>
-                          {search.enabled && <button disabled={busy || demo} onClick={() => action(async () => { const result = await api<CareerSavedSearch>(`/saved-searches/${search.id}/run`, "POST", {}); return `Collecte terminée : ${result.lastResultCount} offre(s) trouvée(s).`; }, "Collecte terminée.")}>Collecter maintenant</button>}
-                          <button disabled={busy || demo} onClick={() => action(() => updateRecurringSearch(search, { enabled: !search.enabled }), search.enabled ? "Collecte mise en pause." : "Collecte réactivée.")}>{search.enabled ? "Suspendre" : "Réactiver"}</button>
-                          <button disabled={busy || demo} onClick={() => action(async () => { await api(`/saved-searches/${search.id}`, "DELETE", {}); return "Recherche supprimée."; })}>Supprimer</button>
+                      {data.savedSearches.length ? data.savedSearches.map((search) => <div key={search.id}>
+                        <div className="cw-section-head">
+                          <div><strong>{search.criteria.keywords}</strong><small>{search.source} · {search.intervalHours < 24 ? `toutes les ${search.intervalHours} h` : search.intervalHours === 24 ? "quotidienne" : "hebdomadaire"} · {search.lastResultCount} offre(s) au dernier passage</small>{search.lastRunAt && <small>Dernière collecte : {date(search.lastRunAt)}</small>}{search.lastError && <small role="status">{search.lastError}</small>}{search.enabled && search.nextRunAt && <small>Prochaine collecte : {date(search.nextRunAt)}</small>}</div>
+                          <div>
+                            {search.enabled && <button disabled={busy || demo} onClick={() => action(async () => { const result = await api<CareerSavedSearch>(`/saved-searches/${search.id}/run`, "POST", {}); return `Collecte terminée : ${result.lastResultCount} offre(s) trouvée(s).`; }, "Collecte terminée.")}>Collecter maintenant</button>}
+                            <button disabled={busy || demo} onClick={() => beginSavedSearchEdit(search)} aria-expanded={editingSavedSearchId === search.id}>Modifier</button>
+                            <button disabled={busy || demo} onClick={() => action(() => updateRecurringSearch(search, { enabled: !search.enabled }), search.enabled ? "Collecte mise en pause." : "Collecte réactivée.")}>{search.enabled ? "Suspendre" : "Réactiver"}</button>
+                            <button disabled={busy || demo} onClick={() => action(async () => { await api(`/saved-searches/${search.id}`, "DELETE", {}); return "Recherche supprimée."; })}>Supprimer</button>
+                          </div>
                         </div>
+                        {editingSavedSearchId === search.id && savedSearchDraft && <form className="cw-panel cw-saved-search-editor" aria-label={`Modifier la recherche ${search.criteria.keywords}`} onSubmit={(event) => {
+                          event.preventDefault();
+                          const draft = savedSearchDraft;
+                          void action(async () => {
+                            await updateRecurringSearch(search, {
+                              criteria: {
+                                keywords: draft.keywords.trim(),
+                                ...(draft.commune.trim() && !["himalayas", "remotive"].includes(search.source) ? { commune: draft.commune.trim() } : {}),
+                                ...(draft.contractType.trim() ? { contractType: draft.contractType.trim() } : {}),
+                                limit: draft.limit,
+                              },
+                              intervalHours: draft.intervalHours,
+                            });
+                            setEditingSavedSearchId(null);
+                            setSavedSearchDraft(null);
+                            return "Recherche mise à jour.";
+                          }, "Recherche mise à jour.");
+                        }}>
+                          <label>Mots-clés<input required maxLength={300} value={savedSearchDraft.keywords} onChange={(event) => setSavedSearchDraft({ ...savedSearchDraft, keywords: event.target.value })} /></label>
+                          {!(["himalayas", "remotive"].includes(search.source)) && <label>Ville ou commune<input maxLength={100} value={savedSearchDraft.commune} onChange={(event) => setSavedSearchDraft({ ...savedSearchDraft, commune: event.target.value })} /></label>}
+                          <label>Type de contrat<input maxLength={40} value={savedSearchDraft.contractType} onChange={(event) => setSavedSearchDraft({ ...savedSearchDraft, contractType: event.target.value })} placeholder="Facultatif" /></label>
+                          <label>Nombre d’offres<select value={savedSearchDraft.limit} onChange={(event) => setSavedSearchDraft({ ...savedSearchDraft, limit: Number(event.target.value) })}>{(search.source === "himalayas" ? [10, 20] : [25, 50, 100, 150, 200]).map((limit) => <option key={limit} value={limit}>{limit}</option>)}</select></label>
+                          <label>Fréquence<select value={savedSearchDraft.intervalHours} onChange={(event) => setSavedSearchDraft({ ...savedSearchDraft, intervalHours: Number(event.target.value) as CareerSavedSearch["intervalHours"] })}><option value={6}>Toutes les 6 heures</option><option value={12}>Toutes les 12 heures</option><option value={24}>Chaque jour</option><option value={168}>Chaque semaine</option></select></label>
+                          <small>Modifier les critères ou la fréquence met à jour la prochaine collecte. La recherche reste active ou en pause selon son état actuel.</small>
+                          <div><button type="submit" disabled={busy || demo}>Enregistrer les changements</button><button type="button" onClick={() => { setEditingSavedSearchId(null); setSavedSearchDraft(null); }}>Annuler</button></div>
+                        </form>}
                       </div>) : <p>Aucune recherche récurrente. Enregistrez les critères ci-dessus pour collecter les offres automatiquement pendant qu’Anima Desktop est ouvert.</p>}
                       <small>La collecte lit uniquement les flux publics et enregistre les offres localement. Elle ne prépare ni n’envoie de candidature. Les recherches France Travail à accès restreint ne sont pas planifiées.</small>
                     </section>
