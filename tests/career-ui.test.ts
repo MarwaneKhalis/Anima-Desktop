@@ -777,6 +777,35 @@ test("keyboard tab focus has a visible outline in the active section accent", as
   assert.equal(focus.outlineColor, "rgb(128, 97, 31)", "the focus ring follows the Xenogears home accent");
 });
 
+test("form controls keep a visible keyboard focus ring, including forced colors", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  const search = page.getByRole("textbox", { name: "Rechercher une offre" });
+  await search.focus();
+  const normalFocus = await search.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, outlineColor: style.outlineColor };
+  });
+  assert.equal(normalFocus.outlineStyle, "solid");
+  assert.equal(normalFocus.outlineWidth, "3px");
+  assert.equal(normalFocus.outlineColor, "rgb(57, 117, 122)", "the search focus ring follows the Weltall-2 offers accent");
+
+  await page.emulateMedia({ forcedColors: "active" });
+  const forcedFocus = await search.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, outlineColor: style.outlineColor, boxShadow: style.boxShadow };
+  });
+  assert.equal(forcedFocus.outlineStyle, "solid");
+  assert.equal(forcedFocus.outlineWidth, "3px");
+  assert.notEqual(forcedFocus.outlineColor, "rgba(0, 0, 0, 0)");
+  assert.equal(forcedFocus.boxShadow, "none");
+});
+
 test("application drawer records a structured employer response without changing the outcome", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());

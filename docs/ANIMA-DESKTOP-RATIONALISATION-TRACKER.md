@@ -1,6 +1,6 @@
 # Anima Desktop — suivi de rationalisation
 
-Base examinée : `dba84b892db149c06c4f25ccd0d4370a3651eea1` (`v0.4.3`). La v0.4.4 est intégrée, release en attente ; la PR identité prépare la v0.4.5, et cette branche cible la v0.4.6.
+Base examinée : `dba84b892db149c06c4f25ccd0d4370a3651eea1` (`v0.4.3`). Les v0.4.4 à v0.4.6 sont intégrées ; la v0.4.6 est la version actuelle en attente de publication et cette branche cible la v0.4.7.
 
 `Vérifié` signifie que le critère d’acceptation complet a été exercé. Les contrôles d’une tranche ou les tests sur fixtures ne suffisent pas à l’affirmer.
 
@@ -26,12 +26,12 @@ Base examinée : `dba84b892db149c06c4f25ccd0d4370a3651eea1` (`v0.4.3`). La v0.4.
 | R18 | P2 | En cours | Contacts, recherches LinkedIn et messages sont regroupés dans Réseau ; les invitations/messages demeurent manuels. Vérifier le parcours de bout en bout. |
 | R19 | P2 | En cours | Sauvegarde, restauration, mode démo et aide rangés dans les sections secondaires ; scénario de restauration dans l’app empaquetée non démontré ici. |
 | R20 | P3 | Vérifié | Base neutre et tokens d’accent nommés selon leur rôle ; accents sobres distincts par section : Weltall (cuivre rouge), Weltall-2 (pétrole), Weltall-Id (violet), Xenogears (or). Le texte des boutons et pastilles pastel dépasse 4,5:1 dans les quatre sections ; statuts succès, attente, activité, échec et neutre dépassent également 4,5:1. Captures bureau contrôlées pour Aujourd’hui, Offres, Profil & CV et Campagnes. |
-| R21 | P2 | En cours | Un anneau `:focus-visible` de 3 px suit l’accent de section, avec `Highlight` en mode couleurs forcées ; un test Playwright vérifie le premier arrêt clavier et son contraste d’accent. Parcours clavier complet, lecteur d’écran et facteurs d’échelle Windows restent à valider. |
+| R21 | P2 | En cours | Un anneau `:focus-visible` de 3 px suit l’accent de section pour la navigation et les contrôles de formulaire ; les couleurs forcées utilisent `Highlight` et désactivent l’ombre de focus. Des tests Playwright contrôlent le premier arrêt clavier, la recherche d’offres et les couleurs forcées. Parcours clavier complet, lecteur d’écran et facteurs d’échelle Windows restent à valider. |
 | R22 | P3 | En cours | Coquille et espace historique séparés progressivement avec ré-export de compatibilité ; aucune réécriture métier étendue. D’autres découpages doivent être justifiés par les prochaines évolutions. |
 
 ## Vérifications de cette tranche
 
-- `node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts` : 226 tests réussis, 0 échec (dont focus clavier visible, retours employeur structurés, restauration sans reprise automatique, navigation, recherche récurrente, flux de candidature et protection anti-double envoi).
+- `node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts` : 227 tests réussis, 0 échec (dont focus clavier visible sur la navigation et les formulaires en mode normal/couleurs forcées, retours employeur structurés, restauration sans reprise automatique, navigation, recherche récurrente, flux de candidature et protection anti-double envoi).
 - `tsc --noEmit`, `vite build --configLoader native` et `tsc -p tsconfig.desktop.json` : réussis sur les changements de cette tranche. `git diff --check` : réussi.
 - Vérification WCAG des accents : ratios bouton/blanc de 6,29:1 (Weltall), 5,25:1 (Weltall-2), 7,10:1 (Weltall-Id), 5,76:1 (Xenogears) ; ratio texte/fond doux minimum de 7,06:1. Les libellés de statuts mesurés vont de 5,76:1 à 6,82:1. Captures UI contrôlées : `01-dashboard`, `02-profile`, `03-offers` et `08-france-travail-campaign`.
 - Parcours navigateur R04 : tests sur fixtures couvrant soumission manuelle pendant intervention, OTP MFA, clic final bloqué par la validation HTML, invalidation tardive et annulation cohérente du marqueur, clic réentrant valide/invalide, navigation après marqueur et `requestSubmit()` ATS différé. Aucun portail réel ni installateur empaqueté n’a été validé dans cette tranche.
