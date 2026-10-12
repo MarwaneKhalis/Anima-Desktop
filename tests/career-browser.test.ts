@@ -30,9 +30,9 @@ const profileWithHistory: CareerProfile = {
 const app = (answers: Record<string, string | boolean> = {}): Application => ({ id: "app", jobId: "job", resumeId: "cv-a", prospectId: null, state: "running", outcome: "active", answers, missingFields: [], notes: "", nextActionAt: "", lastError: "", receipt: null, createdAt: "", updatedAt: "", submittedAt: null });
 const job = (path: string): JobOffer => ({ id: "job", url: fx.baseUrl + path, title: "Engineer", company: "Fixture", location: "Paris", description: "", sourceUrl: fx.baseUrl, discoveredAt: "", updatedAt: "" });
 const browser = () => new CareerBrowser({ headless: true, allowedTestOrigins: [new URL(fx.baseUrl).origin] });
-function inputFor(path: string, mode: RunMode, options: { answers?: Record<string, string | boolean>; bytes?: Buffer; credential?: { username: string; password: string } | null } = {}, beforeSubmit: () => void = () => {}) {
+function inputFor(path: string, mode: RunMode, options: { answers?: Record<string, string | boolean>; bytes?: Buffer; credential?: { username: string; password: string } | null } = {}, beforeSubmit: () => void = () => {}, cancelSubmit: () => void = () => {}) {
   const bytes = options.bytes || bytesA;
-  return { application: app(options.answers), job: job(path), profile, resume: { meta: meta(bytes === bytesB ? "cv-b" : "cv-a", bytes), bytes }, mode, getCredential: () => options.credential || null, beforeSubmit };
+  return { application: app(options.answers), job: job(path), profile, resume: { meta: meta(bytes === bytesB ? "cv-b" : "cv-a", bytes), bytes }, mode, getCredential: () => options.credential || null, beforeSubmit, cancelSubmit };
 }
 async function run(path: string, mode: RunMode, options: { answers?: Record<string, string | boolean>; bytes?: Buffer; credential?: { username: string; password: string } | null } = {}) {
   const b = browser();
@@ -557,6 +557,140 @@ test("CAPTCHA and MFA leave the browser open until the user resolves the challen
   }
   assert.equal(fx.submissions.length, count + 2);
 });
+test("submitting an MFA code during intervention is not mistaken for an application submit", async () => {
+  const count = fx.submissions.length;
+  const b = browser();
+  try {
+    const paused = await b.run(inputFor("/mfa-manual", "submit"));
+    assert.equal(paused.state, "blocked");
+    const session = (b as unknown as { pausedSession?: { page: { locator(selector: string): { fill(value: string): Promise<void>; click(): Promise<void> } } } }).pausedSession;
+    assert.ok(session, "the MFA browser remains open for user intervention");
+    await session.page.locator('[name="otp"]').fill("123456");
+    await session.page.locator('form[action="/mfa-verify"] button[type="submit"]').click();
+    assert.equal(fx.submissions.length, count, "verifying MFA does not send the application");
+    const resumed = await b.resume(inputFor("/mfa-manual", "submit"));
+    assert.equal(resumed.state, "submitted");
+    assert.equal(fx.submissions.length, count + 1, "the application is sent once after MFA succeeds");
+  } finally { await b.close(); }
+});
+test("an invalid final-button click during intervention does not create an uncertain submission", async () => {
+  const count = fx.submissions.length;
+  const b = browser(); let marker = 0;
+  try {
+    const paused = await b.run(inputFor("/challenge-invalid-final", "submit", {}, () => { marker++; }));
+    assert.equal(paused.state, "blocked");
+    const session = (b as unknown as { pausedSession?: { page: { locator(selector: string): { click(): Promise<void> } } } }).pausedSession;
+    assert.ok(session, "the browser remains open for manual intervention");
+    await session.page.locator('button[type="submit"]').click();
+    assert.equal(fx.submissions.length, count, "native validation blocks the invalid click");
+    fx.resolveChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const resumed = await b.resume(inputFor("/challenge-invalid-final", "submit", {}, () => { marker++; }));
+    assert.equal(resumed.state, "needs_input");
+    assert.equal(marker, 0, "an invalid click does not persist a submitting marker");
+    assert.equal(fx.submissions.length, count);
+  } finally { await b.close(); }
+});
+test("a field that becomes invalid at the final boundary cancels the submitting marker", async () => {
+  const count = fx.submissions.length;
+  const b = browser(); let marker = 0; let cancelled = 0;
+  try {
+    const paused = await b.run(inputFor("/challenge-race-final", "submit"));
+    assert.equal(paused.state, "blocked");
+    fx.resolveChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const session = (b as unknown as { pausedSession?: { submittedClick: boolean; page: { locator(selector: string): { evaluate(fn: (element: Element) => void): Promise<void> } } } }).pausedSession;
+    assert.ok(session, "the browser remains open after challenge resolution");
+    const resumed = await b.resume(inputFor("/challenge-race-final", "submit", {}, () => {
+      marker++;
+      void session.page.locator('[name="email"]').evaluate(element => { (element as HTMLInputElement).value = ""; });
+    }, () => { cancelled++; }));
+    assert.equal(resumed.state, "blocked");
+    assert.equal(marker, 1);
+    assert.equal(cancelled, 1, "the durable marker is rolled back before any click");
+    assert.equal(session.submittedClick, false, "the in-memory session must agree that the cancelled final click never happened");
+    assert.equal(fx.submissions.length, count);
+  } finally { await b.close(); }
+});
+test("only one final submit is accepted if another click races with Playwright", async () => {
+  const count = fx.submissions.length;
+  const b = browser();
+  try {
+    const paused = await b.run(inputFor("/challenge-double-click", "submit"));
+    assert.equal(paused.state, "blocked");
+    fx.resolveChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const resumed = await b.resume(inputFor("/challenge-double-click", "submit"));
+    assert.equal(resumed.state, "submitted");
+    assert.equal(fx.submissions.length, count + 1, "the re-entrant second click is blocked by the page guard");
+  } finally { await b.close(); }
+});
+test("an invalid racing click never cancels the marker after a valid click was claimed", async () => {
+  const count = fx.submissions.length;
+  const b = browser(); let marker = 0; let cancelled = 0;
+  try {
+    const paused = await b.run(inputFor("/challenge-double-click-invalid", "submit"));
+    assert.equal(paused.state, "blocked");
+    fx.resolveChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const resumed = await b.resume(inputFor("/challenge-double-click-invalid", "submit", {}, () => { marker++; }, () => { cancelled++; }));
+    assert.equal(resumed.state, "uncertain");
+    assert.equal(marker, 1);
+    assert.equal(cancelled, 0, "a later invalid click must not roll back a marker after the valid click claimed submission");
+    assert.equal(fx.submissions.length, count, "the fixture makes the first click invalid before its default submit");
+  } finally { await b.close(); }
+});
+test("the native Playwright click still allows an ATS asynchronous requestSubmit", async () => {
+  const count = fx.submissions.length;
+  const b = browser();
+  try {
+    const paused = await b.run(inputFor("/challenge-delayed-submit", "submit"));
+    assert.equal(paused.state, "blocked");
+    fx.resolveChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const resumed = await b.resume(inputFor("/challenge-delayed-submit", "submit"));
+    assert.equal(resumed.state, "submitted");
+    assert.equal(fx.submissions.length, count + 1, "the delayed first form submission is accepted exactly once");
+  } finally { await b.close(); }
+});
+test("a navigation after the final marker cannot retarget the Playwright click to a new page", async () => {
+  const count = fx.submissions.length;
+  const b = browser(); let marker = 0;
+  try {
+    const paused = await b.run(inputFor("/challenge-double-click", "submit"));
+    assert.equal(paused.state, "blocked");
+    fx.resolveChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const session = (b as unknown as { pausedSession?: { page: { goto(url: string): Promise<unknown> } } }).pausedSession;
+    assert.ok(session);
+    const resumed = await b.resume(inputFor("/challenge-double-click", "submit", {}, () => {
+      marker++;
+      void session.page.goto(fx.baseUrl + "/simple");
+    }));
+    assert.notEqual(resumed.state, "submitted");
+    assert.equal(marker, 1);
+    assert.equal(fx.submissions.length, count, "the stale element handle never clicks a final button on the replacement document");
+  } finally { await b.close(); }
+});
+test("a manual submit during intervention is never replayed when the ATS receipt is unrecognized", async () => {
+  const count = fx.submissions.length;
+  const b = browser(); let marker = 0;
+  try {
+    const paused = await b.run(inputFor("/challenge-manual-submit", "submit", {}, () => { marker++; }));
+    assert.equal(paused.state, "blocked");
+    fx.resolveManualSubmitChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const session = (b as unknown as { pausedSession?: { page: { locator(selector: string): { click(): Promise<void> } } } }).pausedSession;
+    assert.ok(session, "the browser remains open for manual intervention");
+    await session.page.locator("button[type=submit]").click();
+    assert.equal(fx.submissions.length, count + 1, "the human submit occurs once on the fixture");
+
+    const resumed = await b.resume(inputFor("/challenge-manual-submit", "submit", {}, () => { marker++; }));
+    assert.equal(resumed.state, "uncertain", "an unrecognized confirmation stays uncertain instead of replaying the form");
+    assert.equal(marker, 1, "the durable submitting marker is recorded before resolving the ambiguous attempt");
+    assert.equal(fx.submissions.length, count + 1, "resuming never sends a second application");
+  } finally { await b.close(); }
+});
 test("missing receipt is uncertain after exactly one POST", async () => {
   const count = fx.submissions.length;
   const { outcome, marker } = await run("/uncertain", "submit");
@@ -726,6 +860,21 @@ test("runner rejects parallel runs and never repeats uncertain submission", asyn
   store.recoverInterruptedRuns();
   assert.throws(() => new CareerRunner(store, vault, browser()).start(first.id, "submit"));
   assert.equal(fx.submissions.length, count + 1);
+  db.db.close();
+});
+test("cancelling a pre-click marker restores a finishable running application", () => {
+  const db = new Store(":memory:");
+  const store = new CareerStore(db.db, { allowedTestOrigins: [new URL(fx.baseUrl).origin] });
+  store.saveProfile(profile);
+  const resume = store.saveResume({ name: "CV", filename: "cv.pdf", mime: "application/pdf", bytes: bytesA });
+  const offer = store.saveJob({ url: fx.baseUrl + "/simple", title: "Engineer", company: "Fixture" });
+  const application = store.createApplication({ jobId: offer.id, resumeId: resume.id });
+  store.claimRun(application.id);
+  store.markSubmitting(application.id);
+  store.cancelSubmitting(application.id);
+  assert.equal(store.getApplication(application.id).state, "running");
+  assert.ok(store.listEvents().some(event => event.applicationId === application.id && event.kind === "submit_cancelled"));
+  assert.equal(store.finishRun(application.id, { state: "blocked", message: "Validation blocked before click.", missingFields: [], receipt: null }).state, "blocked");
   db.db.close();
 });
 test("runner uses the selected account for an ATS origin when multiple accounts are saved", async () => {

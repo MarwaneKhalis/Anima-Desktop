@@ -20,7 +20,7 @@ type BrowserRunInput = {
   application: Application; job: JobOffer; profile: CareerProfile;
   resume: { meta: Resume; bytes: Buffer }; mode: RunMode;
   getCredential: (origin: string) => { username: string; password: string } | null;
-  beforeSubmit: () => void; signal?: AbortSignal; fileFieldKey?: string; closeOnNeedsInput?: boolean;
+  beforeSubmit: () => void; cancelSubmit?: () => void; signal?: AbortSignal; fileFieldKey?: string; closeOnNeedsInput?: boolean;
 };
 type BrowserSession = {
   input: BrowserRunInput; page: Page; flowOrigin: string; initialNavigation: boolean;
@@ -28,6 +28,10 @@ type BrowserSession = {
   seen: Set<string>; loggedIn: boolean; resumeCount: number; initialValues: Map<string, string>;
   submittedClick: boolean;
   pausedPageBody?: string;
+  manualInterventionOpen: boolean;
+  manualSubmissionObserved: boolean;
+  pausedSubmitTargets: { url: string; method: string }[];
+  pausedRequests: { url: string; method: string }[];
 };
 const tidy = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1 $2").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const safeText = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 240);
@@ -193,6 +197,8 @@ async function buttons(page: Page): Promise<Button[]> {
   }));
 }
 const receiptPattern = /(?:application (?:received|submitted)|thank you for (?:applying|your application)|candidature (?:recue|reçue|envoyee|envoyée)|merci pour votre candidature)/i;
+const MANUAL_SUBMIT_PAUSED_KEY = "__anima_manual_submit_paused";
+const MANUAL_SUBMIT_OBSERVED_KEY = "__anima_manual_submit_observed";
 async function receipt(page: Page, previousText: string): Promise<Receipt | null> {
   const full = await page.locator("body").innerText().catch(() => "");
   const body = safeText(full);
@@ -206,6 +212,32 @@ async function receipt(page: Page, previousText: string): Promise<Receipt | null
 async function sameOriginForm(page: Page, control: ReturnType<Page["locator"]>, origin: string): Promise<boolean> {
   const action = await control.evaluate(el => (el as HTMLInputElement).form?.action || location.href);
   return new URL(action).origin === origin;
+}
+async function finalSubmissionTargets(page: Page): Promise<{ url: string; method: string }[]> {
+  const targets: { url: string; method: string }[] = [];
+  const controls = await buttons(page);
+  for (const control of controls) {
+    if (!finalButton(control.text)) continue;
+    const target = await page.locator('button, input[type="submit"]').nth(control.index).evaluate(el => {
+      const button = el as HTMLButtonElement | HTMLInputElement;
+      const form = button.form;
+      return {
+        url: button.getAttribute("formaction") ? button.formAction : form?.action || location.href,
+        method: (button.getAttribute("formmethod") ? button.formMethod : form?.method || "get").toUpperCase(),
+      };
+    }).catch(() => null);
+    if (target) targets.push(target);
+  }
+  return targets;
+}
+function matchesFinalSubmissionRequest(request: { url: string; method: string }, targets: { url: string; method: string }[]): boolean {
+  try {
+    const url = new URL(request.url);
+    return targets.some(target => {
+      const action = new URL(target.url);
+      return target.method === request.method.toUpperCase() && action.origin === url.origin && action.pathname === url.pathname;
+    });
+  } catch { return false; }
 }
 async function advance(page: Page, control: ReturnType<Page["locator"]>): Promise<void> {
   const before = await page.evaluate(() => ({ url: location.href, html: document.body.innerHTML }));
@@ -251,10 +283,18 @@ export class CareerBrowser {
   private async finish(session: BrowserSession, outcome: RunResult): Promise<RunResult> {
     if (outcome.state === "needs_input" && session.input.closeOnNeedsInput) await this.close();
     else if ((outcome.state === "needs_input" || outcome.state === "blocked") && this.isLive(session)) {
+      session.manualInterventionOpen = true;
+      session.pausedRequests = [];
+      await session.page.evaluate(({ pausedKey }) => {
+        (window as Window & { __animaManualSubmitPaused?: boolean }).__animaManualSubmitPaused = true;
+        try { sessionStorage.setItem(pausedKey, "1"); } catch { /* Storage may be unavailable in unusual browser contexts. */ }
+      }, { pausedKey: MANUAL_SUBMIT_PAUSED_KEY }).catch(() => {});
       const cs = await controls(session.page).catch(() => []);
       const pageSignature = session.page.url() + "|" + cs.map(c => c.name + ":" + c.key).join("|");
       for (const c of cs) session.initialValues.set(pageSignature + "|" + c.index + "|" + c.type + "|" + (c.name || c.key), controlValue(c));
       session.pausedPageBody = (await session.page.locator("body").innerText().catch(() => "")).slice(0, 5000);
+      session.pausedSubmitTargets = await finalSubmissionTargets(session.page).catch(() => []);
+      session.manualSubmissionObserved ||= session.pausedRequests.some(request => matchesFinalSubmissionRequest(request, session.pausedSubmitTargets));
       this.pausedSession = session;
     }
     else await this.close();
@@ -293,7 +333,66 @@ export class CareerBrowser {
       this.context.setDefaultTimeout(10_000);
       this.context.setDefaultNavigationTimeout(20_000);
       const page = await this.context.newPage();
-      session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false };
+      session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false, manualInterventionOpen: false, manualSubmissionObserved: false, pausedSubmitTargets: [], pausedRequests: [] };
+      await page.exposeFunction("__animaObserveManualSubmission", () => {
+        if (session?.manualInterventionOpen) session.manualSubmissionObserved = true;
+      });
+      await page.addInitScript(({ pausedKey, observedKey }) => {
+        const context = window as Window & { __animaManualSubmitPaused?: boolean; __animaManualSubmissionObserved?: boolean; __animaSingleFinalSubmitGuard?: boolean; __animaFinalSubmissionClaimed?: boolean; __animaFinalSubmitClickPending?: boolean; __animaFinalSubmitEventClaimed?: boolean; __animaFinalSubmitInvalidAtClick?: boolean; __animaObserveManualSubmission?: () => Promise<void> };
+        try {
+          context.__animaManualSubmitPaused = sessionStorage.getItem(pausedKey) === "1";
+          context.__animaManualSubmissionObserved = sessionStorage.getItem(observedKey) === "1";
+        } catch { context.__animaManualSubmitPaused = false; context.__animaManualSubmissionObserved = false; }
+        const normalize = (value: string) => value.replace(/([a-z])([A-Z])/g, "$1 $2").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        const finalLabel = /^(submit( application)?|send( application)?|complete application|envoyer( ma candidature| la candidature)?|soumettre( ma candidature)?|postuler|valider la candidature)$/i;
+        const mark = () => {
+          context.__animaManualSubmissionObserved = true;
+          try { sessionStorage.setItem(observedKey, "1"); } catch { /* Node-side request observation remains active. */ }
+          void context.__animaObserveManualSubmission?.();
+        };
+        document.addEventListener("click", event => {
+          const target = event.target instanceof Element ? event.target.closest('button, input[type="submit"]') as HTMLButtonElement | HTMLInputElement | null : null;
+          const label = target instanceof HTMLInputElement ? target.value : target?.textContent || target?.getAttribute("aria-label") || "";
+          if (!target || !finalLabel.test(normalize(label.trim()))) return;
+          if (target.form && !target.form.checkValidity()) {
+            if (context.__animaSingleFinalSubmitGuard && !context.__animaFinalSubmissionClaimed) context.__animaFinalSubmitInvalidAtClick = true;
+            return;
+          }
+          if (context.__animaManualSubmitPaused) { mark(); return; }
+          if (!context.__animaSingleFinalSubmitGuard) return;
+          if (context.__animaFinalSubmissionClaimed) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+          }
+          context.__animaFinalSubmissionClaimed = true;
+          context.__animaFinalSubmitClickPending = true;
+          setTimeout(() => { context.__animaFinalSubmitClickPending = false; }, 0);
+        }, true);
+        document.addEventListener("submit", event => {
+          const submitter = (event as SubmitEvent).submitter;
+          const target = submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement ? submitter : null;
+          const label = target instanceof HTMLInputElement ? target.value : target?.textContent || target?.getAttribute("aria-label") || "";
+          if (!target || !finalLabel.test(normalize(label.trim()))) return;
+          if (target.form && !target.form.checkValidity()) return;
+          if (context.__animaManualSubmitPaused) { mark(); return; }
+          if (!context.__animaSingleFinalSubmitGuard) return;
+          if (!context.__animaFinalSubmitEventClaimed && (context.__animaFinalSubmitClickPending || context.__animaFinalSubmissionClaimed || !event.isTrusted)) {
+            context.__animaFinalSubmitEventClaimed = true;
+            context.__animaFinalSubmitClickPending = false;
+            context.__animaFinalSubmissionClaimed = true;
+            return;
+          }
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }, true);
+      }, { pausedKey: MANUAL_SUBMIT_PAUSED_KEY, observedKey: MANUAL_SUBMIT_OBSERVED_KEY });
+      page.on("request", request => {
+        if (!session?.manualInterventionOpen) return;
+        session.pausedRequests.push({ url: request.url(), method: request.method() });
+        if (session.pausedRequests.length > 50) session.pausedRequests.shift();
+        if (matchesFinalSubmissionRequest({ url: request.url(), method: request.method() }, session.pausedSubmitTargets)) session.manualSubmissionObserved = true;
+      });
       await this.context.routeWebSocket("**/*", async socket => {
         let origin: string | null = null;
         try {
@@ -361,7 +460,12 @@ export class CareerBrowser {
     this.active = true;
     session.input = input;
     session.resumeCount++;
-    try { return await this.finish(session, await this.drive(session)); }
+    try {
+      // Give a manual submit already in flight a chance to be observed before any
+      // resumed automation can reach the final button.
+      await session.page.waitForTimeout(250).catch(() => {});
+      return await this.finish(session, await this.drive(session));
+    }
     catch {
       const outcome = result(session.submittedClick ? "uncertain" : input.signal?.aborted ? "failed" : "blocked", session.submittedClick ? "L’envoi a peut-être eu lieu ; vérifiez manuellement avant toute nouvelle tentative." : input.signal?.aborted ? "Parcours interrompu avant l’envoi." : "La reprise du formulaire a échoué.");
       return await this.finish(session, outcome);
@@ -372,6 +476,8 @@ export class CareerBrowser {
     const page = session.page;
     const input = session.input;
     for (let step = 0; step < 10; step++) {
+      const manualSubmission = await this.detectManualSubmission(session);
+      if (manualSubmission) return manualSubmission;
       if (input.signal?.aborted) return result("failed", "Parcours interrompu avant l’envoi.");
       if (new URL(page.url()).origin !== session.flowOrigin) return result("blocked", "Redirection vers une autre origine : action manuelle requise.");
       const body = await page.locator("body").innerText().catch(() => "");
@@ -560,14 +666,61 @@ export class CareerBrowser {
       }
       if (finals.length !== 1) return result("blocked", "Bouton final de candidature introuvable ou ambigu.");
       const finalControl = page.locator('button, input[type="submit"]').nth(finals[0].index);
+      const finalControlHandle = await finalControl.elementHandle().catch(() => null);
+      if (!finalControlHandle) return result("blocked", "Le bouton final a changé ; vérifiez le formulaire avant de reprendre.");
       if (!await sameOriginForm(page, finalControl, session.flowOrigin)) return result("blocked", "Envoi vers une origine différente interdite.");
       if (input.mode === "prepare") return result("ready", "Formulaire prêt à être envoyé.");
       if (input.signal?.aborted) return result("failed", "Parcours interrompu avant l’envoi.");
       const beforeText = await page.locator("body").innerText().catch(() => "");
+      const lastChanceManualSubmission = await this.detectManualSubmission(session);
+      if (lastChanceManualSubmission) return lastChanceManualSubmission;
+      const finalControlValidity = await finalControlHandle.evaluate(el => {
+        const form = (el as HTMLButtonElement | HTMLInputElement).form;
+        return !form || form.checkValidity();
+      }).catch(() => false);
+      if (!finalControlValidity) return result("blocked", "Le formulaire contient des champs invalides ; corrigez-les avant l’envoi.");
       // Persist the submitting marker before any final click so a retry cannot duplicate an uncertain send.
       input.beforeSubmit();
+      const finalClick = await finalControlHandle.evaluate((el, { pausedKey, observedKey, expectedOrigin }) => {
+        const context = window as Window & { __animaManualSubmitPaused?: boolean; __animaManualSubmissionObserved?: boolean; __animaSingleFinalSubmitGuard?: boolean; __animaFinalSubmissionClaimed?: boolean; __animaFinalSubmitEventClaimed?: boolean; __animaFinalSubmitInvalidAtClick?: boolean };
+        let observed = context.__animaManualSubmissionObserved === true;
+        try { observed ||= sessionStorage.getItem(observedKey) === "1"; } catch { /* The in-memory observer remains active. */ }
+        if (observed) return "manual";
+        const control = el as HTMLButtonElement | HTMLInputElement;
+        const form = control.form;
+        if (form && !form.checkValidity()) return "invalid";
+        const action = new URL(form?.action || location.href, location.href);
+        if (action.origin !== expectedOrigin) return "foreign";
+        // Arm an at-most-once guard before yielding to Playwright. If a human click
+        // races with the trusted Playwright click, the first valid submit wins.
+        context.__animaManualSubmitPaused = false;
+        try { sessionStorage.removeItem(pausedKey); } catch { /* The synchronous click is still guarded. */ }
+        context.__animaSingleFinalSubmitGuard = true;
+        context.__animaFinalSubmissionClaimed = false;
+        context.__animaFinalSubmitEventClaimed = false;
+        context.__animaFinalSubmitInvalidAtClick = false;
+        return "ready";
+      }, { pausedKey: MANUAL_SUBMIT_PAUSED_KEY, observedKey: MANUAL_SUBMIT_OBSERVED_KEY, expectedOrigin: session.flowOrigin }).catch(() => "failed");
+      if (finalClick === "manual") {
+        session.manualSubmissionObserved = true;
+        session.submittedClick = true;
+        const proof = await receipt(page, session.pausedPageBody || "");
+        return proof
+          ? result("submitted", "Candidature confirmée dans le navigateur.", [], proof)
+          : result("uncertain", "Une soumission manuelle a été détectée ; vérifiez son résultat avant toute nouvelle tentative.");
+      }
+      if (finalClick === "invalid") { input.cancelSubmit?.(); return result("blocked", "Le formulaire contient des champs invalides ; corrigez-les avant l’envoi."); }
+      if (finalClick === "foreign") { input.cancelSubmit?.(); return result("blocked", "Envoi vers une origine différente interdite."); }
+      if (finalClick !== "ready") return result("blocked", "Le clic final n’a pas pu être confirmé ; vérifiez le formulaire avant toute nouvelle tentative.");
+      session.manualInterventionOpen = false;
       session.submittedClick = true;
-      await finalControl.click();
+      await finalControlHandle.click();
+      const invalidAtClick = await page.evaluate(() => (window as Window & { __animaFinalSubmitInvalidAtClick?: boolean }).__animaFinalSubmitInvalidAtClick === true).catch(() => false);
+      if (invalidAtClick) {
+        input.cancelSubmit?.();
+        session.submittedClick = false;
+        return result("blocked", "Le formulaire est devenu invalide avant l’envoi ; corrigez-le avant de reprendre.");
+      }
       await page.waitForLoadState("domcontentloaded").catch(() => {});
       for (let retry = 0; retry < 10; retry++) {
         const proof = await receipt(page, beforeText);
@@ -577,5 +730,20 @@ export class CareerBrowser {
       return result("uncertain", "Le clic a eu lieu mais aucun reçu vérifiable n’est apparu.");
     }
     return result("blocked", "Le formulaire dépasse dix étapes.");
+  }
+
+  private async detectManualSubmission(session: BrowserSession): Promise<RunResult | null> {
+    session.manualSubmissionObserved ||= session.pausedRequests.some(request => matchesFinalSubmissionRequest(request, session.pausedSubmitTargets));
+    if (session.manualInterventionOpen) session.manualSubmissionObserved ||= await session.page.evaluate(({ observedKey }) => {
+      try { return sessionStorage.getItem(observedKey) === "1" || (window as Window & { __animaManualSubmissionObserved?: boolean }).__animaManualSubmissionObserved === true; }
+      catch { return false; }
+    }, { observedKey: MANUAL_SUBMIT_OBSERVED_KEY }).catch(() => false);
+    if (!session.manualSubmissionObserved) return null;
+    const proof = await receipt(session.page, session.pausedPageBody || "");
+    session.submittedClick = true;
+    session.input.beforeSubmit();
+    return proof
+      ? result("submitted", "Candidature confirmée dans le navigateur.", [], proof)
+      : result("uncertain", "Une soumission a été tentée pendant l’intervention ; vérifiez son résultat avant toute nouvelle tentative.");
   }
 }

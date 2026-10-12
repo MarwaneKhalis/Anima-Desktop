@@ -3,13 +3,13 @@ if ($env:CI -ne "true") { throw "The installer upgrade check must run in an isol
 $installer = $env:ANIMA_DESKTOP_INSTALLER
 if (!$installer -or !(Test-Path -LiteralPath $installer)) { throw "Current installer was not found: $installer" }
 
-$previousVersion = "0.4.0"
+$previousVersion = "0.4.2"
 $version = node -p "require('./package.json').version"
 $previousInstaller = Join-Path $env:RUNNER_TEMP "Anima-Desktop-Setup-v$previousVersion.exe"
 $previousUrl = "https://github.com/MarwaneKhalis/Anima-Desktop/releases/download/v$previousVersion/Anima-Desktop-Setup.exe"
 Invoke-WebRequest -Uri $previousUrl -OutFile $previousInstaller
 $previousHash = (Get-FileHash -LiteralPath $previousInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($previousHash -ne "c2dd736990b6080ea04cd5cb0ae438735a537a42eac18175b7686e2e81460668") {
+if ($previousHash -ne "c324e0d1fba7c3d523e79b6f9327739d2edfba87f0eafc18a1e12a9d0f32bf45") {
   throw "The downloaded v$previousVersion installer did not match its published SHA-256 digest."
 }
 

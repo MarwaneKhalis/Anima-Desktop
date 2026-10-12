@@ -100,6 +100,11 @@ export class CareerRunner {
             this.store.markSubmitting(id);
             markedSubmitting = true;
           },
+          cancelSubmit: () => {
+            if (!markedSubmitting) return;
+            this.store.cancelSubmitting(id);
+            markedSubmitting = false;
+          },
         };
         outcome = resumeSession ? await this.browser.resume(input) : await this.browser.run(input);
       } catch {
