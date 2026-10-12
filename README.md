@@ -1,12 +1,12 @@
 # Anima Desktop
 
-**Anima Connect, l’application Windows pour organiser et automatiser vos candidatures.**
+**Anima Desktop, l’application Windows pour organiser et automatiser vos candidatures.**
 
 Gérez votre profil et vos CV, rassemblez des offres, préparez les formulaires de candidature et suivez l’avancement depuis une application installée sur votre PC.
 
 [**Télécharger pour Windows**](https://github.com/MarwaneKhalis/Anima-Desktop/releases/latest/download/Anima-Desktop-Setup.exe) · [Voir les versions](https://github.com/MarwaneKhalis/Anima-Desktop/releases)
 
-![Aperçu du tableau de bord Anima Connect](docs/desktop-preview.png)
+![Aperçu du tableau de bord Anima Desktop](docs/desktop-preview.png)
 
 _Aperçu avec des données de test._
 
@@ -14,9 +14,11 @@ _Aperçu avec des données de test._
 
 1. Téléchargez **Anima-Desktop-Setup.exe** depuis le lien ci-dessus.
 2. Ouvrez le fichier et suivez l’installation.
-3. Lancez **Anima Connect** depuis le menu Démarrer ou le raccourci du bureau.
+3. Lancez **Anima Desktop** depuis le menu Démarrer ou le raccourci du bureau.
 
-Lancez la version installée par ce programme. Le fichier `Anima Connect.exe` dans `release/win-unpacked` est un artefact de vérification locale, pas le fichier à ouvrir après téléchargement du dépôt.
+Lancez la version installée par ce programme. Le fichier `Anima Desktop.exe` dans `release/win-unpacked` est un artefact de vérification locale, pas le fichier à ouvrir après téléchargement du dépôt.
+
+La version 0.4.0 adopte le nom Anima Desktop. Elle conserve le dossier Windows `Anima Connect` et la base locale existante pour retrouver les profils, CV, réponses, comptes et sessions enregistrés.
 
 L’installateur est prévu pour Windows 10/11 64 bits et une installation par utilisateur. Node.js, Chrome et un serveur web ne sont pas nécessaires. L’application enregistre ses données dans le profil Windows local ; un export ou une sauvegarde que vous enregistrez ailleurs peut quitter cet ordinateur. Une connexion Internet est nécessaire pour consulter des offres et ouvrir les sites carrière.
 

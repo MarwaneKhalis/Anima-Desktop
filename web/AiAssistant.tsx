@@ -9,6 +9,7 @@ export interface AiAssistantProps {
   request: AiAssistantRequest;
   /** Selected application, used for both generation and clearly labeling the opt-in. */
   selectedApplication?: AiAssistantApplication;
+  view?: "connection" | "application";
 }
 
 interface AiSettings { baseUrl: string; model: string; updatedAt: string; }
@@ -17,7 +18,7 @@ interface AiDraftResponse { draft: string; model: string; }
 
 function errorText(error: unknown): string { return error instanceof Error ? error.message : 'Action IA impossible.'; }
 
-export default function AiAssistant({ request, selectedApplication }: AiAssistantProps) {
+export default function AiAssistant({ request, selectedApplication, view = "application" }: AiAssistantProps) {
   const keyInput = useRef<HTMLInputElement>(null);
   const requestRef = useRef(request);
   requestRef.current = request;
@@ -124,9 +125,9 @@ export default function AiAssistant({ request, selectedApplication }: AiAssistan
       <span className={`ai-assistant__status ${settings ? 'is-configured' : ''}`}>{settings ? `Configuré · ${settings.model}` : 'Non configuré'}</span>
     </div>
 
-    {!vaultUnlocked && <p className="ai-assistant__notice">Déverrouillez le coffre dans « Comptes carrière » avant d’enregistrer ou d’utiliser une clé API.</p>}
+    {!vaultUnlocked && <p className="ai-assistant__notice">Déverrouillez le coffre dans Paramètres &gt; Connexions avant d’enregistrer ou d’utiliser une clé API.</p>}
 
-    <form className="ai-assistant__form" onSubmit={save}>
+    {view === "connection" && <form className="ai-assistant__form" onSubmit={save}>
       <label>URL de base HTTPS
         <input type="url" required maxLength={2000} value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" autoComplete="url" />
       </label>
@@ -142,13 +143,13 @@ export default function AiAssistant({ request, selectedApplication }: AiAssistan
         <button type="button" onClick={testConnection} disabled={busy || !settings || !vaultUnlocked}>Tester la connexion</button>
         {settings && <button type="button" className="ai-assistant__danger" onClick={removeConfig} disabled={busy || !vaultUnlocked}>Supprimer</button>}
       </div>
-    </form>
+    </form>}
 
     <div className="ai-assistant__privacy">
       La clé est chiffrée dans le coffre. Le test de connexion n’envoie aucune donnée de profil. Pour un brouillon, l’offre et les informations professionnelles sélectionnées sont transmises au fournisseur configuré. Les champs structurés de coordonnées et le fichier CV ne sont pas joints ; toutefois, le résumé, les descriptions libres du profil et l’offre peuvent contenir des données personnelles que vous y avez saisies.
     </div>
 
-    <div className="ai-assistant__draft">
+    {view === "application" && <div className="ai-assistant__draft">
       <div>
         <h3>Brouillon de lettre</h3>
         <p>La génération ne soumet pas la candidature. Le résultat reste à vérifier et à copier manuellement.</p>
@@ -168,7 +169,7 @@ export default function AiAssistant({ request, selectedApplication }: AiAssistan
       {draft && <label>Brouillon généré · {draftModel}
         <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={10} />
       </label>}
-    </div>
+    </div>}
 
     {notice && <p className="ai-assistant__notice" role="status">{notice}</p>}
     {error && <p className="ai-assistant__error" role="alert">{error}</p>}

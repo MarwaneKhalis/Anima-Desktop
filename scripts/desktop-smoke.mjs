@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { _electron as electron } from "playwright";
 
 const executablePath = resolve(
-  process.env.ANIMA_DESKTOP_EXECUTABLE || "release/win-unpacked/Anima Connect.exe",
+  process.env.ANIMA_DESKTOP_EXECUTABLE || "release/win-unpacked/Anima Desktop.exe",
 );
 if (process.env.CI === "true" && process.env.ANIMA_SMOKE_NO_SANDBOX === "1") {
   throw new Error("Le smoke test CI doit conserver le sandbox Chromium activé.");
@@ -163,8 +163,8 @@ try {
   application = await electron.launch(launchOptions);
   const window = diagnosticWindow = await application.firstWindow();
   await window.waitForLoadState("load");
-  assert.match(await window.title(), /Anima Connect/i);
-  await window.getByRole("button", { name: "Tableau de bord" }).waitFor({ state: "visible" });
+  assert.match(await window.title(), /Anima Desktop/i);
+  await window.getByRole("button", { name: "Aujourd’hui" }).waitFor({ state: "visible" });
   assert.equal((await application.windows()).length, 1);
   await assertNoHttpListener(expectedPort);
   await assertSingleInstance(executablePath, env, userDataDir);
@@ -233,10 +233,15 @@ try {
   // snapshot and explicitly choose the intended CV before creating the campaign.
   await window.reload();
   await window.waitForLoadState("load");
-  await window.getByRole("button", { name: "Offres", exact: true }).click();
+  await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByLabel("CV pour les candidatures").selectOption(selectedResume.id);
+  await window.getByRole("button", { name: "Offres", exact: true }).click();
   await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
-  await window.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await window.getByText("Collecte programmée et candidature", { exact: true }).click();
+  await window.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
+  await window.getByRole("heading", { name: "Récapitulatif de campagne" }).waitFor({ state: "visible" });
+  await window.locator('input[name="campaign-mode"][value="submit"]').check();
+  await window.getByRole("button", { name: "Confirmer et envoyer" }).click();
   const campaign = await waitForCampaign(window);
   assert.equal(campaign.counts.submitted, 1, "La campagne bureau doit envoyer le formulaire fixture.");
   assert.equal(fixtureSubmissions.length, 2, "Chaque candidature fixture doit être envoyée exactement une fois.");
@@ -261,9 +266,9 @@ try {
 
   if (process.env.ANIMA_CAPTURE_DESKTOP_PREVIEW === "1") {
     await mkdir("artifacts", { recursive: true });
-    await restartedWindow.screenshot({ path: "artifacts/anima-connect-desktop.png", timeout: 60_000 });
+    await restartedWindow.screenshot({ path: "artifacts/anima-desktop.png", timeout: 60_000 });
   }
-  console.log("Installé dans un profil temporaire : Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu, campagne persistée après redémarrage et données restaurées vérifiés ; aucun serveur HTTP détecté.");
+  console.log("Installé dans un profil temporaire : Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et campagne persistée après redémarrage vérifiés ; aucun serveur HTTP détecté.");
 } catch (error) {
   smokeError = error;
   if (diagnosticWindow) {

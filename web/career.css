@@ -1,12 +1,35 @@
 .cw-shell {
-  --ink: #243a35;
-  --green: #28634e;
-  --line: #e4e9e3;
+  --ink: #25313b;
+  --green: #596b86;
+  --green-dark: #3f506a;
+  --accent-soft: #e8ebf0;
+  --line: #e1e2dd;
+  --muted: #747f86;
+  --paper: #f4f3ef;
+  --surface: #fffefa;
+  --surface-muted: #ecece7;
+  --sidebar: #202b34;
+  --sidebar-ink: #e8ebeb;
   display: flex;
   min-height: 100vh;
   color: var(--ink);
-  background: #f6f7f3;
+  background: var(--paper);
   font-size: 14px;
+}
+.cw-shell[data-identity="weltall-ii"] {
+  --green: #54778b;
+  --green-dark: #36586d;
+  --accent-soft: #e4edf0;
+}
+.cw-shell[data-identity="weltall-id"] {
+  --green: #776184;
+  --green-dark: #5c4968;
+  --accent-soft: #eee9f0;
+}
+.cw-shell[data-identity="xenogears"] {
+  --green: #68779a;
+  --green-dark: #4b587a;
+  --accent-soft: #e9ebf2;
 }
 .cw-shell button {
   padding: 10px 15px;
@@ -26,7 +49,7 @@
   color: #fff;
 }
 .cw-shell button.cw-primary:hover {
-  background: #1c503e;
+  background: var(--green-dark);
 }
 .cw-shell input,
 .cw-shell select,
@@ -44,7 +67,7 @@
 .cw-shell select:focus,
 .cw-shell textarea:focus {
   border-color: var(--green);
-  box-shadow: 0 0 0 3px #28634e16;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 16%, transparent);
 }
 .cw-shell label {
   display: flex;
@@ -96,8 +119,9 @@
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line);
-  background: #fff;
+  background: var(--sidebar);
   padding: 27px 17px;
+  color: var(--sidebar-ink);
 }
 .cw-brand {
   display: flex;
@@ -108,38 +132,45 @@
 .cw-brand strong {
   font-size: 21px;
   letter-spacing: -0.8px;
-  color: #233e34;
+  color: var(--sidebar-ink);
 }
 .cw-brand strong > span {
   font-weight: 400;
+  color: #aeb9c1;
 }
 .cw-logo {
   position: relative;
-  font-size: 33px;
-  font-weight: 800;
-  background: #e6eee4;
-  color: #28634e;
-  border-radius: 13px;
-  width: 43px;
-  height: 43px;
-  text-align: center;
-  line-height: 43px;
+  display: grid;
+  place-items: center;
+  width: 37px;
+  height: 37px;
+  border: 1px solid #91a1b3;
+  border-radius: 50%;
+  color: #d5dde2;
 }
-.cw-logo span {
+.cw-logo-core {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -.08em;
+}
+.cw-logo-orbit {
   position: absolute;
-  font-size: 18px;
-  top: -10px;
-  right: 3px;
+  width: 24px;
+  height: 10px;
+  border: 1px solid #a08b60;
+  border-radius: 50%;
+  transform: rotate(-42deg);
 }
 .cw-caption {
   font-size: 11px;
   margin: 13px 8px 36px;
+  color: #aeb9c1 !important;
 }
 .cw-nav-label {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 1.4px;
-  color: #939c94;
+  color: #89969f;
   padding: 0 13px;
   margin-bottom: 12px;
 }
@@ -156,7 +187,7 @@
   border: none;
   padding: 12px 14px;
   font-size: 12px;
-  color: #778279;
+  color: #bdc5c9;
   background: transparent;
 }
 .cw-sidebar nav button > span {
@@ -166,18 +197,48 @@
   line-height: 21px;
 }
 .cw-sidebar nav button.current {
-  background: #eaf1e8;
-  color: #27563f;
+  background: rgb(255 255 255 / 9%);
+  color: #fff;
+  box-shadow: inset 2px 0 var(--green);
 }
 .cw-sidebar nav b {
   font-size: 10px;
   border-radius: 6px;
-  background: #dae7d6;
+  background: color-mix(in srgb, var(--green) 30%, #202b34);
+  color: #fff;
   padding: 2px 6px;
   margin-left: auto;
 }
 .cw-bottom {
   margin-top: auto;
+}
+.cw-secondary-nav {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 12px;
+}
+.cw-secondary-nav button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #bdc5c9;
+  text-align: left;
+  font-size: 12px;
+}
+.cw-secondary-nav button.current {
+  background: rgb(255 255 255 / 9%);
+  color: #fff;
+  box-shadow: inset 2px 0 var(--green);
+}
+.cw-secondary-nav button span {
+  width: 21px;
+  font-size: 17px;
+  text-align: center;
 }
 .cw-bottom > button {
   font-size: 11px;
@@ -186,12 +247,13 @@
   width: 100%;
   border: none;
   margin-top: 15px;
-  color: #798479;
+  color: #aeb9c1;
 }
 .cw-private {
   margin: 30px 8px 0;
   padding: 12px 8px;
-  background: #f6f8f3;
+  background: rgb(255 255 255 / 7%);
+  color: var(--sidebar-ink);
   border-radius: 10px;
   display: flex;
   gap: 10px;
@@ -207,9 +269,10 @@
 .cw-private small {
   font-size: 9px;
   margin-top: 5px;
+  color: #aeb9c1;
 }
 .cw-user {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid rgb(255 255 255 / 14%);
   padding: 21px 8px 0;
   margin-top: 18px;
   display: flex;
@@ -221,8 +284,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #e9dfd0;
-  color: #655b49;
+  background: #d9d6cb;
+  color: #34404a;
   border-radius: 50%;
   width: 34px;
   height: 34px;
@@ -242,6 +305,7 @@
 .cw-user small {
   font-size: 9px;
   margin-top: 4px;
+  color: #aeb9c1;
 }
 .cw-main {
   flex: 1;
@@ -254,8 +318,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #ffffff8c;
-  color: #5c6d61;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  color: var(--muted);
   font-size: 11px;
 }
 .cw-top > div {
@@ -294,7 +358,7 @@
   font-size: 9px;
   letter-spacing: 1.8px;
   font-weight: 700;
-  color: #728573;
+  color: var(--green);
 }
 .cw-metrics {
   display: grid;
@@ -304,7 +368,7 @@
 }
 .cw-metric {
   padding: 20px 22px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 3px 8px #233e3402;
@@ -320,7 +384,7 @@
 .cw-metric i {
   font-size: 19px;
   font-style: normal;
-  color: #75907a;
+  color: var(--green);
 }
 .cw-metric strong {
   display: block;
@@ -339,7 +403,7 @@
 }
 .cw-panel {
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface);
   border-radius: 12px;
   padding: 23px;
   margin-bottom: 22px;
@@ -359,8 +423,8 @@
 }
 .cw-pill {
   display: inline-block;
-  background: #f1f4ed;
-  color: #7c8c72;
+  background: var(--accent-soft);
+  color: var(--green-dark);
   padding: 5px 9px;
   font-size: 9px;
   border-radius: 5px;
@@ -628,12 +692,59 @@
   font-weight: 700;
 }
 .cw-source-status.is-ready {
-  background: #e9f2e7;
-  color: #28634e;
+  background: var(--accent-soft);
+  color: var(--green-dark);
 }
 .cw-search-form {
   display: grid;
-  gap: 16px;
+  gap: 12px;
+}
+.cw-search-advanced {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.cw-search-advanced summary,
+.cw-search-actions-secondary summary,
+.cw-source-limits summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.cw-search-actions-secondary {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.cw-search-actions-secondary[open] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(170px, 1fr));
+  align-items: end;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 0;
+}
+.cw-search-actions-secondary[open] summary {
+  grid-column: 1 / -1;
+  width: fit-content;
+}
+.cw-search-actions-secondary[open] label {
+  display: grid;
+  gap: 7px;
+}
+.cw-search-actions-secondary[open] > button {
+  align-self: end;
+}
+.cw-source-limits {
+  margin-top: 0;
+  padding-top: 0;
+}
+#job-results {
+  scroll-margin-top: 20px;
 }
 .cw-search-fields {
   display: grid;
@@ -661,7 +772,7 @@
   border-radius: 9px;
   padding: 11px 13px;
   margin: 12px 0;
-  background: #f6f8f3;
+  background: var(--accent-soft);
   color: #68766c;
   font-size: 11px;
 }
@@ -672,7 +783,7 @@
   font-size: 10px;
 }
 .cw-configured-note {
-  color: #28634e !important;
+  color: var(--green-dark) !important;
   font-size: 11px;
 }
 .cw-campaigns {
@@ -882,26 +993,28 @@
   font-size: 11px;
 }
 .cw-subnav .current {
-  color: #2e694e;
-  background: #e8efe4;
+  color: var(--green-dark);
+  background: var(--accent-soft);
 }
-.cw-legacy {
+.cw-legacy-module {
   display: block;
   min-height: 0;
 }
-.cw-legacy > .sidebar,
-.cw-legacy > .main > .topbar {
-  display: none;
+.cw-legacy-host {
+  width: 100%;
 }
-.cw-legacy > .main {
+.cw-legacy-host[hidden] {
+  display: none !important;
+}
+.cw-legacy-main {
   width: 100%;
   margin: 0;
   min-height: 0;
 }
-.cw-legacy .content {
+.cw-legacy-content {
   padding: 0;
 }
-.cw-legacy .page-header h1 {
+.cw-legacy-module .page-header h1 {
   font-size: 25px;
 }
 .cw-banner,
@@ -952,6 +1065,85 @@
   overflow: auto;
   padding: 27px;
   box-shadow: -10px 0 40px #15221f18;
+}
+.cw-campaign-overlay {
+  justify-content: center;
+  align-items: center;
+  padding: 22px;
+}
+.cw-campaign-review {
+  width: min(760px, 100%);
+  height: min(820px, calc(100vh - 44px));
+  border-radius: 18px;
+  padding: 26px;
+}
+.cw-campaign-review .cw-section-head h2 {
+  margin: 6px 0 0;
+}
+.cw-campaign-review-jobs {
+  max-height: 220px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.cw-campaign-review-jobs article {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.cw-campaign-review-jobs article > span {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  flex: 0 0 auto;
+}
+.cw-campaign-review-jobs article div {
+  display: grid;
+  gap: 4px;
+}
+.cw-campaign-review-jobs small,
+.cw-campaign-mode small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.cw-campaign-mode {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.cw-campaign-mode label {
+  display: block;
+  margin: 4px 0;
+}
+.cw-campaign-mode input {
+  margin-right: 8px;
+}
+.cw-campaign-mode small {
+  margin-left: 26px;
+}
+.cw-campaign-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.cw-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 18px 0;
 }
 .cw-drawer > h2 {
   font-size: 25px;
@@ -1134,7 +1326,8 @@
     flex-direction: column;
   }
   .cw-search-actions .cw-cap,
-  .cw-search-actions .cw-apply-button {
+  .cw-search-actions .cw-apply-button,
+  .cw-search-actions-secondary[open] {
     width: 100%;
     margin-left: 0;
   }

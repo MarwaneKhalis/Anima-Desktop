@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch, downloadResponse } from "./api.ts";
 import AiAssistant from "./AiAssistant.tsx";
-import Legacy, { type Tab as LegacyTab } from "./App.tsx";
+import ProspectingWorkspace, { type Tab as LegacyTab } from "./ProspectingWorkspace.tsx";
 import type {
   Application,
   AnswerValue,
@@ -13,9 +13,9 @@ import type {
   RunMode,
 } from "../src/shared/career.ts";
 import { profileFitScore, rankJobsForProfile } from "../src/shared/career-ranking.ts";
+import { dueFollowups, prioritizeAttention } from "../src/shared/career-dashboard.ts";
 
-type Tab =
-  "home" | "jobs" | "applications" | "profile" | "vault" | "prospecting";
+type Tab = "home" | "jobs" | "applications" | "network" | "profile" | "settings" | "help";
 function jobSourceLabel(job: JobOffer): string {
   try {
     const host = new URL(job.sourceUrl || job.url).hostname.toLowerCase();
@@ -26,12 +26,11 @@ function jobSourceLabel(job: JobOffer): string {
   } catch { return "Source de l’offre"; }
 }
 const navigation: [Tab, string, string][] = [
-  ["home", "◈", "Tableau de bord"],
+  ["home", "◈", "Aujourd’hui"],
   ["jobs", "⌕", "Offres"],
   ["applications", "▤", "Candidatures"],
+  ["network", "↗", "Réseau"],
   ["profile", "◉", "Profil & CV"],
-  ["vault", "◇", "Comptes carrière"],
-  ["prospecting", "↗", "Prospection"],
 ];
 const states: Record<string, string> = {
   draft: "À préparer",
@@ -93,7 +92,12 @@ const campaignStates: Record<CampaignSummary["state"], string> = {
 
 export default function CareerWorkspace() {
   const [tab, setTab] = useState<Tab>("home"),
-    [legacyTab, setLegacyTab] = useState<LegacyTab>("recherches");
+    [legacyTab, setLegacyTab] = useState<LegacyTab>("prospects");
+  const [settingsSection, setSettingsSection] = useState<"connections" | "data" | "preferences" | "about">("connections");
+  const [applicationsSection, setApplicationsSection] = useState<"all" | "attention" | "followups" | "campaigns">("all");
+  const [campaignPage, setCampaignPage] = useState(0), [campaignTotal, setCampaignTotal] = useState(0);
+  const [networkSection, setNetworkSection] = useState<"contacts" | "searches" | "messages" | "history">("contacts");
+  const [jobsSection, setJobsSection] = useState<"search" | "saved" | "searches">("search");
   const [demo, setDemo] = useState(
     () => localStorage.getItem("anima-demo") === "1",
   );
@@ -102,6 +106,9 @@ export default function CareerWorkspace() {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const [campaignError, setCampaignError] = useState("");
+  const [focusResultsAfterSearch, setFocusResultsAfterSearch] = useState(false);
+  const offerSearchAdvancedRef = useRef<HTMLDetailsElement | null>(null);
   const [query, setQuery] = useState(""),
     [source, setSource] = useState(""),
     [franceTravail, setFranceTravail] = useState<FranceTravailStatus>({ configured: false }),
@@ -125,6 +132,8 @@ export default function CareerWorkspace() {
   const [fileResumeChoices, setFileResumeChoices] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<string[]>([]),
     [batch, setBatch] = useState(false);
+  const [campaignPlan, setCampaignPlan] = useState<{ jobIds: string[]; note: string } | null>(null),
+    [campaignMode, setCampaignMode] = useState<"prepare" | "submit">("prepare");
   const [passphrase, setPassphrase] = useState(""),
     [account, setAccount] = useState({
       origin: "",
@@ -145,7 +154,7 @@ export default function CareerWorkspace() {
     method = "GET",
     body?: unknown,
   ): Promise<T> {
-    const response = await apiFetch(`/api/career${path}?demo=${demo ? 1 : 0}`, {
+    const response = await apiFetch(`/api/career${path}${path.includes("?") ? "&" : "?"}demo=${demo ? 1 : 0}`, {
       method,
       headers: { "Content-Type": "application/json", "X-Anima-Request": "1" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -168,10 +177,12 @@ export default function CareerWorkspace() {
   }
   async function refreshCampaigns() {
     try {
-      const value = await api<{ campaigns: CampaignSummary[] }>("/campaigns");
+      const value = await api<{ campaigns: CampaignSummary[]; total?: number }>(`/campaigns?limit=10&offset=${campaignPage * 10}`);
       setCampaigns(value.campaigns || []);
-    } catch {
-      // Older builds do not expose durable campaigns; keep the rest of the workspace usable.
+      setCampaignTotal(value.total ?? value.campaigns?.length ?? 0);
+      setCampaignError("");
+    } catch (error) {
+      setCampaignError(error instanceof Error ? error.message : String(error));
     }
   }
   async function toggleCampaignDetails(campaignId: string) {
@@ -223,6 +234,15 @@ export default function CareerWorkspace() {
     );
     return () => clearInterval(timer);
   }, [demo]);
+  useEffect(() => {
+    if (data && applicationsSection === "campaigns") void refreshCampaigns();
+  }, [campaignPage, applicationsSection]);
+  useEffect(() => {
+    if (!focusResultsAfterSearch || !data) return;
+    if (offerSearchAdvancedRef.current) offerSearchAdvancedRef.current.open = false;
+    document.getElementById("job-results")?.scrollIntoView({ behavior: "auto", block: "start" });
+    setFocusResultsAfterSearch(false);
+  }, [data, focusResultsAfterSearch]);
   async function action(fn: () => Promise<unknown>, message = "Enregistré.") {
     setBusy(true);
     setError("");
@@ -267,10 +287,8 @@ export default function CareerWorkspace() {
       setSelected(ids);
       const jobIds = [...new Set(ids.map((id) => latest.applications.find((a) => a.id === id)?.jobId).filter((id): id is string => !!id))];
       if (!jobIds.length) throw new Error("Aucune candidature disponible dans la sélection.");
-      await createAndStartCampaign(jobIds);
-      setSelected([]);
-      setNotice(`Campagne durable lancée sur ${jobIds.length} offre(s), plafond ${maxSubmissions}.`);
-      await refreshCampaigns();
+      setCampaignMode("prepare");
+      setCampaignPlan({ jobIds, note: "Sélection de candidatures" });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -278,7 +296,7 @@ export default function CareerWorkspace() {
       await load();
     }
   }
-  async function createAndStartCampaign(jobIds: string[]) {
+  async function createCampaign(jobIds: string[], start = true) {
     // Preserve the caller's ranking so the submission cap applies to that order.
     const normalizedJobIds = [...new Set(jobIds)];
     const payload = { jobIds: normalizedJobIds, resumeId, maxSubmissions, ...(credentialId ? { credentialId } : {}) };
@@ -287,14 +305,39 @@ export default function CareerWorkspace() {
     try { pending = JSON.parse(localStorage.getItem(storageKey) || "null") || undefined; } catch { pending = undefined; }
     const sameRequest = pending && JSON.stringify(pending.payload) === JSON.stringify(payload);
     const request = sameRequest ? pending! : { key: crypto.randomUUID(), payload };
-    localStorage.setItem(storageKey, JSON.stringify(request));
+    localStorage.setItem(storageKey, JSON.stringify({ ...request, start }));
     const created = await api<{ campaign: { id: string } }>("/campaigns", "POST", {
       ...payload,
       idempotencyKey: request.key,
     });
-    await api(`/campaigns/${created.campaign.id}/start`, "POST", {});
+    if (start) await api(`/campaigns/${created.campaign.id}/start`, "POST", {});
     localStorage.removeItem(storageKey);
     return created.campaign.id;
+  }
+  async function confirmCampaignPlan(mode: "prepare" | "submit" = campaignMode) {
+    if (!campaignPlan) throw new Error("Aucune campagne à préparer.");
+    if (!resumeId || !data?.resumes.some((resume) => resume.id === resumeId)) throw new Error("Choisissez un CV valide dans le récapitulatif.");
+    const count = campaignPlan.jobIds.length;
+    const singleApplication = campaignPlan.note === "Candidature sélectionnée" && count === 1
+      ? data.applications.find((application) => application.jobId === campaignPlan.jobIds[0])
+      : undefined;
+    for (const jobId of campaignPlan.jobIds) {
+      const existing = data.applications.find((application) => application.jobId === jobId);
+      if (existing && existing.resumeId !== resumeId && !["submitted", "uncertain", "running", "submitting"].includes(existing.state)) {
+        await api(`/applications/${existing.id}`, "PATCH", { resumeId });
+      }
+    }
+    if (singleApplication) await run(singleApplication.id, mode);
+    else await createCampaign(campaignPlan.jobIds, mode === "submit");
+    setCampaignPlan(null);
+    setSelected([]);
+    setApplicationsSection(singleApplication ? "all" : "campaigns");
+    setCampaignPage(0);
+    setTab("applications");
+    if (singleApplication) return mode === "submit" ? "Envoi individuel lancé. Le résultat reste visible dans cette candidature." : "Candidature préparée. Aucun envoi n’a été déclenché.";
+    return mode === "submit"
+      ? `Campagne lancée sur ${count} offre(s), plafond ${maxSubmissions}. Les envois incertains ne seront jamais relancés automatiquement.`
+      : `Campagne préparée sur ${count} offre(s). Aucun envoi n’a été déclenché.`;
   }
   async function recoverPendingCampaign() {
     if (demo) return;
@@ -305,10 +348,10 @@ export default function CareerWorkspace() {
         ...pending.payload,
         idempotencyKey: pending.key,
       });
-      await api(`/campaigns/${created.campaign.id}/start`, "POST", {});
+      if (pending.start !== false) await api(`/campaigns/${created.campaign.id}/start`, "POST", {});
       localStorage.removeItem("anima-pending-campaign");
       await refreshCampaigns();
-      setNotice("La campagne interrompue a repris automatiquement.");
+      if (pending.start !== false) setNotice("La campagne interrompue a repris automatiquement.");
     } catch {
       // Keep the request key so a later retry can safely resume without duplicating applications.
     }
@@ -343,10 +386,18 @@ export default function CareerWorkspace() {
       },
     );
     if (!found.jobs.length) return found.note || "Aucune offre ne correspond à ces critères.";
-    if (!apply) return `${found.jobs.length} offre(s) récupérée(s). ${found.note}`;
-    await createAndStartCampaign(rankJobsForProfile(found.jobs, data?.profile || profile).map((job) => job.id));
-    await refreshCampaigns();
-    return `Campagne lancée sur ${found.jobs.length} offre(s), avec un plafond de ${maxSubmissions} envoi(s). ${found.note}`;
+    if (!apply) {
+      await load();
+      setFocusResultsAfterSearch(true);
+      return `${found.jobs.length} offre(s) récupérée(s). ${found.note}`;
+    }
+    const ranked = rankJobsForProfile(found.jobs, data?.profile || profile);
+    const eligible = ranked.filter((job) => !data?.applications.some((application) => application.jobId === job.id && ["submitted", "uncertain", "running", "submitting"].includes(application.state)));
+    if (!eligible.length) return "Les offres trouvées ont déjà une candidature envoyée, incertaine ou en cours. Aucune nouvelle campagne n’a été créée.";
+    setCampaignMode("prepare");
+    setCampaignPlan({ jobIds: eligible.map((job) => job.id), note: found.note });
+    setNotice(`${eligible.length} offre(s) prêtes à examiner. Vérifiez le récapitulatif avant toute candidature.`);
+    return "Récapitulatif de campagne prêt.";
   }
   async function saveRecurringSearch() {
     if (searchSource === "france-travail") throw new Error("La collecte récurrente est limitée aux flux publics sans compte.");
@@ -398,10 +449,13 @@ export default function CareerWorkspace() {
       (a) =>
         !["submitted", "uncertain", "running", "submitting"].includes(a.state),
     ) || [];
-  const attention =
-    data?.applications.filter((a) =>
-      ["needs_input", "blocked", "uncertain", "failed"].includes(a.state),
-    ) || [];
+  const attention = data ? prioritizeAttention(data.applications) : [];
+  const dueFollowupList = data ? dueFollowups(data.applications) : [];
+  const visibleApplications = applicationsSection === "attention"
+    ? attention
+    : applicationsSection === "followups"
+      ? dueFollowupList
+      : data?.applications || [];
   const completion = data
     ? [
         !!data.profile.firstName && !!data.profile.lastName,
@@ -443,8 +497,73 @@ export default function CareerWorkspace() {
       <small>La campagne garde ce choix. Pour les autres sites, elle utilise un compte uniquement s’il n’y en a qu’un pour cette origine.</small>
     </div>
   );
+  const franceConnectionPanel = data && (
+    <section className="cw-panel">
+      <div className="cw-section-head"><div><span className="cw-eyebrow">SOURCE À ACCÈS RESTREINT</span><h2>France Travail</h2></div><span className={`cw-source-status ${franceTravail.configured ? "is-ready" : ""}`}>{franceTravail.configured ? "Accès configuré" : "Accès non configuré"}</span></div>
+      <p>L’API Offres d’emploi est à accès restreint et sa diffusion publique est actuellement suspendue. Demandez d’abord un accès auprès de <a href="https://francetravail.io/contact" target="_blank" rel="noreferrer">France Travail</a>, puis saisissez les identifiants et le périmètre qui vous seront attribués. Les identifiants ne sont pas testés avant la première recherche.</p>
+      {franceTravail.configured && franceTravail.scope && <p className="cw-configured-note">Périmètre enregistré : {franceTravail.scope}</p>}
+      <form className="cw-grid" onSubmit={(event) => { event.preventDefault(); action(saveFranceTravailCredentials, "Configuration enregistrée."); }}>
+        <label>Client ID<input autoComplete="off" disabled={!data.vault.unlocked} value={franceCredentials.clientId} onChange={(event) => setFranceCredentials({ ...franceCredentials, clientId: event.target.value })} required /></label>
+        <label>Client secret<input type="password" autoComplete="new-password" disabled={!data.vault.unlocked} value={franceCredentials.clientSecret} onChange={(event) => setFranceCredentials({ ...franceCredentials, clientSecret: event.target.value })} required /></label>
+        <label>Scope / périmètre API<input autoComplete="off" disabled={!data.vault.unlocked} value={franceCredentials.scope} onChange={(event) => setFranceCredentials({ ...franceCredentials, scope: event.target.value })} required /></label>
+        <button className="cw-primary" disabled={busy || demo || !data.vault.unlocked}>Enregistrer dans le coffre</button>
+      </form>
+      {franceTravail.configured && <button disabled={busy || demo || !data.vault.unlocked} onClick={() => action(async () => { await api("/sources/france-travail", "DELETE", {}); setFranceTravail({ configured: false }); return "Accès France Travail supprimé."; })}>Supprimer les identifiants</button>}
+    </section>
+  );
+  const campaignPanel = campaignError ? <div className="cw-alert" role="alert">Impossible d’actualiser les campagnes : {campaignError} <button onClick={() => void refreshCampaigns()}>Réessayer</button></div> : campaigns.length ? (
+    <section className="cw-panel cw-campaigns">
+      <div className="cw-section-head">
+        <div><span className="cw-eyebrow">TRAITEMENT AUTOMATIQUE</span><h2>Campagnes de candidature</h2></div>
+        <span className="cw-pill">{campaignTotal} campagne(s)</span>
+      </div>
+      <div className="cw-campaign-list">
+        {campaigns.map((campaign) => (
+          <article className="cw-campaign-row" key={campaign.id}>
+            <div className="cw-campaign-main">
+              <strong>{campaignStates[campaign.state]}</strong>
+              <small>{date(campaign.createdAt)} · {campaign.counts?.submitted || 0} envoyée(s) · {campaign.counts?.running || 0} en cours · {campaign.counts?.needsInput || 0} à compléter · {campaign.counts?.uncertain || 0} à vérifier · plafond {campaign.maxSubmissions}</small>
+              <small>Compte : {campaign.credentialId ? data?.credentials.find((credential) => credential.id === campaign.credentialId)?.label || "sélectionné, à vérifier" : "détection automatique (un seul compte par site)"}</small>
+            </div>
+            <div className="cw-campaign-actions">
+              <button onClick={() => void toggleCampaignDetails(campaign.id)}>{campaignDetails[campaign.id] ? "Masquer" : "Détails"}</button>
+              {(campaign.state === "queued" || campaign.state === "paused") && !campaign.counts?.uncertain && <button className="cw-primary" disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/start`, "POST", {}), "Campagne reprise.")}>Reprendre</button>}
+              {campaign.state === "paused" && !!campaign.counts?.uncertain && <small>Résolvez d’abord l’envoi incertain avant de reprendre.</small>}
+              {campaign.state === "running" && <button disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/pause`, "POST", {}), "Campagne mise en pause.")}>Pause</button>}
+              {campaign.state !== "stopped" && campaign.state !== "completed" && campaign.state !== "limit_reached" && <button disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/stop`, "POST", {}), "Campagne arrêtée.")}>Arrêter</button>}
+            </div>
+            {campaignDetails[campaign.id] && <div className="cw-campaign-items">
+              {campaignDetails[campaign.id].items.map((item) => {
+                const job = data?.jobs.find((entry) => entry.id === item.jobId);
+                return <div className="cw-campaign-item" key={item.id}>
+                <span><strong>{job ? `${job.title} · ${job.company}` : "Offre"}</strong><small>{campaignItemStates[item.state] || item.state}</small>{item.error && <small>{item.error}</small>}</span>
+                <div>
+                  <button onClick={() => { setTab("applications"); setApplicationsSection("all"); setDetail(item.applicationId); }}>Voir la candidature</button>
+                  {["pending", "needs_input", "failed"].includes(item.state) && <button disabled={busy || demo} onClick={() => void action(async () => {
+                    const updated = await api<CampaignDetail>(`/campaigns/${campaign.id}/items/${item.id}/skip`, "POST", { reason: "Passée depuis le suivi de campagne." });
+                    setCampaignDetails((current) => ({ ...current, [campaign.id]: updated }));
+                    return updated.resumeDeferred ? "Offre passée. La campagne reste en pause ; le navigateur est occupé. Reprenez-la quand il sera disponible." : updated.campaign.state === "completed" ? "Offre passée. La campagne est terminée." : "Offre passée ; la campagne continue si des offres restent en attente.";
+                  })}>Passer cette offre</button>}
+                </div>
+              </div>;})}
+            </div>}
+          </article>
+        ))}
+      </div>
+      {campaignTotal > 10 && <nav className="cw-pagination" aria-label="Pages des campagnes">
+        <button disabled={campaignPage === 0} onClick={() => setCampaignPage((page) => Math.max(0, page - 1))}>Précédent</button>
+        <span>Page {campaignPage + 1} sur {Math.ceil(campaignTotal / 10)}</span>
+        <button disabled={(campaignPage + 1) * 10 >= campaignTotal} onClick={() => setCampaignPage((page) => page + 1)}>Suivant</button>
+      </nav>}
+      <small>Les réponses requises que le profil ne contient pas sont mises en attente pendant que les autres offres continuent. Un CAPTCHA, une MFA ou un site non pris en charge met la campagne en pause. Une candidature dont l’envoi est incertain n’est jamais relancée automatiquement.</small>
+    </section>
+  ) : <div className="cw-empty">Aucune campagne pour le moment. Les campagnes créées depuis vos sélections apparaîtront ici.</div>;
+  const identityTone = tab === "home" ? "xenogears"
+    : tab === "jobs" ? "weltall-ii"
+      : tab === "applications" && applicationsSection === "campaigns" ? "weltall-id"
+        : "weltall";
   return (
-    <div className="cw-shell">
+    <div className="cw-shell" data-identity={identityTone}>
       <aside className="cw-sidebar">
         <a
           className="cw-brand"
@@ -454,14 +573,14 @@ export default function CareerWorkspace() {
             setTab("home");
           }}
         >
-          <span className="cw-logo">
-            a<span>✳</span>
+          <span className="cw-logo" aria-hidden="true">
+            <span className="cw-logo-core">A</span><i className="cw-logo-orbit" />
           </span>
           <strong>
-            anima<span>connect</span>
+            Anima<span> Desktop</span>
           </strong>
         </a>
-        <p className="cw-caption">Votre prochain chapitre.</p>
+        <p className="cw-caption">Offres · candidatures · réseau</p>
         <div className="cw-nav-label">ESPACE CARRIÈRE</div>
         <nav>
           {navigation.map(([key, icon, name]) => (
@@ -483,6 +602,23 @@ export default function CareerWorkspace() {
           ))}
         </nav>
         <div className="cw-bottom">
+          <div className="cw-secondary-nav" aria-label="Navigation secondaire">
+            <button
+              className={tab === "settings" ? "current" : ""}
+              onClick={() => {
+                setSettingsSection("connections");
+                setTab("settings");
+              }}
+            >
+              <span aria-hidden="true">◇</span> Paramètres
+            </button>
+            <button
+              className={tab === "help" ? "current" : ""}
+              onClick={() => setTab("help")}
+            >
+              <span aria-hidden="true">?</span> Aide
+            </button>
+          </div>
           <div className="cw-private">
             <span>●</span>
             <div>
@@ -515,7 +651,12 @@ export default function CareerWorkspace() {
         <header className="cw-top">
           <div>
             Mon espace <span>/</span>{" "}
-            {navigation.find((n) => n[0] === tab)?.[2]}
+            {navigation.find((n) => n[0] === tab)?.[2] ||
+              (tab === "settings"
+                ? settingsSection === "connections" ? "Paramètres · Connexions"
+                  : settingsSection === "data" ? "Paramètres · Données & sauvegardes"
+                    : settingsSection === "preferences" ? "Paramètres · Préférences" : "Paramètres · À propos"
+                : "Aide")}
           </div>
           <div>
             <span className="cw-local">
@@ -550,11 +691,61 @@ export default function CareerWorkspace() {
           {!data ? (
             <div className="cw-empty">
               {error
-                ? "Anima Connect ne répond pas. Vérifiez que l’application est démarrée."
+                ? "Anima Desktop ne répond pas. Vérifiez que l’application est démarrée."
                 : "Ouverture de votre espace…"}
             </div>
           ) : (
             <>
+              {tab === "settings" && (
+                <div className="cw-subnav" aria-label="Sections des paramètres">
+                  {([
+                    ["connections", "Connexions"],
+                    ["data", "Données & sauvegardes"],
+                    ["preferences", "Préférences"],
+                    ["about", "À propos"],
+                  ] as const).map(([section, label]) => (
+                    <button
+                      key={section}
+                      className={settingsSection === section ? "current" : ""}
+                      onClick={() => setSettingsSection(section)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {tab === "network" && (
+                <div className="cw-subnav" aria-label="Sections du réseau">
+                  {([
+                    ["contacts", "Contacts", "prospects"],
+                    ["searches", "Recherches LinkedIn", "recherches"],
+                    ["messages", "Messages", "file"],
+                    ["history", "Historique", "activite"],
+                  ] as [typeof networkSection, string, LegacyTab][]).map(([section, label, view]) => (
+                    <button
+                      key={section}
+                      className={networkSection === section ? "current" : ""}
+                      onClick={() => { setNetworkSection(section); setLegacyTab(view); }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {tab === "network" && (networkSection === "contacts" || networkSection === "messages") && (
+                <div className="cw-subnav cw-subnav-nested" aria-label={networkSection === "contacts" ? "Vue des contacts" : "Sections des messages"}>
+                  {(networkSection === "contacts" ? [["prospects", "Liste"], ["pipeline", "Colonnes"]] : [["file", "À envoyer manuellement"], ["modeles", "Modèles"]]).map(([key, label]) => (
+                    <button key={key} className={legacyTab === key ? "current" : ""} onClick={() => setLegacyTab(key as LegacyTab)}>{label}</button>
+                  ))}
+                </div>
+              )}
+              {tab === "jobs" && (
+                <div className="cw-subnav" aria-label="Sections des offres">
+                  {([ ["search", "Rechercher"], ["saved", "Enregistrées"], ["searches", "Recherches enregistrées"] ] as const).map(([section, label]) => (
+                    <button key={section} className={jobsSection === section ? "current" : ""} onClick={() => setJobsSection(section)}>{label}</button>
+                  ))}
+                </div>
+              )}
               {tab === "home" && (
                 <>
                   <div className="cw-heading">
@@ -715,7 +906,7 @@ export default function CareerWorkspace() {
                     <section className="cw-panel">
                       <div className="cw-section-head">
                         <h2>À ne pas laisser passer</h2>
-                        <span className="cw-pill">{attention.length}</span>
+                        <span className="cw-pill">{attention.length + dueFollowupList.length}</span>
                       </div>
                       {attention.slice(0, 3).map((a) => (
                         <button
@@ -733,8 +924,7 @@ export default function CareerWorkspace() {
                           <span>→</span>
                         </button>
                       ))}
-                      {data.applications
-                        .filter((a) => a.nextActionAt && a.outcome === "active")
+                      {dueFollowupList
                         .slice(0, 3)
                         .map((a) => (
                           <button
@@ -754,10 +944,18 @@ export default function CareerWorkspace() {
                             <span>◷</span>
                           </button>
                         ))}
-                      {!attention.length && (
+                      {dueFollowupList.length > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => { setApplicationsSection("followups"); setTab("applications"); }}
+                        >
+                          Voir les {dueFollowupList.length} relances dues →
+                        </button>
+                      )}
+                      {!attention.length && !dueFollowupList.length && (
                         <p className="cw-muted">
-                          Aucun blocage à traiter. Retrouvez ici les questions
-                          manquantes et vos relances.
+                          Aucun blocage ni rappel échu. Les prochaines actions
+                          apparaîtront ici quand elles seront à traiter.
                         </p>
                       )}
                       <div className="cw-network">
@@ -767,8 +965,8 @@ export default function CareerWorkspace() {
                           {prospects.length} prospect(s) dans votre espace
                           LinkedIn.
                         </p>
-                        <button onClick={() => setTab("prospecting")}>
-                          Ouvrir la prospection →
+                        <button onClick={() => { setNetworkSection("contacts"); setLegacyTab("prospects"); setTab("network"); }}>
+                          Ouvrir les contacts →
                         </button>
                       </div>
                     </section>
@@ -782,34 +980,18 @@ export default function CareerWorkspace() {
                       <span className="cw-eyebrow">
                         DÉCOUVRIR & CENTRALISER
                       </span>
-                      <h1>Les bonnes opportunités.</h1>
-                      <p>
-                        Cherchez depuis vos critères, puis laissez une campagne
-                        traiter les candidatures compatibles.
-                      </p>
+                      <h1>{jobsSection === "searches" ? "Recherches enregistrées" : jobsSection === "saved" ? "Offres enregistrées" : "Trouver une offre"}</h1>
+                      <p>{jobsSection === "searches" ? "Gérez vos collectes récurrentes." : jobsSection === "saved" ? "Toutes les offres enregistrées sur cet appareil." : "Saisissez un métier, puis parcourez les résultats."}</p>
                     </div>
                     <span className="cw-pill">{data.jobs.length} offres</span>
                   </div>
-                  <section className="cw-panel">
+                  <section className="cw-panel" hidden={jobsSection === "saved"}>
+                    <div hidden={jobsSection !== "search"}>
                     <div className="cw-source-title">
                       <div>
                         <span className="cw-eyebrow">RECHERCHE AUTOMATIQUE</span>
                         <h2>{searchSource === "all" ? "Offres publiques France" : searchSource === "arbeitnow" ? "Offres Arbeitnow France" : searchSource === "jobicy" ? "Offres télétravaillables Jobicy" : searchSource === "remoteok" ? "Offres remote Remote OK" : searchSource === "himalayas" ? "Offres remote Himalayas" : searchSource === "remotive" ? "Offres remote Remotive" : "Offres France Travail"}</h2>
-                        <p>
-                          {searchSource === "all"
-                            ? "Recherche en parallèle sur plusieurs flux publics, sans compte ni URL à copier. Les annonces sont filtrées selon vos critères et dédupliquées par URL."
-                            : searchSource === "arbeitnow"
-                            ? "Recherche publique d’offres récentes en France, sans clé API ni URL à copier."
-                            : searchSource === "jobicy"
-                              ? "Offres à distance indiquant France, Europe/EMEA ou partout dans leur zone d’éligibilité. Source publique, sans clé API ni compte à créer."
-                              : searchSource === "remoteok"
-                                ? "Postes remote récents ouverts explicitement à la France, à l’Europe/EMEA ou partout. Les mots-clés, la ville et le contrat sont filtrés localement."
-                                : searchSource === "himalayas"
-                                  ? "Offres à distance disponibles depuis la France ou ouvertes partout. Source publique sans clé API, mise à jour quotidienne ; les annonces non ouvertes à la France sont écartées."
-                                  : searchSource === "remotive"
-                                    ? "Offres à distance explicitement ouvertes à la France, à l’Europe/EMEA ou partout. Le flux public est retardé de 24 h et actualisé au plus une fois par jour."
-                                : "La recherche part de vos mots-clés et critères. Cette source demande des identifiants API personnels conservés dans le coffre local chiffré."}
-                        </p>
+                        <p>Résultats publics attribués à leur source et dédupliqués.</p>
                       </div>
                       <span className={`cw-source-status ${searchSource !== "france-travail" || franceTravail.configured ? "is-ready" : ""}`}>
                         {searchSource === "france-travail" ? franceTravail.configured ? "Identifiants enregistrés" : "Accès France Travail requis" : "Source publique disponible"}
@@ -818,16 +1000,20 @@ export default function CareerWorkspace() {
                     {searchSource === "france-travail" && !data.vault.unlocked && (
                       <div className="cw-help">
                         <strong>{data.vault.initialized ? "Coffre verrouillé." : "Coffre non initialisé."}</strong> {data.vault.initialized ? "Déverrouillez-le" : "Initialisez-le"} pour enregistrer les identifiants API et permettre la recherche.
-                        <button onClick={() => setTab("vault")}>Ouvrir le coffre</button>
+                        <button onClick={() => { setSettingsSection("connections"); setTab("settings"); }}>Ouvrir le coffre</button>
                       </div>
                     )}
                     <form
                       className="cw-search-form"
                       onSubmit={(e) => {
                         e.preventDefault();
-                        action(() => searchOffers(), "Recherche terminée.");
+                        void action(() => searchOffers(), "Recherche terminée.").then(() => {
+                          window.requestAnimationFrame(() => document.getElementById("job-results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                        });
                       }}
                     >
+                      <details ref={offerSearchAdvancedRef} className="cw-details cw-search-advanced">
+                        <summary>Source, lieu et filtres avancés</summary>
                       <label>
                         Source d’offres
                         <select value={searchSource} onChange={(e) => {
@@ -844,16 +1030,6 @@ export default function CareerWorkspace() {
                           <option value="remotive">Remotive · remote France, Europe ou partout</option>
                           <option value="france-travail">France Travail · accès restreint</option>
                         </select>
-                      </label>
-                      <label>
-                        Métier(s) ou mot(s)-clé(s)
-                        <input
-                          type="text"
-                          required
-                          value={searchCriteria.keywords || profile?.preferences.titles.join(", ") || ""}
-                          onChange={(e) => setSearchCriteria({ ...searchCriteria, keywords: e.target.value })}
-                          placeholder={profile?.preferences.titles.join(", ") || "Ex. développeur TypeScript"}
-                        />
                       </label>
                       <div className="cw-search-fields">
                         {searchSource === "france-travail" && (
@@ -892,33 +1068,40 @@ export default function CareerWorkspace() {
                           </select>
                         </label>
                       </div>
+                      </details>
+                      <label className="cw-search-keywords">
+                        Métier(s) ou mot(s)-clé(s)
+                        <input
+                          type="text"
+                          required
+                          value={searchCriteria.keywords || profile?.preferences.titles.join(", ") || ""}
+                          onChange={(e) => setSearchCriteria({ ...searchCriteria, keywords: e.target.value })}
+                          placeholder={profile?.preferences.titles.join(", ") || "Ex. développeur TypeScript"}
+                        />
+                      </label>
                       <div className="cw-search-actions">
                         <button className="cw-primary" disabled={busy || demo || (searchSource === "france-travail" && (!franceTravail.configured || !data.vault.unlocked))}>
                           Rechercher les offres ↗
                         </button>
-                        <label className="cw-cap">
-                          Plafond d’envoi par campagne
-                          <select value={maxSubmissions} onChange={(e) => setMaxSubmissions(Number(e.target.value))}>
-                            {[1, 3, 5, 10, 20, 50].map((n) => <option key={n} value={n}>{n} candidature{n > 1 ? "s" : ""}</option>)}
-                          </select>
-                        </label>
-                        <button
-                          type="button"
-                          className="cw-primary cw-apply-button"
-                          disabled={busy || demo || (searchSource === "france-travail" && (!franceTravail.configured || !data.vault.unlocked)) || !resumeId}
-                          onClick={() => action(() => searchOffers(true), "Campagne lancée.")}
-                        >
-                          Trouver et candidater automatiquement
-                        </button>
-                        {searchSource !== "france-travail" && <label className="cw-cap">
-                          Collecte enregistrée
-                          <select value={searchIntervalHours} onChange={(e) => setSearchIntervalHours(Number(e.target.value) as 6 | 12 | 24 | 168)}>
-                            <option value={6}>Toutes les 6 heures</option><option value={12}>Toutes les 12 heures</option><option value={24}>Chaque jour</option><option value={168}>Chaque semaine</option>
-                          </select>
-                        </label>}
-                        {searchSource !== "france-travail" && <button type="button" disabled={busy || demo} onClick={() => action(saveRecurringSearch, "Recherche enregistrée.")}>Enregistrer cette recherche</button>}
+                        <details className="cw-details cw-search-actions-secondary">
+                          <summary>Collecte programmée et candidature</summary>
+                          <label className="cw-cap">Plafond par défaut
+                            <select value={maxSubmissions} onChange={(e) => setMaxSubmissions(Number(e.target.value))}>
+                              {[1, 3, 5, 10, 20, 50].map((n) => <option key={n} value={n}>{n} candidature{n > 1 ? "s" : ""}</option>)}
+                            </select>
+                          </label>
+                        <button type="button" className="cw-primary cw-apply-button" disabled={busy || demo || (searchSource === "france-travail" && (!franceTravail.configured || !data.vault.unlocked)) || !resumeId} onClick={() => action(() => searchOffers(true), "Récapitulatif de campagne prêt.")}>Rechercher et préparer un lancement</button>
+                          {searchSource !== "france-travail" && <label className="cw-cap">Fréquence de collecte
+                            <select value={searchIntervalHours} onChange={(e) => setSearchIntervalHours(Number(e.target.value) as 6 | 12 | 24 | 168)}>
+                              <option value={6}>Toutes les 6 heures</option><option value={12}>Toutes les 12 heures</option><option value={24}>Chaque jour</option><option value={168}>Chaque semaine</option>
+                            </select>
+                          </label>}
+                          {searchSource !== "france-travail" && <button type="button" disabled={busy || demo} onClick={() => action(saveRecurringSearch, "Recherche enregistrée.")}>Enregistrer cette recherche</button>}
+                        </details>
                       </div>
-                      <small className="cw-automation-note">
+                      <details className="cw-details cw-source-limits">
+                        <summary>Sources et limites de collecte</summary>
+                        <small className="cw-automation-note">
                           {searchSource === "all"
                             ? <>La recherche interroge simultanément les flux publics <a href="https://www.arbeitnow.fr" target="_blank" rel="noreferrer">Arbeitnow</a>, <a href="https://jobicy.com" target="_blank" rel="noreferrer">Jobicy</a>, <a href="https://remoteok.com/api" target="_blank" rel="noreferrer">Remote OK</a>, <a href="https://himalayas.app/api" target="_blank" rel="noreferrer">Himalayas</a> et <a href="https://remotive.com/remote-jobs/api" target="_blank" rel="noreferrer">Remotive</a>. Remotive retarde ses annonces de 24 h et son flux est actualisé au plus une fois par jour. Le filtre ville s’applique à Arbeitnow, Jobicy et Remote OK; Himalayas et Remotive ne fournissent qu’une zone d’éligibilité par pays ou région. Chaque fiche conserve son lien source; les offres identiques sont regroupées. France Travail reste sélectionnable séparément avec ses accès API.</>
                             : searchSource === "arbeitnow"
@@ -932,14 +1115,16 @@ export default function CareerWorkspace() {
                                 : searchSource === "remotive"
                                   ? <>Les offres viennent du <a href="https://remotive.com/remote-jobs/api" target="_blank" rel="noreferrer">flux public Remotive</a>, retardé de 24 h et mis en cache localement au plus une fois par jour. Cette source ne précise pas la ville; seules les annonces ouvertes à la France, à l’Europe/EMEA ou partout sont conservées.</>
                                 : <>La recherche interroge l’API France Travail après activation de vos accès. La source est à accès restreint et n’est pas disponible publiquement actuellement.</>} L’envoi automatique est pris en charge sur Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday ; les autres sites peuvent demander une reprise manuelle. Un CAPTCHA, une MFA ou un formulaire ambigu met la campagne en pause.
-                      </small>
+                        </small>
+                      </details>
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
                       {!resumeId && <small>Ajoutez d’abord un CV dans l’onglet Profil & CV pour activer les candidatures.</small>}
                     </form>
-                    <section className="cw-panel" aria-label="Recherches récurrentes">
+                    </div>
+                    <section className="cw-panel" aria-label="Recherches récurrentes" hidden={jobsSection !== "searches"}>
                       <div className="cw-section-head"><h3>Recherches enregistrées</h3><span className="cw-pill">{data.savedSearches.length}</span></div>
                       {data.savedSearches.length ? data.savedSearches.map((search) => <div className="cw-section-head" key={search.id}>
-                        <div><strong>{search.criteria.keywords}</strong><small>{search.source} · {search.intervalHours < 24 ? `toutes les ${search.intervalHours} h` : search.intervalHours === 24 ? "quotidienne" : "hebdomadaire"} · {search.lastResultCount} offre(s) au dernier passage</small>{search.lastError && <small role="status">{search.lastError}</small>}{search.enabled && search.nextRunAt && <small>Prochaine collecte : {date(search.nextRunAt)}</small>}</div>
+                        <div><strong>{search.criteria.keywords}</strong><small>{search.source} · {search.intervalHours < 24 ? `toutes les ${search.intervalHours} h` : search.intervalHours === 24 ? "quotidienne" : "hebdomadaire"} · {search.lastResultCount} offre(s) au dernier passage</small>{search.lastRunAt && <small>Dernière collecte : {date(search.lastRunAt)}</small>}{search.lastError && <small role="status">{search.lastError}</small>}{search.enabled && search.nextRunAt && <small>Prochaine collecte : {date(search.nextRunAt)}</small>}</div>
                         <div>
                           {search.enabled && <button disabled={busy || demo} onClick={() => action(async () => { const result = await api<CareerSavedSearch>(`/saved-searches/${search.id}/run`, "POST", {}); return `Collecte terminée : ${result.lastResultCount} offre(s) trouvée(s).`; }, "Collecte terminée.")}>Collecter maintenant</button>}
                           <button disabled={busy || demo} onClick={() => action(() => updateRecurringSearch(search, { enabled: !search.enabled }), search.enabled ? "Collecte mise en pause." : "Collecte réactivée.")}>{search.enabled ? "Suspendre" : "Réactiver"}</button>
@@ -948,35 +1133,8 @@ export default function CareerWorkspace() {
                       </div>) : <p>Aucune recherche récurrente. Enregistrez les critères ci-dessus pour collecter les offres automatiquement pendant qu’Anima Desktop est ouvert.</p>}
                       <small>La collecte lit uniquement les flux publics et enregistre les offres localement. Elle ne prépare ni n’envoie de candidature. Les recherches France Travail à accès restreint ne sont pas planifiées.</small>
                     </section>
-                    {searchSource === "france-travail" && <details className="cw-details" open={!franceTravail.configured && !demo}>
-                      <summary>{franceTravail.configured ? "Modifier la configuration France Travail" : "Configurer l’accès France Travail"}</summary>
-                      <p>
-                        L’API Offres d’emploi est à accès restreint et sa diffusion publique est actuellement suspendue. Demandez d’abord un accès auprès de{" "}
-                        <a href="https://francetravail.io/contact" target="_blank" rel="noreferrer">France Travail</a>, puis saisissez les identifiants et le périmètre qui vous seront attribués. Les identifiants enregistrés ne sont pas testés avant la première recherche.
-                      </p>
-                      {franceTravail.configured && franceTravail.scope && (
-                        <p className="cw-configured-note">Périmètre enregistré : {franceTravail.scope}</p>
-                      )}
-                      <form className="cw-grid" onSubmit={(e) => { e.preventDefault(); action(saveFranceTravailCredentials, "Configuration enregistrée."); }}>
-                        <label>
-                          Client ID
-                          <input autoComplete="off" disabled={!data.vault.unlocked} value={franceCredentials.clientId} onChange={(e) => setFranceCredentials({ ...franceCredentials, clientId: e.target.value })} required />
-                        </label>
-                        <label>
-                          Client secret
-                          <input type="password" autoComplete="new-password" disabled={!data.vault.unlocked} value={franceCredentials.clientSecret} onChange={(e) => setFranceCredentials({ ...franceCredentials, clientSecret: e.target.value })} required />
-                        </label>
-                        <label>
-                          Scope / périmètre API
-                          <input autoComplete="off" disabled={!data.vault.unlocked} value={franceCredentials.scope} onChange={(e) => setFranceCredentials({ ...franceCredentials, scope: e.target.value })} required />
-                        </label>
-                        <button className="cw-primary" disabled={busy || demo || !data.vault.unlocked}>Enregistrer dans le coffre</button>
-                      </form>
-                      {franceTravail.configured && (
-                        <button disabled={busy || demo || !data.vault.unlocked} onClick={() => action(async () => { await api("/sources/france-travail", "DELETE", {}); setFranceTravail({ configured: false }); return "Accès France Travail supprimé."; })}>Supprimer les identifiants</button>
-                      )}
-                    </details>}
-                    <details className="cw-details">
+                    {jobsSection === "search" && searchSource === "france-travail" && <div className="cw-help"><strong>France Travail demande un accès configuré.</strong> Gérez les identifiants API dans Paramètres &gt; Connexions. <button onClick={() => { setSettingsSection("connections"); setTab("settings"); }}>Ouvrir les connexions</button></div>}
+                    <details className="cw-details" hidden={jobsSection !== "search"}>
                       <summary>Importer depuis une URL (optionnel)</summary>
                       <p>Utile pour ajouter un tableau carrière précis Greenhouse ou Lever. La recherche France Travail ci-dessus ne demande pas de lien.</p>
                       <form className="cw-inline" onSubmit={(e) => { e.preventDefault(); action(async () => { const result = await api<{ note: string }>("/discover", "POST", { url: source }); return result.note; }, "Import terminé."); }}>
@@ -987,7 +1145,7 @@ export default function CareerWorkspace() {
                         <button disabled={busy}>Importer</button>
                       </form>
                     </details>
-                    <details className="cw-details">
+                    <details className="cw-details" hidden={jobsSection !== "search"}>
                       <summary>Ajouter une offre avec son lien</summary>
                       <form
                         onSubmit={(e) => {
@@ -1045,83 +1203,9 @@ export default function CareerWorkspace() {
                       </form>
                     </details>
                   </section>
-                  {profileTools}
-                  {!!campaigns.length && (
-                    <section className="cw-panel cw-campaigns">
-                      <div className="cw-section-head">
-                        <div>
-                          <span className="cw-eyebrow">TRAITEMENT AUTOMATIQUE</span>
-                          <h2>Campagnes de candidature</h2>
-                        </div>
-                        <span className="cw-pill">{campaigns.length} campagne(s)</span>
-                      </div>
-                      <div className="cw-campaign-list">
-                        {campaigns.slice(0, 5).map((campaign) => (
-                          <article className="cw-campaign-row" key={campaign.id}>
-                            <div className="cw-campaign-main">
-                              <strong>{campaignStates[campaign.state]}</strong>
-                              <small>
-                                {campaign.counts?.submitted || 0} envoyée(s) · {campaign.counts?.running || 0} en cours · {campaign.counts?.needsInput || 0} à compléter · {campaign.counts?.uncertain || 0} à vérifier · plafond {campaign.maxSubmissions}
-                              </small>
-                              <small>
-                                Compte : {campaign.credentialId
-                                  ? data.credentials.find((credential) => credential.id === campaign.credentialId)?.label || "sélectionné, à vérifier"
-                                  : "détection automatique (un seul compte par site)"}
-                              </small>
-                            </div>
-                            <div className="cw-campaign-actions">
-                              <button onClick={() => void toggleCampaignDetails(campaign.id)}>
-                                {campaignDetails[campaign.id] ? "Masquer" : "Détails"}
-                              </button>
-                              {(campaign.state === "queued" || campaign.state === "paused") && !campaign.counts?.uncertain && (
-                                <button className="cw-primary" disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/start`, "POST", {}), "Campagne reprise.")}>Reprendre</button>
-                              )}
-                              {campaign.state === "paused" && !!campaign.counts?.uncertain && <small>Résolvez d’abord l’envoi incertain avant de reprendre.</small>}
-                              {campaign.state === "running" && (
-                                <button disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/pause`, "POST", {}), "Campagne mise en pause.")}>Pause</button>
-                              )}
-                              {!["stopped", "completed", "limit_reached"].includes(campaign.state) && (
-                                <button disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/stop`, "POST", {}), "Campagne arrêtée.")}>Arrêter</button>
-                              )}
-                            </div>
-                            {campaignDetails[campaign.id] && (
-                              <div className="cw-campaign-items">
-                                {campaignDetails[campaign.id].items.map((item) => (
-                                  <div className="cw-campaign-item" key={item.id}>
-                                    <span>
-                                      <strong>{campaignItemStates[item.state] || item.state}</strong>
-                                      {item.error && <small>{item.error}</small>}
-                                    </span>
-                                    <div>
-                                      <button onClick={() => { setTab("applications"); setDetail(item.applicationId); }}>
-                                        Voir la candidature
-                                      </button>
-                                      {["pending", "needs_input", "failed"].includes(item.state) && (
-                                        <button disabled={busy || demo} onClick={() => void action(async () => {
-                                          const updated = await api<CampaignDetail>(`/campaigns/${campaign.id}/items/${item.id}/skip`, "POST", { reason: "Passée depuis le suivi de campagne." });
-                                          setCampaignDetails((current) => ({ ...current, [campaign.id]: updated }));
-                                          return updated.resumeDeferred
-                                            ? "Offre passée. La campagne reste en pause ; le navigateur est occupé. Reprenez-la quand il sera disponible."
-                                            : updated.campaign.state === "completed"
-                                              ? "Offre passée. La campagne est terminée."
-                                              : "Offre passée ; la campagne continue si des offres restent en attente.";
-                                        })}>
-                                          Passer cette offre
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </article>
-                        ))}
-                      </div>
-                    <small>Les réponses requises que le profil ne contient pas sont mises en attente pendant que les autres offres continuent. Un CAPTCHA, une MFA ou un site non pris en charge met la campagne en pause : ouvrez ses détails pour traiter ou passer l’offre. Une candidature dont l’envoi est incertain n’est jamais relancée automatiquement.</small>
-                    </section>
-                  )}
+                  <div hidden={jobsSection === "searches"}>
                   <div className="cw-section-head">
-                    <h2>Votre sélection</h2>
+                    <h2 id="job-results">{jobsSection === "saved" ? "Offres enregistrées" : "Résultats de recherche"}</h2>
                     <input
                       className="cw-search"
                       aria-label="Rechercher une offre"
@@ -1147,7 +1231,7 @@ export default function CareerWorkspace() {
                               {jobSourceLabel(j)}
                             </span>
                             {profileFitScore(j, data.profile) !== null && (
-                              <span className="cw-pill" aria-label="Correspondance indicative de mots-clés" title="Chevauchement de mots-clés des critères enregistrés; ce score ne prédit pas une embauche.">
+                              <span className="cw-pill" aria-label="Correspondance indicative de mots-clés" title="Indice local basé sur le profil (métiers, compétences, expérience, lieu et préférences). Ne tient pas compte de la requête de recherche et ne prédit pas une embauche.">
                                 {profileFitScore(j, data.profile)}% mots-clés
                               </span>
                             )}
@@ -1157,6 +1241,7 @@ export default function CareerWorkspace() {
                             {j.company} <span>·</span>{" "}
                             {j.location || "Lieu non précisé"}
                           </p>
+                          <small className="cw-muted">Repérée par Anima le {j.discoveredAt ? new Date(j.discoveredAt).toLocaleDateString("fr-FR", { dateStyle: "medium" }) : "—"}</small>
                           <div className="cw-job-description">
                             {j.description ||
                               "Consultez la source pour le détail de cette offre."}
@@ -1210,6 +1295,7 @@ export default function CareerWorkspace() {
                       commencer.
                     </div>
                   )}
+                  </div>
                 </>
               )}
               {tab === "applications" && (
@@ -1217,7 +1303,7 @@ export default function CareerWorkspace() {
                   <div className="cw-heading">
                     <div>
                       <span className="cw-eyebrow">CANDIDATER & AVANCER</span>
-                      <h1>Chaque candidature compte.</h1>
+                      <h1>{applicationsSection === "campaigns" ? "Campagnes de candidature" : applicationsSection === "attention" ? "À traiter" : applicationsSection === "followups" ? "Relances à traiter" : "Vos candidatures"}</h1>
                       <p>
                         Un seul lancement pour la connexion, le formulaire, le
                         CV et l’envoi.
@@ -1227,8 +1313,15 @@ export default function CareerWorkspace() {
                       + Nouvelle candidature
                     </button>
                   </div>
+                  <div className="cw-subnav" aria-label="Vues des candidatures">
+                    {([ ["all", "Toutes"], ["attention", "À traiter"], ["followups", `Relances (${dueFollowupList.length})`], ["campaigns", "Campagnes"] ] as const).map(([section, label]) => (
+                      <button key={section} className={applicationsSection === section ? "current" : ""} onClick={() => { setApplicationsSection(section); if (section === "campaigns") void refreshCampaigns(); }}>{label}</button>
+                    ))}
+                  </div>
+                  {applicationsSection === "campaigns" ? campaignPanel : (
+                    <>
                   {profileTools}
-                  <div className="cw-panel cw-batch">
+                  {applicationsSection !== "followups" && <div className="cw-panel cw-batch">
                     <label>
                       <input
                         type="checkbox"
@@ -1254,9 +1347,9 @@ export default function CareerWorkspace() {
                     {campaigns.filter((campaign) => campaign.state === "running").map((campaign) => (
                       <button key={campaign.id} disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/stop`, "POST", {}), "Campagne arrêtée.")}>Arrêter la campagne</button>
                     ))}
-                  </div>
+                  </div>}
                   <div className="cw-applications">
-                    {data.applications.map((a) => (
+                    {visibleApplications.map((a) => (
                       <article key={a.id} className="cw-panel cw-application">
                         <div className="cw-section-head">
                           <label className="cw-check">
@@ -1310,11 +1403,12 @@ export default function CareerWorkspace() {
                       </article>
                     ))}
                   </div>
-                  {!data.applications.length && (
+                  {!visibleApplications.length && (
                     <div className="cw-empty">
-                      Choisissez une offre et un CV. Le moteur s’occupe du
-                      parcours pris en charge.
+                      {applicationsSection === "attention" ? "Aucune candidature ne demande d’action pour le moment." : applicationsSection === "followups" ? "Aucune relance n’est échue pour le moment." : "Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge."}
                     </div>
+                  )}
+                    </>
                   )}
                 </>
               )}
@@ -1739,7 +1833,7 @@ export default function CareerWorkspace() {
                   </section>
                 </>
               )}
-              {tab === "vault" && (
+              {tab === "settings" && settingsSection === "connections" && (
                 <>
                   <div className="cw-heading">
                     <div>
@@ -1900,46 +1994,50 @@ export default function CareerWorkspace() {
                       </p>
                     )}
                   </section>
+                  {franceConnectionPanel}
+                  <AiAssistant
+                    view="connection"
+                    request={(path, method, body) => api<unknown>(path, method, body)}
+                  />
                 </>
               )}
-              {tab === "prospecting" && (
+              {tab === "settings" && settingsSection === "data" && (
+                <div className="cw-heading"><div><span className="cw-eyebrow">DONNÉES LOCALES</span><h1>Données & sauvegardes</h1><p>Exportez, restaurez ou protégez vos données locales.</p></div></div>
+              )}
+              {tab === "settings" && settingsSection === "preferences" && (
                 <>
                   <div className="cw-heading">
-                    <div>
-                      <span className="cw-eyebrow">
-                        LA PROSPECTION ANIMA CONNECT
-                      </span>
-                      <h1>Vos prochaines conversations.</h1>
-                      <p>
-                        Recherches LinkedIn, prospects, modèles et suivi réunis
-                        avec vos candidatures.
-                      </p>
-                    </div>
+                    <div><span className="cw-eyebrow">VOTRE ESPACE</span><h1>Préférences</h1><p>Ces valeurs servent de choix par défaut pour les prochaines campagnes.</p></div>
                   </div>
-                  <div className="cw-subnav">
-                    {(
-                      [
-                        ["recherches", "Recherches"],
-                        ["prospects", "Prospects"],
-                        ["pipeline", "Pipeline"],
-                        ["file", "File de contact"],
-                        ["modeles", "Modèles"],
-                        ["activite", "Activité"],
-                        ["parametres", "Sauvegardes"],
-                      ] as [LegacyTab, string][]
-                    ).map(([key, name]) => (
-                      <button
-                        className={legacyTab === key ? "current" : ""}
-                        key={key}
-                        onClick={() => setLegacyTab(key)}
-                      >
-                        {name}
-                      </button>
-                    ))}
-                  </div>
-                  <Legacy embedded initialTab={legacyTab} demoMode={demo} />
+                  <section className="cw-panel">
+                    <h2>Plafond par défaut des campagnes</h2>
+                    <label>Nombre maximal de candidatures
+                      <input type="number" min="1" max="100" value={maxSubmissions} onChange={(event) => setMaxSubmissions(Number(event.target.value))} />
+                    </label>
+                    <p className="cw-muted">Chaque campagne affiche et conserve son propre plafond au moment de sa création.</p>
+                  </section>
                 </>
               )}
+              {tab === "settings" && settingsSection === "about" && (
+                <div className="cw-heading">
+                  <div><span className="cw-eyebrow">À PROPOS</span><h1>Anima Desktop</h1><p>Un espace local pour organiser vos offres, candidatures, profil et réseau.</p></div>
+                </div>
+              )}
+              <div
+                className="cw-legacy-host"
+                hidden={!(tab === "network" || tab === "help" || (tab === "settings" && ["connections", "data", "preferences"].includes(settingsSection)))}
+              >
+                <ProspectingWorkspace
+                  embedded
+                  initialTab={tab === "network" ? legacyTab : tab === "help" ? "erreurs" : "parametres"}
+                  settingsSection={tab === "settings" ? settingsSection : undefined}
+                  demoMode={demo}
+                  onFeedback={(kind, message) => {
+                    setError(kind === "error" ? message : "");
+                    setNotice(kind === "notice" ? message : "");
+                  }}
+                />
+              </div>
             </>
           )}
         </div>
@@ -1973,14 +2071,9 @@ export default function CareerWorkspace() {
                   batch ||
                   !runnable.some((a) => a.id === current.id)
                 }
-                onClick={() =>
-                  action(
-                    () => run(current.id, "prepare"),
-                    "Préparation lancée. Aucun envoi dans ce mode.",
-                  )
-                }
+                onClick={() => { setCampaignMode("prepare"); setCampaignPlan({ jobIds: [current.jobId], note: "Candidature sélectionnée" }); }}
               >
-                Préparer sans envoyer
+                Préparer avec vérification…
               </button>
               <button
                 className="cw-primary"
@@ -1990,14 +2083,9 @@ export default function CareerWorkspace() {
                   batch ||
                   !runnable.some((a) => a.id === current.id)
                 }
-                onClick={() =>
-                  action(
-                    () => run(current.id, "submit"),
-                    "Automatisation lancée. Le suivi se met à jour ici.",
-                  )
-                }
+                onClick={() => { setCampaignMode("prepare"); setCampaignPlan({ jobIds: [current.jobId], note: "Candidature sélectionnée" }); }}
               >
-                Postuler automatiquement
+                Préparer le lancement…
               </button>
             </div>
             {window.anima && !demo && currentJob && (
@@ -2307,6 +2395,31 @@ export default function CareerWorkspace() {
           </aside>
         </div>
       )}
+      {campaignPlan && data && <div className="cw-overlay cw-campaign-overlay" onClick={() => setCampaignPlan(null)}>
+        <section className="cw-drawer cw-campaign-review" role="dialog" aria-modal="true" aria-labelledby="campaign-review-title" onClick={(event) => event.stopPropagation()}>
+          <div className="cw-section-head"><div><span className="cw-eyebrow">AVANT DE CONTINUER</span><h2 id="campaign-review-title">Récapitulatif de campagne</h2></div><button aria-label="Fermer le récapitulatif" onClick={() => setCampaignPlan(null)}>×</button></div>
+          <p>{campaignPlan.jobIds.length} offre(s) · ordre de pertinence conservé. {campaignPlan.note}</p>
+          <div className="cw-campaign-review-jobs" aria-label="Offres de la campagne">
+            {campaignPlan.jobIds.map((jobId, index) => {
+              const job = data.jobs.find((entry) => entry.id === jobId);
+              const existing = data.applications.find((entry) => entry.jobId === jobId);
+              return <article key={jobId}><span>{index + 1}</span><div><strong>{job?.title || "Offre introuvable"}</strong><small>{job?.company || ""} · {job?.location || "Lieu non précisé"}</small>{existing && <small>Candidature existante · CV : {data.resumes.find((resume) => resume.id === existing.resumeId)?.name || "introuvable"} · {states[existing.state] || existing.state}</small>}</div></article>;
+            })}
+          </div>
+          <div className="cw-grid">
+            <label>CV de la campagne<select value={resumeId} onChange={(event) => setResumeId(event.target.value)}>{data.resumes.map((resume) => <option key={resume.id} value={resume.id}>{resume.name}</option>)}</select></label>
+            <label>Compte carrière<select value={credentialId} onChange={(event) => setCredentialId(event.target.value)}><option value="">Détection automatique · un compte par site</option>{data.credentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.label} · {credential.origin}</option>)}</select></label>
+            <label>Plafond d’envoi<select value={maxSubmissions} onChange={(event) => setMaxSubmissions(Number(event.target.value))}>{[1, 3, 5, 10, 20, 50].map((value) => <option key={value} value={value}>{value} candidature(s)</option>)}</select></label>
+          </div>
+          {campaignPlan.jobIds.some((jobId) => { const existing = data.applications.find((entry) => entry.jobId === jobId); return !!existing && existing.resumeId !== resumeId && !["submitted", "uncertain", "running", "submitting"].includes(existing.state); }) && <p className="cw-callout">À la confirmation, le CV choisi remplacera le CV des candidatures existantes qui peuvent encore être modifiées. Les candidatures envoyées ou à l’issue incertaine gardent leur CV actuel.</p>}
+          <fieldset className="cw-campaign-mode"><legend>Action demandée</legend>
+            <label><input type="radio" name="campaign-mode" value="prepare" checked={campaignMode === "prepare"} onChange={() => setCampaignMode("prepare")} /> Préparer sans envoyer <small>La campagne reste en attente. Aucun portail n’est ouvert.</small></label>
+            <label><input type="radio" name="campaign-mode" value="submit" checked={campaignMode === "submit"} onChange={() => setCampaignMode("submit")} /> Envoyer les candidatures <small>Anima traite les offres dans l’ordre affiché et respecte le plafond. Les questions, CAPTCHA, MFA et envois incertains demandent votre intervention.</small></label>
+          </fieldset>
+          {campaignPlan.jobIds.some((jobId) => data.applications.some((entry) => entry.jobId === jobId && entry.missingFields.length)) && <p className="cw-callout">Au moins une candidature contient des réponses manquantes. La campagne pourra la mettre en attente et poursuivre les autres offres.</p>}
+          <div className="cw-campaign-review-actions"><button onClick={() => setCampaignPlan(null)}>Annuler</button><button className="cw-primary" disabled={busy || demo || !resumeId} onClick={() => { const selectedMode = document.querySelector<HTMLInputElement>('input[name="campaign-mode"]:checked')?.value === "submit" ? "submit" : "prepare"; void action(() => confirmCampaignPlan(selectedMode), selectedMode === "submit" ? "Campagne lancée." : "Campagne préparée."); }}>{campaignMode === "submit" ? "Confirmer et envoyer" : campaignPlan.note === "Candidature sélectionnée" ? "Préparer sans envoyer" : "Créer la campagne sans envoi"}</button></div>
+        </section>
+      </div>}
     </div>
   );
 }

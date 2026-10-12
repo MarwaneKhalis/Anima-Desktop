@@ -8,7 +8,7 @@ on:
       release_tag:
         description: Release tag to publish
         required: true
-        default: v0.3.0
+        default: v0.4.0
         type: string
 permissions:
   contents: read
@@ -33,26 +33,47 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm desktop:dist
+      - name: Upgrade the published v0.3.0 app and smoke-test v0.4.0
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installer = Join-Path (Get-Location) "release/Anima Desktop Setup $version.exe"
+          $env:ANIMA_DESKTOP_INSTALLER = (Resolve-Path -LiteralPath $installer).Path
+          ./scripts/desktop-upgrade-smoke.ps1
       - name: Install and smoke-test the Windows installer
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          $installer = Join-Path (Get-Location) "release/Anima Connect Setup $version.exe"
+          $installer = Join-Path (Get-Location) "release/Anima Desktop Setup $version.exe"
           if (!(Test-Path -LiteralPath $installer)) { throw "Installer not found: $installer" }
-          $installDir = Join-Path $env:RUNNER_TEMP "Anima Connect"
+          $env:TEMP = $env:RUNNER_TEMP
+          $installDir = Join-Path $env:RUNNER_TEMP "Anima Desktop"
+          $installLog = Join-Path $env:TEMP "anima-desktop-installer.log"
           $arguments = @("/S", "/D=$installDir")
           $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($process.ExitCode)." }
-          $installedExe = Join-Path $installDir "Anima Connect.exe"
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path -LiteralPath $installLog) { Get-Content -LiteralPath $installLog }
+            throw "NSIS installer failed with exit code $($process.ExitCode)."
+          }
+          $installedExe = Join-Path $installDir "Anima Desktop.exe"
           if (!(Test-Path -LiteralPath $installedExe)) { throw "Installed executable was not found: $installedExe" }
           $env:ANIMA_DESKTOP_EXECUTABLE = $installedExe
           pnpm desktop:smoke
           if ($LASTEXITCODE -ne 0) { throw "Installed app smoke test failed with exit code $LASTEXITCODE." }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: anima-desktop-release-installer-diagnostics
+          path: |
+            release/*.exe
+            ${{ runner.temp }}/anima-desktop-installer.log
+          retention-days: 30
+          if-no-files-found: ignore
       - name: Prepare a stable download filename
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          $installer = Join-Path (Get-Location) "release/Anima Connect Setup $version.exe"
+          $installer = Join-Path (Get-Location) "release/Anima Desktop Setup $version.exe"
           Copy-Item -LiteralPath $installer -Destination "release/Anima-Desktop-Setup.exe" -Force
       - name: Publish GitHub release
         shell: pwsh
