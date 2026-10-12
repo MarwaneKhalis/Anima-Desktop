@@ -839,6 +839,22 @@ test("campaign review traps keyboard focus and Escape returns to its opener", as
   assert.equal(await trigger.evaluate((element) => document.activeElement === element), true, "closing restores focus to the launch action");
 });
 
+test("primary and secondary navigation announce the active destination", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  const primaryNav = page.getByRole("navigation", { name: "Navigation principale" });
+  assert.equal(await primaryNav.getByRole("button", { name: "Aujourd’hui", exact: true }).getAttribute("aria-current"), "page");
+  await primaryNav.getByRole("button", { name: "Offres", exact: true }).click();
+  assert.equal(await primaryNav.getByRole("button", { name: "Offres", exact: true }).getAttribute("aria-current"), "page");
+  assert.equal(await primaryNav.getByRole("button", { name: "Aujourd’hui", exact: true }).getAttribute("aria-current"), null);
+  await page.getByRole("navigation", { name: "Navigation secondaire" }).getByRole("button", { name: "Paramètres" }).click();
+  assert.equal(await page.getByRole("navigation", { name: "Navigation secondaire" }).getByRole("button", { name: "Paramètres" }).getAttribute("aria-current"), "page");
+});
+
 test("application drawer records a structured employer response without changing the outcome", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
