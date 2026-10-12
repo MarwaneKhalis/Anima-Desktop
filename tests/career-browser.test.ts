@@ -557,6 +557,25 @@ test("CAPTCHA and MFA leave the browser open until the user resolves the challen
   }
   assert.equal(fx.submissions.length, count + 2);
 });
+test("a manual submit during intervention is never replayed when the ATS receipt is unrecognized", async () => {
+  const count = fx.submissions.length;
+  const b = browser(); let marker = 0;
+  try {
+    const paused = await b.run(inputFor("/challenge-manual-submit", "submit", {}, () => { marker++; }));
+    assert.equal(paused.state, "blocked");
+    fx.resolveManualSubmitChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const session = (b as unknown as { pausedSession?: { page: { locator(selector: string): { click(): Promise<void> } } } }).pausedSession;
+    assert.ok(session, "the browser remains open for manual intervention");
+    await session.page.locator("button[type=submit]").click();
+    assert.equal(fx.submissions.length, count + 1, "the human submit occurs once on the fixture");
+
+    const resumed = await b.resume(inputFor("/challenge-manual-submit", "submit", {}, () => { marker++; }));
+    assert.equal(resumed.state, "uncertain", "an unrecognized confirmation stays uncertain instead of replaying the form");
+    assert.equal(marker, 1, "the durable submitting marker is recorded before resolving the ambiguous attempt");
+    assert.equal(fx.submissions.length, count + 1, "resuming never sends a second application");
+  } finally { await b.close(); }
+});
 test("missing receipt is uncertain after exactly one POST", async () => {
   const count = fx.submissions.length;
   const { outcome, marker } = await run("/uncertain", "submit");

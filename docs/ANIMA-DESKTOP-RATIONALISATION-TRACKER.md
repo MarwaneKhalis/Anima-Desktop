@@ -1,6 +1,6 @@
 # Anima Desktop — suivi de rationalisation
 
-Base examinée : `db41e9292591b7f6f8d360e39e60edb997b4f3a9` (`v0.4.1`). Cible de cette branche : `0.4.2`.
+Base examinée : `a9f3014e776f2935c5b0c7bf209509ee8a138faf` (`v0.4.2`). Cible de cette branche : `0.4.3`.
 
 `Vérifié` signifie que le critère d’acceptation complet a été exercé. Les contrôles d’une tranche ou les tests sur fixtures ne suffisent pas à l’affirmer.
 
@@ -9,12 +9,12 @@ Base examinée : `db41e9292591b7f6f8d360e39e60edb997b4f3a9` (`v0.4.1`). Cible de
 | R01 | P1 | En cours | Enveloppe et espace de prospection extraits ; l’espace intégré n’affiche plus sa propre navigation ni son `<main>`. Vérifier chaque ancien écran et ses dialogues dans l’app empaquetée. |
 | R02 | P1 | En cours | Navigation principale regroupée sous Aujourd’hui, Offres, Candidatures, Réseau, Profil & CV ; Paramètres et Aide sont secondaires. Vérifier les destinations et réglages dans l’app Windows installée. |
 | R03 | P1 | En cours | Le champ métier/mot-clé est maintenant visible avant l’ouverture des filtres avancés ; résultats en premier et captures de test à 1366×768 et 390 px. Test UI vérifie la découvrabilité initiale. Vérifier les états vides, clavier, zoom et DPI. |
-| R04 | P1 | En cours | Récapitulatif avant lancement partagé et mode de préparation sans envoi par défaut ; tests UI/API et scénarios fixture. La compatibilité des portails réels n’est pas établie. |
+| R04 | P1 | En cours | Récapitulatif avant lancement partagé et mode de préparation sans envoi par défaut ; reprise après CAPTCHA/MFA suit désormais la requête du bouton final pendant la pause et passe en incertain si une soumission manuelle a déjà été tentée. Tests sur fixture ; la compatibilité des portails réels n’est pas établie. |
 | R05 | P1 | En cours | CV choisi transmis et persisté pour une candidature et une campagne ; compte lié porté jusqu’au moteur. Le parcours automatisé a été exercé sur fixture. |
 | R06 | P1 | En cours | Campagnes durables, paginées et comptées, avec reprise/arrêt et prévention des doublons. Reste à contrôler leur découverte et leurs actions dans toutes les sections UI. |
 | R07 | P1 | En cours | États, erreurs et prochaine action apparaissent sur les fiches ; les notes de suivi éditables après envoi gagnent une entrée chronologique sans recopier leur contenu sensible. Le suivi employeur reste peu structuré. |
 | R08 | P1 | En cours | Aujourd’hui trie l’incertain puis les blocages, présente les relances échues par échéance pour les candidatures actives, en entretien ou avec offre, compare l’instant exact en tenant compte des fuseaux, omet les rappels futurs et évite le doublon entre blocage et rappel. Un accès « Voir les relances dues » ouvre la liste complète ; tests unitaires et parcours UI dédiés. Contrôler après restauration et dans l’app installée. |
-| R09 | P1 | En cours | Nom affiché et installateur passent à Anima Desktop ; appId, `userData` existant, SQLite, coffre et clés restent inchangés. La CI 0.4.0 a vérifié la mise à niveau depuis v0.3.0. La CI 0.4.1 vérifie la mise à niveau depuis l’installeur officiel v0.4.0 et la conservation du répertoire utilisateur ; un test réel avec une base/coffre utilisateur demeure à faire. |
+| R09 | P1 | En cours | Nom affiché et installateur passent à Anima Desktop ; appId, `userData` existant, SQLite, coffre et clés restent inchangés. La CI 0.4.0 a vérifié la mise à niveau depuis v0.3.0. Les CI 0.4.1 et 0.4.2 vérifient une mise à niveau depuis un installeur officiel antérieur et la conservation du répertoire utilisateur ; un test réel avec une base/coffre utilisateur demeure à faire. La prochaine vérification sera faite depuis v0.4.2. |
 | R10 | P1 | En cours | Libellés d’état communs et résultat employeur séparé de l’automatisation. Une taxonomie centrale complète des opérations reste à faire. |
 | R11 | P2 | En cours | Filtre texte et rangement des listes présents ; critères et cadence des recherches récurrentes maintenant modifiables depuis leur liste. Filtres métier, tri choisi et vues compactes restent limités. |
 | R12 | P2 | En cours | Score indicatif de recouvrement de mots-clés expliqué, sans prédire une embauche ; date « Repérée par Anima » basée sur la découverte locale et dernière collecte visibles. Aucune date de publication fiable n’est disponible. |
@@ -34,7 +34,7 @@ Base examinée : `db41e9292591b7f6f8d360e39e60edb997b4f3a9` (`v0.4.1`). Cible de
 - `pnpm test` : 213 tests réussis, 0 échec (dont le non-redémarrage automatique d’une campagne restaurée, les raccourcis de navigation et l’édition d’une recherche récurrente).
 - `pnpm build` et `pnpm desktop:compile` : réussis après les changements UI et serveur.
 - `git diff --check` : réussi.
-- Un installateur Windows local v0.4.0 avait extrait son payload, puis NSIS signalait un abandon parce que le `icacls /T` post-install rencontrait un fichier Chromium temporaire disparu. La correction retire le parcours récursif après avoir confirmé que l’ACE AppContainer héritée est présente sur `icudtl.dat`. Le runner GitHub Windows a réussi la mise à niveau depuis l’installateur officiel v0.3.0, le smoke test de l’application mise à niveau et une installation neuve avec smoke test. La CI du hotfix v0.4.1 reteste la mise à niveau depuis v0.4.0. Le smoke test local reste empêché par l’indisponibilité de DPAPI dans cet environnement Codex.
+- Un installateur Windows local v0.4.0 avait extrait son payload, puis NSIS signalait un abandon parce que le `icacls /T` post-install rencontrait un fichier Chromium temporaire disparu. La correction retire le parcours récursif après avoir confirmé que l’ACE AppContainer héritée est présente sur `icudtl.dat`. Le runner GitHub Windows a réussi la mise à niveau depuis l’installateur officiel v0.3.0, le smoke test de l’application mise à niveau et une installation neuve avec smoke test. La CI du hotfix v0.4.1 reteste la mise à niveau depuis v0.4.0 ; la CI v0.4.2 l’a aussi validée depuis v0.4.0 (et non depuis v0.4.1). La branche v0.4.3 prépare le test depuis la release officielle v0.4.2. Le smoke test local reste empêché par l’indisponibilité de DPAPI dans cet environnement Codex.
 - Aucune candidature, invitation ou aucun message réel envoyé. Aucun portail de recrutement réel n’a été déclaré compatible sur la base des fixtures.
 
 ## Points substantiels encore ouverts

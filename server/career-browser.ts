@@ -28,6 +28,10 @@ type BrowserSession = {
   seen: Set<string>; loggedIn: boolean; resumeCount: number; initialValues: Map<string, string>;
   submittedClick: boolean;
   pausedPageBody?: string;
+  manualInterventionOpen: boolean;
+  manualSubmissionObserved: boolean;
+  pausedSubmitTargets: { url: string; method: string }[];
+  pausedRequests: { url: string; method: string }[];
 };
 const tidy = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1 $2").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const safeText = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 240);
@@ -207,6 +211,32 @@ async function sameOriginForm(page: Page, control: ReturnType<Page["locator"]>, 
   const action = await control.evaluate(el => (el as HTMLInputElement).form?.action || location.href);
   return new URL(action).origin === origin;
 }
+async function finalSubmissionTargets(page: Page): Promise<{ url: string; method: string }[]> {
+  const targets: { url: string; method: string }[] = [];
+  const controls = await buttons(page);
+  for (const control of controls) {
+    if (!finalButton(control.text)) continue;
+    const target = await page.locator('button, input[type="submit"]').nth(control.index).evaluate(el => {
+      const button = el as HTMLButtonElement | HTMLInputElement;
+      const form = button.form;
+      return {
+        url: button.getAttribute("formaction") ? button.formAction : form?.action || location.href,
+        method: (button.getAttribute("formmethod") ? button.formMethod : form?.method || "get").toUpperCase(),
+      };
+    }).catch(() => null);
+    if (target) targets.push(target);
+  }
+  return targets;
+}
+function matchesFinalSubmissionRequest(request: { url: string; method: string }, targets: { url: string; method: string }[]): boolean {
+  try {
+    const url = new URL(request.url);
+    return targets.some(target => {
+      const action = new URL(target.url);
+      return target.method === request.method.toUpperCase() && action.origin === url.origin && action.pathname === url.pathname;
+    });
+  } catch { return false; }
+}
 async function advance(page: Page, control: ReturnType<Page["locator"]>): Promise<void> {
   const before = await page.evaluate(() => ({ url: location.href, html: document.body.innerHTML }));
   await Promise.all([
@@ -251,10 +281,14 @@ export class CareerBrowser {
   private async finish(session: BrowserSession, outcome: RunResult): Promise<RunResult> {
     if (outcome.state === "needs_input" && session.input.closeOnNeedsInput) await this.close();
     else if ((outcome.state === "needs_input" || outcome.state === "blocked") && this.isLive(session)) {
+      session.manualInterventionOpen = true;
+      session.pausedRequests = [];
       const cs = await controls(session.page).catch(() => []);
       const pageSignature = session.page.url() + "|" + cs.map(c => c.name + ":" + c.key).join("|");
       for (const c of cs) session.initialValues.set(pageSignature + "|" + c.index + "|" + c.type + "|" + (c.name || c.key), controlValue(c));
       session.pausedPageBody = (await session.page.locator("body").innerText().catch(() => "")).slice(0, 5000);
+      session.pausedSubmitTargets = await finalSubmissionTargets(session.page).catch(() => []);
+      session.manualSubmissionObserved ||= session.pausedRequests.some(request => matchesFinalSubmissionRequest(request, session.pausedSubmitTargets));
       this.pausedSession = session;
     }
     else await this.close();
@@ -293,7 +327,13 @@ export class CareerBrowser {
       this.context.setDefaultTimeout(10_000);
       this.context.setDefaultNavigationTimeout(20_000);
       const page = await this.context.newPage();
-      session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false };
+      session = { input, page, flowOrigin: start.origin, initialNavigation: true, seen: new Set(), loggedIn: false, resumeCount: 0, initialValues: new Map(), submittedClick: false, manualInterventionOpen: false, manualSubmissionObserved: false, pausedSubmitTargets: [], pausedRequests: [] };
+      page.on("request", request => {
+        if (!session?.manualInterventionOpen) return;
+        session.pausedRequests.push({ url: request.url(), method: request.method() });
+        if (session.pausedRequests.length > 50) session.pausedRequests.shift();
+        if (matchesFinalSubmissionRequest({ url: request.url(), method: request.method() }, session.pausedSubmitTargets)) session.manualSubmissionObserved = true;
+      });
       await this.context.routeWebSocket("**/*", async socket => {
         let origin: string | null = null;
         try {
@@ -361,7 +401,12 @@ export class CareerBrowser {
     this.active = true;
     session.input = input;
     session.resumeCount++;
-    try { return await this.finish(session, await this.drive(session)); }
+    try {
+      // Give a manual submit already in flight a chance to be observed before any
+      // resumed automation can reach the final button.
+      await session.page.waitForTimeout(250).catch(() => {});
+      return await this.finish(session, await this.drive(session));
+    }
     catch {
       const outcome = result(session.submittedClick ? "uncertain" : input.signal?.aborted ? "failed" : "blocked", session.submittedClick ? "L’envoi a peut-être eu lieu ; vérifiez manuellement avant toute nouvelle tentative." : input.signal?.aborted ? "Parcours interrompu avant l’envoi." : "La reprise du formulaire a échoué.");
       return await this.finish(session, outcome);
@@ -372,6 +417,8 @@ export class CareerBrowser {
     const page = session.page;
     const input = session.input;
     for (let step = 0; step < 10; step++) {
+      const manualSubmission = await this.detectManualSubmission(session);
+      if (manualSubmission) return manualSubmission;
       if (input.signal?.aborted) return result("failed", "Parcours interrompu avant l’envoi.");
       if (new URL(page.url()).origin !== session.flowOrigin) return result("blocked", "Redirection vers une autre origine : action manuelle requise.");
       const body = await page.locator("body").innerText().catch(() => "");
@@ -563,6 +610,9 @@ export class CareerBrowser {
       if (!await sameOriginForm(page, finalControl, session.flowOrigin)) return result("blocked", "Envoi vers une origine différente interdite.");
       if (input.mode === "prepare") return result("ready", "Formulaire prêt à être envoyé.");
       if (input.signal?.aborted) return result("failed", "Parcours interrompu avant l’envoi.");
+      const lastChanceManualSubmission = await this.detectManualSubmission(session);
+      if (lastChanceManualSubmission) return lastChanceManualSubmission;
+      session.manualInterventionOpen = false;
       const beforeText = await page.locator("body").innerText().catch(() => "");
       // Persist the submitting marker before any final click so a retry cannot duplicate an uncertain send.
       input.beforeSubmit();
@@ -577,5 +627,17 @@ export class CareerBrowser {
       return result("uncertain", "Le clic a eu lieu mais aucun reçu vérifiable n’est apparu.");
     }
     return result("blocked", "Le formulaire dépasse dix étapes.");
+  }
+
+  private async detectManualSubmission(session: BrowserSession): Promise<RunResult | null> {
+    if (!session.manualInterventionOpen) return null;
+    session.manualSubmissionObserved ||= session.pausedRequests.some(request => matchesFinalSubmissionRequest(request, session.pausedSubmitTargets));
+    if (!session.manualSubmissionObserved) return null;
+    const proof = await receipt(session.page, session.pausedPageBody || "");
+    session.submittedClick = true;
+    session.input.beforeSubmit();
+    return proof
+      ? result("submitted", "Candidature confirmée dans le navigateur.", [], proof)
+      : result("uncertain", "Une soumission a été tentée pendant l’intervention ; vérifiez son résultat avant toute nouvelle tentative.");
   }
 }
