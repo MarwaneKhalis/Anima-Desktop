@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
-import type { Application, AnswerValue, ApplicationState, CareerEvent, CareerMetrics, CareerProfile, CareerSavedSearch, CareerSearchSource, JobOffer, MissingField, OfferSearchCriteria, Outcome, Receipt, Resume, RunResult } from '../src/shared/career.ts';
+import type { Application, AnswerValue, ApplicationState, CareerEvent, CareerEmployerResponse, CareerMetrics, CareerProfile, CareerSavedSearch, CareerSearchSource, EmployerResponseChannel, EmployerResponseType, JobOffer, MissingField, OfferSearchCriteria, Outcome, Receipt, Resume, RunResult } from '../src/shared/career.ts';
 import { ensureProtectedScope, LocalDataProtector, PROTECTED_SCOPES, repairCareerApplicationLastErrorLayout } from './data-protection.ts';
 
 type Row = Record<string, unknown>;
@@ -88,6 +88,18 @@ export class CareerStore {
   recoverInterruptedRuns():void { this.tx(()=>{for(const a of this.listApplications().filter(x=>x.state==='running'||x.state==='submitting')) {const state=a.state==='submitting'?'uncertain':'failed'; this.db.prepare('UPDATE career_applications SET state=?,last_error=?,updated_at=? WHERE id=?').run(state,this.protectedData.writeText('career_applications',a.id,'last_error','Exécution interrompue.'),now(),a.id); this.event(a.id,'interrupted','Exécution interrompue','automation');}}); }
   resolveUncertain(appId:string,input:{resolution:'submitted'|'not_submitted';detail:string}):Application { const a=this.getApplication(appId); if(a.state!=='uncertain') throw new CareerError(409,'run_conflict','Candidature non incertaine.'); const detail=str(input.detail,'Vérification',1000); if(!detail) throw new CareerError(400,'validation','Détail de vérification requis.'); if(!['submitted','not_submitted'].includes(input.resolution)) throw new CareerError(400,'validation','Résolution invalide.'); return this.tx(()=>{const submitted=input.resolution==='submitted',stamp=now(); this.db.prepare('UPDATE career_applications SET state=?,last_error=?,submitted_at=?,updated_at=? WHERE id=?').run(submitted?'submitted':'draft',this.protectedData.writeText('career_applications',appId,'last_error',''),submitted?stamp:null,stamp,appId); this.event(appId,submitted?'manual_submitted':'manual_not_submitted',detail,'user'); return this.getApplication(appId);}); }
   listEvents():CareerEvent[] { return this.all('SELECT * FROM career_events ORDER BY happened_at DESC').map(r=>({id:String(r.id),applicationId:String(r.application_id),kind:String(r.kind),detail:this.protectedData.readText('career_events',String(r.id),'detail',r.detail),source:String(r.source) as 'automation'|'user',happenedAt:String(r.happened_at)})); }
+  addEmployerResponse(appId:string,input:unknown):CareerEvent {
+    const applicationId=id(appId,'Candidature'); this.getApplication(applicationId);
+    const o=obj(input,'Retour employeur'); only(o,['receivedAt','channel','type','note']);
+    const receivedAt=str(o.receivedAt,'Date de réception',10),channel=str(o.channel,'Canal',20) as EmployerResponseChannel,type=str(o.type,'Type de retour',20) as EmployerResponseType,note=str(o.note,'Résumé du retour',1000);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(receivedAt)||!Number.isFinite(Date.parse(`${receivedAt}T00:00:00.000Z`))||new Date(`${receivedAt}T00:00:00.000Z`).toISOString().slice(0,10)!==receivedAt) throw new CareerError(400,'validation','Date de réception invalide.');
+    if(!['email','phone','portal','linkedin','other'].includes(channel)) throw new CareerError(400,'validation','Canal de réponse inconnu.');
+    if(!['interview','offer','rejection','request','other'].includes(type)) throw new CareerError(400,'validation','Type de retour inconnu.');
+    if(!note) throw new CareerError(400,'validation','Résumé du retour requis.');
+    const response:CareerEmployerResponse={version:1,receivedAt,channel,type,note},eventId=randomUUID(),happenedAt=now(),detail=JSON.stringify(response);
+    this.tx(()=>this.db.prepare('INSERT INTO career_events VALUES (?,?,?,?,?,?)').run(eventId,applicationId,'employer_response',this.protectedData.writeText('career_events',eventId,'detail',detail),'user',happenedAt));
+    return {id:eventId,applicationId,kind:'employer_response',detail,source:'user',happenedAt};
+  }
   getMetrics():CareerMetrics { const apps=this.listApplications(); return {savedJobs:this.listJobs().length,applications:apps.length,submitted:apps.filter(a=>!!a.submittedAt).length,needsAttention:apps.filter(a=>['needs_input','blocked','uncertain','failed'].includes(a.state)).length,interviews:apps.filter(a=>a.outcome==='interview').length,offers:apps.filter(a=>a.outcome==='offer').length,rejected:apps.filter(a=>a.outcome==='rejected').length}; }
   listSavedSearches():CareerSavedSearch[] { return this.all('SELECT * FROM career_saved_searches ORDER BY updated_at DESC,id').map(r=>this.savedSearch(r)); }
   getSavedSearch(searchId:string):CareerSavedSearch { const row=this.one('SELECT * FROM career_saved_searches WHERE id=?',id(searchId)); if(!row)throw new CareerError(404,'not_found','Recherche enregistrée introuvable.'); return this.savedSearch(row); }

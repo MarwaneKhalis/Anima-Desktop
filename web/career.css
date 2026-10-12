@@ -1247,6 +1247,31 @@
   font-size: 9px;
   margin-top: 6px;
 }
+.cw-employer-response-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.cw-employer-response-form h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.cw-employer-response-form .cw-grid {
+  gap: 10px;
+}
+.cw-employer-response-form small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.cw-timeline p {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 @media (min-width: 1500px) {
   .cw-content {
     padding-top: 45px;
