@@ -782,7 +782,7 @@ test("today puts active campaigns first and combines blocked, application, and c
   const page = await browser.newPage();
   const campaignListRequests: string[] = [];
   const activeCampaignRequests: string[] = [];
-  await page.route((url, request) => {
+  await page.route((url) => {
     const parsed = new URL(url);
     return request.method() === "GET" && parsed.pathname === "/api/career/campaigns";
   }, async (route) => {
