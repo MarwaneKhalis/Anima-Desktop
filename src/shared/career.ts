@@ -46,6 +46,12 @@ export interface CareerEvent {
   id: string; applicationId: string; kind: string; detail: string;
   source: 'automation' | 'user'; happenedAt: string;
 }
+export type EmployerResponseChannel = 'email' | 'phone' | 'portal' | 'linkedin' | 'other';
+export type EmployerResponseType = 'interview' | 'offer' | 'rejection' | 'request' | 'other';
+export interface CareerEmployerResponse {
+  version: 1; receivedAt: string; channel: EmployerResponseChannel;
+  type: EmployerResponseType; note: string;
+}
 export interface CareerMetrics {
   savedJobs: number; applications: number; submitted: number;
   needsAttention: number; interviews: number; offers: number; rejected: number;

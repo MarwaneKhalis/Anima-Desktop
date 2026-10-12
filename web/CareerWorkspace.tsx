@@ -6,6 +6,7 @@ import type {
   Application,
   AnswerValue,
   CareerProfile,
+  CareerEmployerResponse,
   CareerSavedSearch,
   CareerSearchSource,
   CareerSnapshot,
@@ -50,6 +51,33 @@ const outcomes: Record<string, string> = {
   rejected: "Refus",
   withdrawn: "Retirée",
 };
+const employerResponseTypes: Record<CareerEmployerResponse["type"], string> = {
+  interview: "Entretien proposé",
+  offer: "Offre reçue",
+  rejection: "Refus reçu",
+  request: "Demande ou question",
+  other: "Autre retour",
+};
+const employerResponseChannels: Record<CareerEmployerResponse["channel"], string> = {
+  email: "E-mail",
+  phone: "Téléphone",
+  portal: "Portail carrière",
+  linkedin: "LinkedIn",
+  other: "Autre canal",
+};
+function parseEmployerResponse(detail: string): CareerEmployerResponse | null {
+  try {
+    const value = JSON.parse(detail) as Partial<CareerEmployerResponse>;
+    if (value.version !== 1 || !value.receivedAt || !value.note || !value.type || !value.channel) return null;
+    if (!Object.hasOwn(employerResponseTypes, value.type) || !Object.hasOwn(employerResponseChannels, value.channel)) return null;
+    return value as CareerEmployerResponse;
+  } catch { return null; }
+}
+function localDateInputValue(): string {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  return today.toISOString().slice(0, 10);
+}
 const split = (s: string) =>
   s
     .split(/[,;\n]/)
@@ -2310,7 +2338,7 @@ export default function CareerWorkspace() {
             <section>
               <h3>Votre suivi</h3>
               <label>
-                Résultat
+                Résultat employeur
                 <select
                   value={current.outcome}
                   disabled={busy}
@@ -2331,6 +2359,7 @@ export default function CareerWorkspace() {
                   ))}
                 </select>
               </label>
+              <small>Ce résultat est renseigné séparément du journal des retours reçus.</small>
               <label>
                 CV
                 <select
@@ -2408,7 +2437,7 @@ export default function CareerWorkspace() {
                 />
               </label>
               <label>
-                Retours employeur et notes
+                Notes de suivi
                 <textarea
                   key={`${current.id}-notes`}
                   defaultValue={current.notes}
@@ -2425,7 +2454,34 @@ export default function CareerWorkspace() {
                   }}
                 />
               </label>
-              <small>Les retours sont consignés manuellement ici; aucune boîte e-mail n’est connectée.</small>
+              <form
+                className="cw-employer-response-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const form = event.currentTarget;
+                  const fields = new FormData(form);
+                  void action(async () => {
+                    const result = await api(`/applications/${current.id}/employer-responses`, "POST", {
+                      receivedAt: fields.get("receivedAt"),
+                      channel: fields.get("channel"),
+                      type: fields.get("type"),
+                      note: fields.get("note"),
+                    });
+                    form.reset();
+                    return result;
+                  }, "Retour employeur consigné dans l’historique.");
+                }}
+              >
+                <h4>Consigner un retour reçu</h4>
+                <div className="cw-grid">
+                  <label>Date de réception<input type="date" name="receivedAt" defaultValue={localDateInputValue()} required /></label>
+                  <label>Canal<select name="channel" defaultValue="email"><option value="email">E-mail</option><option value="phone">Téléphone</option><option value="portal">Portail carrière</option><option value="linkedin">LinkedIn</option><option value="other">Autre</option></select></label>
+                  <label>Type de retour<select name="type" defaultValue="interview"><option value="interview">Entretien proposé</option><option value="offer">Offre reçue</option><option value="rejection">Refus reçu</option><option value="request">Demande ou question</option><option value="other">Autre retour</option></select></label>
+                </div>
+                <label>Résumé<textarea name="note" required maxLength={1000} placeholder="Ce que l’employeur a communiqué et la prochaine étape éventuelle…" /></label>
+                <button type="submit" disabled={busy || demo}>Ajouter à l’historique</button>
+                <small>Ce relevé est manuel : il ne lit ni n’envoie aucun e-mail et ne modifie pas le résultat employeur ci-dessus.</small>
+              </form>
             </section>
             <section>
               <h3>Historique vérifiable</h3>
@@ -2436,13 +2492,18 @@ export default function CareerWorkspace() {
                     <div key={event.id}>
                       <span>●</span>
                       <div>
-                        <strong>{event.detail || event.kind}</strong>
-                        <small>
-                          {date(event.happenedAt)} ·{" "}
-                          {event.source === "automation"
-                            ? "Automatisation"
-                            : "Vous"}
-                        </small>
+                        {(() => {
+                          const response = event.kind === "employer_response" ? parseEmployerResponse(event.detail) : null;
+                          if (!response) return <>
+                            <strong>{event.detail || event.kind}</strong>
+                            <small>{date(event.happenedAt)} · {event.source === "automation" ? "Automatisation" : "Vous"}</small>
+                          </>;
+                          return <>
+                            <strong>Retour employeur · {employerResponseTypes[response.type]}</strong>
+                            <p>{response.note}</p>
+                            <small>Reçu le {new Date(`${response.receivedAt}T00:00:00`).toLocaleDateString("fr-FR")} via {employerResponseChannels[response.channel]} · Consigné le {date(event.happenedAt)}</small>
+                          </>;
+                        })()}
                       </div>
                     </div>
                   ))}

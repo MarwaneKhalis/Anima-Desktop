@@ -758,6 +758,37 @@ test("today offers direct access to every due follow-up", async (t) => {
   assert.equal(await page.getByRole("button", { name: "Relances (4)", exact: true }).getAttribute("class"), "current");
 });
 
+test("application drawer records a structured employer response without changing the outcome", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV retour", filename: "cv-retour.pdf", mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  const job = await app.json("/api/career/jobs", { url: `${app.fixture.baseUrl}/simple?response=1`, title: "Poste avec retour", company: "Employeur Fixture" });
+  const application = await app.json("/api/career/applications", { jobId: job.value.id, resumeId: resume.value.id });
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByRole("button", { name: "Ouvrir le suivi →" }).click();
+  await page.getByRole("heading", { name: "Consigner un retour reçu" }).waitFor();
+  await page.getByLabel("Date de réception").fill("2020-01-02");
+  await page.getByLabel("Canal").selectOption("phone");
+  await page.getByLabel("Type de retour").selectOption("interview");
+  await page.getByLabel("Résumé").fill("Entretien proposé jeudi à 14 h.");
+  await page.screenshot({ path: "artifacts/career-ui/12-employer-response.png", fullPage: true });
+  await page.getByRole("button", { name: "Ajouter à l’historique" }).click();
+  await page.getByText("Retour employeur · Entretien proposé", { exact: true }).waitFor();
+  await page.getByText("Entretien proposé jeudi à 14 h.", { exact: true }).waitFor();
+  await page.getByText(/Reçu le 02\/01\/2020 via Téléphone/).waitFor();
+  const snapshot = (await app.json("/api/career/bootstrap")).value;
+  assert.equal(snapshot.applications.find((item: Application) => item.id === application.value.id).outcome, "active");
+  assert.equal(snapshot.metrics.interviews, 0);
+  assert.equal(app.fixture.submissions.length, 0, "recording a manual employer response sends no application or message");
+});
+
 test("dashboard shortcuts reset the destination to its primary view", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());

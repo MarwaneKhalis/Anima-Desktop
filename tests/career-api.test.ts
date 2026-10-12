@@ -136,6 +136,31 @@ test("saved public searches persist, collect offers on demand, pause and delete"
   assert.equal((await app.json("/api/career/saved-searches?demo=1", { source: "arbeitnow", criteria: { keywords: "Test" }, intervalHours: 24 }, "POST")).response.status, 403);
 });
 
+test("manual employer responses are validated, encrypted in history, and separate from application outcome", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(app.close);
+  const job = await app.json("/api/career/jobs", { url: "https://jobs.example.org/recruiting/response", title: "Engineer", company: "Example" });
+  assert.equal(job.response.status, 201);
+  const resume = await app.json("/api/career/resumes", { name: "CV", filename: "cv.pdf", mime: "application/pdf", base64: Buffer.from("%PDF-1.4\\n%%EOF").toString("base64") });
+  assert.equal(resume.response.status, 201);
+  const created = await app.json("/api/career/applications", { jobId: job.value.id, resumeId: resume.value.id });
+  assert.equal(created.response.status, 201);
+  const body = { receivedAt: "2020-01-02", channel: "phone", type: "interview", note: "Entretien proposé jeudi." };
+  const recorded = await app.json(`/api/career/applications/${created.value.id}/employer-responses`, body, "POST");
+  assert.equal(recorded.response.status, 201);
+  const response = JSON.parse(recorded.value.detail);
+  assert.deepEqual(response, { version: 1, ...body });
+  assert.notEqual(recorded.value.happenedAt.slice(0, 10), body.receivedAt, "recorded-at is distinct from when the employer replied");
+  const snapshot = (await app.json("/api/career/bootstrap")).value;
+  assert.equal(snapshot.applications[0].outcome, "active");
+  assert.equal(snapshot.metrics.interviews, 0, "recording a response does not alter the employer outcome field");
+  assert.equal(snapshot.events.find((event: { id: string }) => event.id === recorded.value.id).detail, recorded.value.detail);
+  assert.equal((await app.json(`/api/career/applications/${created.value.id}/employer-responses`, { ...body, channel: "sms" }, "POST")).response.status, 400);
+  assert.equal((await app.json(`/api/career/applications/${created.value.id}/employer-responses`, { ...body, unexpected: true }, "POST")).response.status, 400);
+  const noCsrf = await app.request(`/api/career/applications/${created.value.id}/employer-responses?demo=0`, { method: "POST", headers: { "Content-Type": "application/json", "X-Anima-Request": "0" }, body: JSON.stringify(body) });
+  assert.equal(noCsrf.status, 403);
+});
+
 test("career HTTP API drives isolated real-store application runs", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
