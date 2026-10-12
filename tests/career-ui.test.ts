@@ -778,3 +778,35 @@ test("dashboard shortcuts reset the destination to its primary view", async (t) 
   await page.getByRole("button", { name: "+ Nouvelle candidature", exact: true }).click();
   await page.getByRole("heading", { name: "Trouver une offre" }).waitFor();
 });
+
+test("saved recurring searches can edit criteria and cadence", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const created = await app.json("/api/career/saved-searches?demo=0", {
+    source: "arbeitnow",
+    criteria: { keywords: "TypeScript", commune: "Paris", contractType: "CDI", limit: 50 },
+    intervalHours: 24,
+    enabled: true,
+  });
+  assert.equal(created.response.status, 201);
+
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByRole("button", { name: "Recherches enregistrées", exact: true }).click();
+  await page.getByRole("button", { name: "Modifier", exact: true }).click();
+  const editor = page.getByRole("form", { name: "Modifier la recherche TypeScript" });
+  await editor.getByLabel("Mots-clés").fill("Product designer");
+  await editor.getByLabel("Ville ou commune").fill("Lyon");
+  await editor.getByLabel("Type de contrat").fill("CDI");
+  await editor.getByLabel("Nombre d’offres").selectOption("100");
+  await editor.getByLabel("Fréquence").selectOption("168");
+  await editor.getByRole("button", { name: "Enregistrer les changements" }).click();
+
+  const { value } = await app.json("/api/career/saved-searches?demo=0");
+  assert.deepEqual(value.searches[0].criteria, { keywords: "Product designer", commune: "Lyon", contractType: "CDI", limit: 100 });
+  assert.equal(value.searches[0].intervalHours, 168);
+  assert.equal(value.searches[0].enabled, true);
+});
