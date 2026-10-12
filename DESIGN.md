@@ -22,7 +22,7 @@ These values come from the “Carmin technique” mockup and may be used when cr
 | --- | --- | --- |
 | Canvas | `#F4F3ED` | Main window background |
 | Surface | `#FFFEFA` | Primary content surfaces |
-| Surface secondary | `#EEEE E4` | Quiet grouping and selected neutral areas; remove the space when encoding as a color: `#EEEEE4` |
+| Surface secondary | `#EEEEE4` | Quiet grouping and selected neutral areas |
 | Ink | `#26332F` | Primary text and strong icons |
 | Muted ink | `#768078` | Supporting text |
 | Border | `#E1E2D8` | Dividers and control outlines |
@@ -53,4 +53,4 @@ All screens must remain legible and usable at supported Windows window sizes, wi
 
 ## Visual verification
 
-For a visual change, inspect the built Electron UI at its actual desktop size. The repository already uses Playwright in `scripts/desktop-smoke.mjs`; it can save a desktop screenshot when run with `ANIMA_CAPTURE_DESKTOP_PREVIEW=1`. Review the rendered screenshot, not just the DOM or source, and fix visible hierarchy, spacing, clipping, and contrast issues in a bounded pass. Do not claim a visual pass from a smoke-test success alone.
+For a visual change, inspect the built Electron UI at its actual desktop size. The repository already uses Playwright in `scripts/desktop-smoke.mjs`; when a packaged build is available, run the smoke script with `ANIMA_CAPTURE_DESKTOP_PREVIEW=1` to save `artifacts/anima-connect-desktop.png`. Review the rendered screenshot, not just the DOM or source, and fix visible hierarchy, spacing, clipping, and contrast issues in a bounded pass. Do not claim a visual pass from a smoke-test success alone.
