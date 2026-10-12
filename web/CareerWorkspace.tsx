@@ -687,11 +687,12 @@ export default function CareerWorkspace() {
         </a>
         <p className="cw-caption">Offres · candidatures · réseau</p>
         <div className="cw-nav-label">ESPACE CARRIÈRE</div>
-        <nav>
+        <nav aria-label="Navigation principale">
           {navigation.map(([key, icon, name]) => (
             <button
               key={key}
               className={tab === key ? "current" : ""}
+              aria-current={tab === key ? "page" : undefined}
               onClick={() => {
                 setTab(key);
                 setError("");
@@ -707,9 +708,10 @@ export default function CareerWorkspace() {
           ))}
         </nav>
         <div className="cw-bottom">
-          <div className="cw-secondary-nav" aria-label="Navigation secondaire">
+          <nav className="cw-secondary-nav" aria-label="Navigation secondaire">
             <button
               className={tab === "settings" ? "current" : ""}
+              aria-current={tab === "settings" ? "page" : undefined}
               onClick={() => {
                 setSettingsSection("connections");
                 setTab("settings");
@@ -719,11 +721,12 @@ export default function CareerWorkspace() {
             </button>
             <button
               className={tab === "help" ? "current" : ""}
+              aria-current={tab === "help" ? "page" : undefined}
               onClick={() => setTab("help")}
             >
               <span aria-hidden="true">?</span> Aide
             </button>
-          </div>
+          </nav>
           <div className="cw-private">
             <span>●</span>
             <div>
