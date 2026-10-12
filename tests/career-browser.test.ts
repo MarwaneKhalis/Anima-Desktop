@@ -96,6 +96,33 @@ test("profile experience and education entries fill matching ATS fields in order
     assert.equal(fx.submissions.at(-1)?.fields.employment_0_company, "Corrected employer", "application-specific answers take precedence over profile history");
   } finally { await override.close(); }
 });
+test("standalone current-company question is never filled with the first work-history employer", async () => {
+  const before = fx.submissions.length;
+  const b = browser(); let marker = 0;
+  try {
+    const outcome = await b.run({ ...inputFor("/current-company", "submit", {}, () => { marker++; }), profile: profileWithHistory });
+    assert.equal(outcome.state, "needs_input");
+    assert.match(outcome.missingFields[0]?.label || "", /current company/i);
+    assert.equal(marker, 0);
+    assert.equal(fx.submissions.length, before);
+  } finally { await b.close(); }
+});
+test("Apply button without a verifiable destination is never clicked as a final submit", async () => {
+  const before = fx.submissions.length;
+  const { outcome, marker } = await run("/apply-button", "submit");
+  assert.equal(outcome.state, "blocked");
+  assert.match(outcome.message, /bouton de candidature sans lien vérifiable/);
+  assert.equal(marker, 0);
+  assert.equal(fx.submissions.length, before);
+});
+test("an Apply anchor alongside an Apply button is treated as ambiguous", async () => {
+  const before = fx.submissions.length;
+  const { outcome, marker } = await run("/apply-anchor-and-button", "submit");
+  assert.equal(outcome.state, "blocked");
+  assert.match(outcome.message, /Plusieurs liens/);
+  assert.equal(marker, 0);
+  assert.equal(fx.submissions.length, before);
+});
 test("follows one visible Apply link and waits for its first-party form script", async () => {
   const count = fx.submissions.length;
   const scripts = fx.applyScriptVisits;

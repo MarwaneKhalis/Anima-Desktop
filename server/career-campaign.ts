@@ -380,9 +380,12 @@ export class CareerCampaignEngine {
           continue;
         }
         const campaign = this.store.get(id);
-        if (!this.store.hasPending(id)) this.store.setState(id, "completed");
-        else if (this.store.listItems(id).some(x => x.state === "pending") && this.store.listItems(id).filter(x => ["submitted", "uncertain", "running"].includes(x.state)).length >= campaign.maxSubmissions) this.store.setState(id, "limit_reached");
-        else this.store.setState(id, "completed");
+        const pending = this.store.hasPending(id);
+        const reserved = this.store.listItems(id).filter(x => ["submitted", "uncertain", "running"].includes(x.state)).length;
+        if (pending && reserved >= campaign.maxSubmissions) this.store.setState(id, "limit_reached");
+        else if (this.store.counts(id).needsInput) this.store.setState(id, "paused");
+        else if (!pending) this.store.setState(id, "completed");
+        else this.store.setState(id, "paused");
         break;
       }
       await Promise.allSettled(active);

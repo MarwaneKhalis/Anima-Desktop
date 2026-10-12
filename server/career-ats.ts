@@ -105,7 +105,7 @@ function isTeamtailorApplicationUrl(value: string, testOrigins: ReadonlySet<stri
  * Find one unambiguous visible Apply link. We inspect anchors only; no guessed form action,
  * hidden link, script URL, or arbitrary external redirect is followed.
  */
-export async function findApplyLink(page: Page, testOrigins: ReadonlySet<string>): Promise<ApplyLink | null | "ambiguous"> {
+export async function findApplyLink(page: Page, testOrigins: ReadonlySet<string>): Promise<ApplyLink | null | "ambiguous" | "manual"> {
   const links = await page.locator("a[href]").evaluateAll(nodes => nodes.flatMap((node, index) => {
     const a = node as HTMLAnchorElement;
     const text = `${a.innerText || ""} ${a.getAttribute("aria-label") || ""} ${a.title || ""}`.trim();
@@ -118,6 +118,16 @@ export async function findApplyLink(page: Page, testOrigins: ReadonlySet<string>
     || isTeamtailorApplicationUrl(href, testOrigins));
   const candidates = [...new Map(candidateLinks.map(link => [link.href, link])).values()];
   if (candidates.length > 1) return "ambiguous";
+  // A button may be an Apply transition or a final submission depending on the
+  // tenant. Without a selected destination link, never guess which action it is.
+  const applyButtons = await page.locator("button, input[type=button], input[type=submit]").evaluateAll(nodes => nodes.some(node => {
+    const el = node as HTMLButtonElement | HTMLInputElement;
+    const text = `${"innerText" in el ? el.innerText : ""} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("value") || ""}`.trim();
+    const style = getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden" && el.getClientRects().length > 0
+      && /^(apply|apply now|apply for this job|postuler|candidater|postulez)$/i.test(text);
+  }));
+  if (applyButtons) return candidates.length ? "ambiguous" : "manual";
   const allowed: ApplyLink[] = candidates.flatMap<ApplyLink>(({ href, index }) => {
     try {
       const url = new URL(href);

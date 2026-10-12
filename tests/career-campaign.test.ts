@@ -56,7 +56,25 @@ test("one item requiring input and one thrown error do not stop the following ap
   const campaign = create(store, port);
   await new CareerCampaignEngine(store, port).start(campaign.id);
   assert.deepEqual(store.listItems(campaign.id).map(x => x.state), ["needs_input", "failed", "submitted"]);
+  assert.equal(store.get(campaign.id).state, "paused", "a campaign with an unresolved human step stays resumable");
   db.close(); disk.dispose();
+});
+
+test("a campaign with only an input-blocked item can resume after the user resolves it", async () => {
+  const db = new DatabaseSync(":memory:"), store = new CareerCampaignStore(db), port = new FixturePort();
+  port.handler = async () => ({ state: "needs_input", missingFields: [], message: "Manual answer needed", receipt: null });
+  const campaign = create(store, port, 1), engine = new CareerCampaignEngine(store, port);
+  await engine.start(campaign.id);
+  assert.equal(store.get(campaign.id).state, "paused");
+  assert.equal(store.listItems(campaign.id)[0].state, "needs_input");
+  port.apps.set("app-job-1", { ...port.getApplication("app-job-1"), state: "draft" });
+  engine.reconcile(campaign.id);
+  assert.equal(store.listItems(campaign.id)[0].state, "pending");
+  port.handler = async () => submitted;
+  await engine.start(campaign.id);
+  assert.equal(store.get(campaign.id).state, "completed");
+  assert.equal(port.calls.get("app-job-1"), 2);
+  db.close();
 });
 
 test("offers and application creation are idempotent when a crash separates persistence steps", () => {

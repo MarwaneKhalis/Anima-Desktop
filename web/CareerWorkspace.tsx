@@ -6,10 +6,13 @@ import type {
   Application,
   AnswerValue,
   CareerProfile,
+  CareerSavedSearch,
+  CareerSearchSource,
   CareerSnapshot,
   JobOffer,
   RunMode,
 } from "../src/shared/career.ts";
+import { profileFitScore, rankJobsForProfile } from "../src/shared/career-ranking.ts";
 
 type Tab =
   "home" | "jobs" | "applications" | "profile" | "vault" | "prospecting";
@@ -105,6 +108,7 @@ export default function CareerWorkspace() {
     [searchSource, setSearchSource] = useState<"all" | "arbeitnow" | "france-travail" | "jobicy" | "remoteok" | "himalayas" | "remotive">("all"),
     [franceCredentials, setFranceCredentials] = useState({ clientId: "", clientSecret: "", scope: "" }),
     [searchCriteria, setSearchCriteria] = useState({ keywords: "", department: "", commune: "", contractType: "", limit: 50 }),
+    [searchIntervalHours, setSearchIntervalHours] = useState<6 | 12 | 24 | 168>(24),
     [maxSubmissions, setMaxSubmissions] = useState(10),
     [campaigns, setCampaigns] = useState<CampaignSummary[]>([]),
     [campaignDetails, setCampaignDetails] = useState<Record<string, CampaignDetail>>({}),
@@ -275,8 +279,7 @@ export default function CareerWorkspace() {
     }
   }
   async function createAndStartCampaign(jobIds: string[]) {
-    // Keep discovery order: the first offers are the highest ranked, and the
-    // campaign's submission cap must apply to that ranking.
+    // Preserve the caller's ranking so the submission cap applies to that order.
     const normalizedJobIds = [...new Set(jobIds)];
     const payload = { jobIds: normalizedJobIds, resumeId, maxSubmissions, ...(credentialId ? { credentialId } : {}) };
     const storageKey = "anima-pending-campaign";
@@ -341,9 +344,19 @@ export default function CareerWorkspace() {
     );
     if (!found.jobs.length) return found.note || "Aucune offre ne correspond à ces critères.";
     if (!apply) return `${found.jobs.length} offre(s) récupérée(s). ${found.note}`;
-    await createAndStartCampaign(found.jobs.map((job) => job.id));
+    await createAndStartCampaign(rankJobsForProfile(found.jobs, data?.profile || profile).map((job) => job.id));
     await refreshCampaigns();
     return `Campagne lancée sur ${found.jobs.length} offre(s), avec un plafond de ${maxSubmissions} envoi(s). ${found.note}`;
+  }
+  async function saveRecurringSearch() {
+    if (searchSource === "france-travail") throw new Error("La collecte récurrente est limitée aux flux publics sans compte.");
+    const source = searchSource as CareerSearchSource;
+    const criteria = { keywords: searchCriteria.keywords.trim() || profile?.preferences.titles.join(", ") || "", ...(searchCriteria.commune.trim() && !["himalayas", "remotive"].includes(source) ? { commune: searchCriteria.commune.trim() } : {}), ...(searchCriteria.contractType.trim() ? { contractType: searchCriteria.contractType.trim() } : {}), limit: Math.min(200, searchCriteria.limit) };
+    await api<CareerSavedSearch>("/saved-searches", "POST", { source, criteria, intervalHours: searchIntervalHours, enabled: true });
+    return "Recherche enregistrée. La collecte se fera automatiquement tant qu’Anima Desktop est ouvert.";
+  }
+  async function updateRecurringSearch(search: CareerSavedSearch, changes: { enabled?: boolean }) {
+    return api<CareerSavedSearch>(`/saved-searches/${search.id}`, "PATCH", { source: search.source, criteria: search.criteria, intervalHours: search.intervalHours, ...changes });
   }
   async function saveFranceTravailCredentials() {
     const saved = await api<FranceTravailStatus>("/sources/france-travail", "POST", franceCredentials);
@@ -897,6 +910,13 @@ export default function CareerWorkspace() {
                         >
                           Trouver et candidater automatiquement
                         </button>
+                        {searchSource !== "france-travail" && <label className="cw-cap">
+                          Collecte enregistrée
+                          <select value={searchIntervalHours} onChange={(e) => setSearchIntervalHours(Number(e.target.value) as 6 | 12 | 24 | 168)}>
+                            <option value={6}>Toutes les 6 heures</option><option value={12}>Toutes les 12 heures</option><option value={24}>Chaque jour</option><option value={168}>Chaque semaine</option>
+                          </select>
+                        </label>}
+                        {searchSource !== "france-travail" && <button type="button" disabled={busy || demo} onClick={() => action(saveRecurringSearch, "Recherche enregistrée.")}>Enregistrer cette recherche</button>}
                       </div>
                       <small className="cw-automation-note">
                           {searchSource === "all"
@@ -916,6 +936,18 @@ export default function CareerWorkspace() {
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
                       {!resumeId && <small>Ajoutez d’abord un CV dans l’onglet Profil & CV pour activer les candidatures.</small>}
                     </form>
+                    <section className="cw-panel" aria-label="Recherches récurrentes">
+                      <div className="cw-section-head"><h3>Recherches enregistrées</h3><span className="cw-pill">{data.savedSearches.length}</span></div>
+                      {data.savedSearches.length ? data.savedSearches.map((search) => <div className="cw-section-head" key={search.id}>
+                        <div><strong>{search.criteria.keywords}</strong><small>{search.source} · {search.intervalHours < 24 ? `toutes les ${search.intervalHours} h` : search.intervalHours === 24 ? "quotidienne" : "hebdomadaire"} · {search.lastResultCount} offre(s) au dernier passage</small>{search.lastError && <small role="status">{search.lastError}</small>}{search.enabled && search.nextRunAt && <small>Prochaine collecte : {date(search.nextRunAt)}</small>}</div>
+                        <div>
+                          {search.enabled && <button disabled={busy || demo} onClick={() => action(async () => { const result = await api<CareerSavedSearch>(`/saved-searches/${search.id}/run`, "POST", {}); return `Collecte terminée : ${result.lastResultCount} offre(s) trouvée(s).`; }, "Collecte terminée.")}>Collecter maintenant</button>}
+                          <button disabled={busy || demo} onClick={() => action(() => updateRecurringSearch(search, { enabled: !search.enabled }), search.enabled ? "Collecte mise en pause." : "Collecte réactivée.")}>{search.enabled ? "Suspendre" : "Réactiver"}</button>
+                          <button disabled={busy || demo} onClick={() => action(async () => { await api(`/saved-searches/${search.id}`, "DELETE", {}); return "Recherche supprimée."; })}>Supprimer</button>
+                        </div>
+                      </div>) : <p>Aucune recherche récurrente. Enregistrez les critères ci-dessus pour collecter les offres automatiquement pendant qu’Anima Desktop est ouvert.</p>}
+                      <small>La collecte lit uniquement les flux publics et enregistre les offres localement. Elle ne prépare ni n’envoie de candidature. Les recherches France Travail à accès restreint ne sont pas planifiées.</small>
+                    </section>
                     {searchSource === "france-travail" && <details className="cw-details" open={!franceTravail.configured && !demo}>
                       <summary>{franceTravail.configured ? "Modifier la configuration France Travail" : "Configurer l’accès France Travail"}</summary>
                       <p>
@@ -1099,7 +1131,7 @@ export default function CareerWorkspace() {
                     />
                   </div>
                   <div className="cw-jobs">
-                    {data.jobs
+                    {rankJobsForProfile(data.jobs, data.profile)
                       .filter((j) =>
                         `${j.title} ${j.company} ${j.location}`
                           .toLowerCase()
@@ -1114,6 +1146,11 @@ export default function CareerWorkspace() {
                             <span className="cw-pill">
                               {jobSourceLabel(j)}
                             </span>
+                            {profileFitScore(j, data.profile) !== null && (
+                              <span className="cw-pill" aria-label="Correspondance indicative de mots-clés" title="Chevauchement de mots-clés des critères enregistrés; ce score ne prédit pas une embauche.">
+                                {profileFitScore(j, data.profile)}% mots-clés
+                              </span>
+                            )}
                           </div>
                           <h2>{j.title}</h2>
                           <p>
@@ -2198,7 +2235,7 @@ export default function CareerWorkspace() {
                 </select>
               </label>
               <label>
-                Prochaine action
+                Prochaine action / relance
                 <input
                   type="datetime-local"
                   defaultValue={
@@ -2227,10 +2264,11 @@ export default function CareerWorkspace() {
                 />
               </label>
               <label>
-                Notes
+                Retours employeur et notes
                 <textarea
                   key={`${current.id}-notes`}
                   defaultValue={current.notes}
+                  placeholder="Date et canal du retour, résumé, prochaine étape…"
                   onBlur={(e) => {
                     if (e.target.value !== current.notes)
                       action(
@@ -2243,6 +2281,7 @@ export default function CareerWorkspace() {
                   }}
                 />
               </label>
+              <small>Les retours sont consignés manuellement ici; aucune boîte e-mail n’est connectée.</small>
             </section>
             <section>
               <h3>Historique vérifiable</h3>

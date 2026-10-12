@@ -26,6 +26,7 @@ import { CareerRunner } from "./career-runner.ts";
 import { CareerAI } from "./career-ai.ts";
 import { handleCareerApi } from "./career-api.ts";
 import { createCareerCampaignRuntime } from "./career-campaign-runtime.ts";
+import { CareerSearchScheduler } from "./career-search-scheduler.ts";
 import { handleCareerCampaignApi } from "./career-campaign-api.ts";
 import { JobDiscovery } from "./job-discovery.ts";
 import { FranceTravailDiscovery } from "./france-travail-discovery.ts";
@@ -150,6 +151,15 @@ const allPublicOfferSearch = new PublicOfferAggregator([
   { name: "Remotive", service: remotiveOfferSearch, supportsCommune: false },
 ], allowedTestOrigins);
 let careerStore = new CareerStore(realStore.db, careerOptions);
+const careerSearchScheduler = new CareerSearchScheduler(() => careerStore, {
+  all: allPublicOfferSearch,
+  arbeitnow: publicOfferSearch,
+  jobicy: jobicyOfferSearch,
+  remoteok: remoteOkOfferSearch,
+  himalayas: himalayasOfferSearch,
+  remotive: remotiveOfferSearch,
+});
+careerSearchScheduler.start();
 let vault = new Vault(realStore.db, careerOptions);
 let runner = new CareerRunner(careerStore, vault, careerBrowser);
 careerStore.recoverInterruptedRuns();
@@ -317,6 +327,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         himalayasOfferSearch: demo && !testHimalayasOfferSearch ? undefined : himalayasOfferSearch,
         remotiveOfferSearch: demo && !testRemotiveOfferSearch ? undefined : remotiveOfferSearch,
         allPublicOfferSearch: demo ? undefined : allPublicOfferSearch,
+        searchScheduler: careerSearchScheduler,
         demo,
         allowedTestOrigins,
       })
@@ -630,6 +641,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         validatePortableDatabase(scratch, { legacy: decrypted.legacy });
         ensureAllProtectedScopes(scratch, dataProtectionKey);
         writeFileSync(temp, serializeDatabase(scratch), { flag: "wx" });
+        await careerSearchScheduler.stop();
         campaignRuntime.engine.pauseAll();
         await runner.stop();
         await campaignRuntime.engine.waitAll();
@@ -645,6 +657,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           renameSync(temp, realPath);
           realStore = new Store(realPath, dataProtectionKey);
           careerStore = new CareerStore(realStore.db, careerOptions);
+          careerSearchScheduler.start();
           vault = new Vault(realStore.db, careerOptions);
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
@@ -656,6 +669,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           copyFileSync(rollback, realPath);
           realStore = new Store(realPath, dataProtectionKey);
           careerStore = new CareerStore(realStore.db, careerOptions);
+          careerSearchScheduler.start();
           vault = new Vault(realStore.db, careerOptions);
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
@@ -681,6 +695,7 @@ if (server)
     console.log(`Anima Connect : http://127.0.0.1:${port}`),
   );
 async function shutdown() {
+  await careerSearchScheduler.stop();
   campaignRuntime.engine.pauseAll();
   demoCampaignRuntime.engine.pauseAll();
   await runner.stop();

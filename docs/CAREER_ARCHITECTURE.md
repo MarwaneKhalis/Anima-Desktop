@@ -228,6 +228,8 @@ Préfixe `/api/career`. Toutes les réponses JSON ont `Cache-Control: no-store`.
 | POST `/discover` | `{url}` | 200 `DiscoveryResult`, offres persistées |
 | POST `/sources/all-public/search` | `{keywords,commune?,contractType?,limit?}` ; cinq sources publiques, 200 offres max | 200 `{jobs,note}`, offres persistées et dédupliquées |
 | POST `/sources/{france-travail,arbeitnow,jobicy,remoteok,himalayas,remotive}/search` | mots-clés et filtres propres à la source | 200 `{jobs,note}`, offres persistées |
+| GET/POST `/saved-searches` ; PATCH/DELETE `/saved-searches/{id}` | source publique, critères, fréquence 6/12/24/168 h et état activé | recherches chiffrées et persistées; la collecte planifiée ajoute les offres sans lancer de candidature |
+| POST `/saved-searches/{id}/run` | identifiant d’une recherche publique activée | collecte immédiate, état de fraîcheur, nombre d’offres et erreur générique |
 | POST `/applications` | `{jobId,resumeId,prospectId?}` | 201 `Application` (200 si existante) |
 | GET `/applications/:id` | — | 200 `Application` |
 | PATCH `/applications/:id` | réponses/champs publics ci-dessus | 200 `Application` |
@@ -240,7 +242,7 @@ Protection locale : API liée exclusivement à loopback ; Host limité aux noms 
 
 ## 7. Stockage, coffre et restauration
 
-- Tables : `career_profile` singleton JSON, `career_resumes` métadonnées et BLOB, `career_jobs` URL UNIQUE, `career_applications` job_id UNIQUE/FK, `career_events` FK/index, `career_vault` version/sel/vérificateur, `career_credentials` id/origin/label/username/ciphertext/nonce/tag. Les JSON sont des valeurs, jamais SQL interpolé.
+- Tables : `career_profile` singleton JSON, `career_resumes` métadonnées et BLOB, `career_jobs` URL UNIQUE, `career_applications` job_id UNIQUE/FK, `career_events` FK/index, `career_saved_searches` critères chiffrés, intervalle, prochaine collecte et résultat, `career_vault` version/sel/vérificateur, `career_credentials` id/origin/label/username/ciphertext/nonce/tag. Les JSON sont des valeurs, jamais SQL interpolé.
 - CV PDF/DOCX seulement, 10 MiB décodés maximum, cohérence extension/MIME/signature ; nom de téléchargement assaini, aucune utilisation du filename fourni comme chemin. Les octets SQLite assurent sauvegarde complète et upload Playwright `{name,mimeType,buffer}` sans fichier temporaire supplémentaire. Le plafond JSON de cette route couvre le base64 et refuse l'excès avant accumulation illimitée.
 - Coffre : dérivation `scrypt` avec sel aléatoire de 16 octets, `N=32768,r=8,p=1,maxmem>=64MiB`, clé 32 octets ; AES-256-GCM, nonce aléatoire 12 octets par écriture, tag 16 octets, données authentifiées comprenant version/id/origin. Chiffrer un vérificateur connu indépendant pour vérifier la phrase même si aucun compte n'existe.
 - Dans l’application bureau, les champs de profil, CV, candidatures, événements et données CRM sont protégés dans SQLite par AES-256-GCM avec AAD liée à la table, ligne et colonne. La clé aléatoire de 32 octets est stockée via Electron `safeStorage` (DPAPI sur Windows) dans le dossier de données local. Une migration chiffre les bases existantes puis active `secure_delete`, checkpoint WAL et `VACUUM`; une base avec clé absente, invalide ou données altérées est refusée sans générer une clé de remplacement. Le serveur de développement hors application bureau ne possède pas la clé DPAPI.

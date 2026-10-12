@@ -114,6 +114,28 @@ function profile(): Omit<CareerProfile, "updatedAt"> {
   };
 }
 
+test("saved public searches persist, collect offers on demand, pause and delete", async (t) => {
+  const app = await startCareerTestServer({ mockArbeitnowSearch: true });
+  t.after(app.close);
+  const create = await app.json("/api/career/saved-searches?demo=0", { source: "arbeitnow", criteria: { keywords: "TypeScript", commune: "Paris", limit: 10 }, intervalHours: 6, enabled: true });
+  assert.equal(create.response.status, 201);
+  const saved = create.value as { id: string; nextRunAt: string; criteria: { commune?: string } };
+  assert.ok(saved.id); assert.ok(saved.nextRunAt); assert.equal(saved.criteria.commune, "Paris");
+  const listed = await app.json("/api/career/saved-searches?demo=0");
+  assert.equal(listed.value.searches.length, 1);
+  const collected = await app.json(`/api/career/saved-searches/${saved.id}/run?demo=0`, {}, "POST");
+  assert.equal(collected.response.status, 200);
+  assert.equal(collected.value.lastResultCount, 1);
+  assert.equal(collected.value.lastError, "");
+  assert.equal((await app.json("/api/career/bootstrap?demo=0")).value.jobs[0].title, "Offre de test Arbeitnow France");
+  const paused = await app.json(`/api/career/saved-searches/${saved.id}?demo=0`, { source: "arbeitnow", criteria: { keywords: "TypeScript", commune: "Paris", limit: 10 }, intervalHours: 6, enabled: false }, "PATCH");
+  assert.equal(paused.value.enabled, false); assert.equal(paused.value.nextRunAt, "");
+  assert.equal((await app.json(`/api/career/saved-searches/${saved.id}/run?demo=0`, {}, "POST")).response.status, 409);
+  assert.equal((await app.json(`/api/career/saved-searches/${saved.id}?demo=0`, {}, "DELETE")).response.status, 200);
+  assert.equal((await app.json("/api/career/saved-searches?demo=0")).value.searches.length, 0);
+  assert.equal((await app.json("/api/career/saved-searches?demo=1", { source: "arbeitnow", criteria: { keywords: "Test" }, intervalHours: 24 }, "POST")).response.status, 403);
+});
+
 test("career HTTP API drives isolated real-store application runs", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());

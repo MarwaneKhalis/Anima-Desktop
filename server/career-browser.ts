@@ -131,8 +131,8 @@ const repeatedProfileField = (control: Control): RepeatedProfileField | undefine
   if (/\b(education|school|study|academic) (start|from) date\b/.test(combined) || (hasEducationContext && /\b(start|from) date\b/.test(label))) return { collection: "education", field: "start" };
   if (/\b(education|school|study|academic) (end|to) date\b/.test(combined) || (hasEducationContext && /\b(end|to) date\b/.test(label))) return { collection: "education", field: "end" };
 
-  if (/\b(company|company name|employer|employer name|organization|organization name)\b/.test(combined)) return { collection: "experiences", field: "company" };
-  if (/\b(job title|position title|role title|employment title|job position|position|role)\b/.test(combined)) return { collection: "experiences", field: "title" };
+  if (hasExperienceContext && /\b(company|company name|employer|employer name|organization|organization name)\b/.test(combined)) return { collection: "experiences", field: "company" };
+  if (hasExperienceContext && /\b(job title|position title|role title|employment title|job position|position|role)\b/.test(combined)) return { collection: "experiences", field: "title" };
   if (/\b(experience|employment|work) (start|from) date\b/.test(combined) || (hasExperienceContext && /\b(start|from) date\b/.test(label)) || /\b(employment|work|experience)[ _-]?(start|from)[ _-]?(date|year)\b/.test(key)) return { collection: "experiences", field: "start" };
   if (/\b(experience|employment|work) (end|to) date\b/.test(combined) || (hasExperienceContext && /\b(end|to) date\b/.test(label)) || /\b(employment|work|experience)[ _-]?(end|to)[ _-]?(date|year)\b/.test(key)) return { collection: "experiences", field: "end" };
   if (/\b(job duties|responsibilities|duties|role description|employment description|experience description)\b/.test(combined)) return { collection: "experiences", field: "description" };
@@ -156,7 +156,7 @@ const missingType = (c: Control): MissingField["type"] => c.type === "file" ? "f
 const loginButton = (s: string) => /^(log in|login|sign in|connexion|se connecter|connecter|submit)$/i.test(s.trim());
 const loginField = (c: Control) => c.type === "email" || [c.name, c.label, c.key].some(value => /(^| )(username|user name|email|e mail|identifiant|login)( |$)/i.test(tidy(value)));
 const nextButton = (s: string) => /^(next|continue|save and continue|suivant|suivante|continuer|enregistrer et continuer|prochaine etape)$/i.test(tidy(s));
-const finalButton = (s: string) => /^(submit( application)?|send( application)?|apply( now)?|complete application|envoyer( ma candidature| la candidature)?|soumettre( ma candidature)?|postuler|valider la candidature)$/i.test(tidy(s));
+const finalButton = (s: string) => /^(submit( application)?|send( application)?|complete application|envoyer( ma candidature| la candidature)?|soumettre( ma candidature)?|postuler|valider la candidature)$/i.test(tidy(s));
 const resumeField = (c: Control) => /\b(cv|resume)\b|curriculum vitae/i.test(tidy([c.label, c.name, c.key].join(" ")));
 const controlValue = (c: Control) => c.type === "file" ? `file:${c.uploaded}` : ["checkbox", "radio"].includes(c.type) ? `checked:${c.checked}` : c.value;
 async function interventionSignature(page: Page, body: string): Promise<string | null> {
@@ -397,6 +397,7 @@ export class CareerBrowser {
         if (cs.length === 0) {
           const apply = await findApplyLink(page, this.testOrigins);
           if (apply === "ambiguous") return result("blocked", "Plusieurs liens de candidature sont possibles : sélectionnez le parcours manuellement.");
+          if (apply === "manual") return result("blocked", "Le parcours propose un bouton de candidature sans lien vérifiable : ouvrez le formulaire manuellement avant de reprendre.");
           if (apply) {
             if (session.seen.has(apply.href)) return result("blocked", "Le lien de candidature forme une boucle.");
             session.seen.add(apply.href);
@@ -523,6 +524,7 @@ export class CareerBrowser {
       if ((onSupportedAts || onExplicitTestOrigin) && cs.length === 0) {
         const apply = await findApplyLink(page, this.testOrigins);
         if (apply === "ambiguous") return result("blocked", "Plusieurs liens de candidature sont possibles : sélectionnez le parcours manuellement.");
+        if (apply === "manual") return result("blocked", "Le parcours propose un bouton de candidature sans lien vérifiable : ouvrez le formulaire manuellement avant de reprendre.");
         if (apply) {
           if (apply.vendor === "remoteok") {
             if (onSupportedAts || !isRemoteOkApplyRedirectorUrl(apply.href, this.testOrigins)) return result("blocked", "Le lien de redirection Remote OK ne peut pas être vérifié.");
