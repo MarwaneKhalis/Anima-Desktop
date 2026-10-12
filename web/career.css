@@ -53,6 +53,15 @@
 .cw-shell button:hover {
   background: #eef3ee;
 }
+.cw-shell :focus-visible {
+  outline: 3px solid var(--section-accent);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .cw-shell :focus-visible {
+    outline-color: Highlight;
+  }
+}
 .cw-shell button.cw-primary {
   background: var(--section-accent);
   border-color: var(--section-accent);
