@@ -31,10 +31,10 @@ Base examinée : `a41c77cc2130f6bf60116e9513e31147b49c6080` (`v0.3.0`). Cible de
 
 ## Vérifications de cette tranche
 
-- `pnpm test` : 209 tests réussis, 0 échec (dont scénarios candidature, campagnes et dates de relance sur fixtures).
+- `pnpm test` : 210 tests réussis, 0 échec (dont scénarios candidature, campagnes et dates de relance sur fixtures).
 - `pnpm build` et `pnpm desktop:compile` : réussis après les changements UI et serveur.
 - `git diff --check` : réussi.
-- Un installateur Windows local v0.4.0 avait extrait son payload, puis NSIS signalait un abandon parce que le `icacls /T` post-install rencontrait un fichier Chromium temporaire disparu. L’installation a été reproduite ; le test UI empaqueté local reste empêché par l’indisponibilité de DPAPI dans cet environnement Codex. La correction retire le parcours récursif après avoir confirmé que l’ACE AppContainer héritée est présente sur `icudtl.dat`. Reconstruire puis contrôler sur un runner Windows propre avant fusion/publication.
+- Un installateur Windows local v0.4.0 avait extrait son payload, puis NSIS signalait un abandon parce que le `icacls /T` post-install rencontrait un fichier Chromium temporaire disparu. La correction retire le parcours récursif après avoir confirmé que l’ACE AppContainer héritée est présente sur `icudtl.dat`. Le runner GitHub Windows a ensuite réussi la mise à niveau depuis l’installateur officiel v0.3.0, le smoke test de l’application mise à niveau et une installation neuve avec smoke test. Le smoke test local reste empêché par l’indisponibilité de DPAPI dans cet environnement Codex.
 - Aucune candidature, invitation ou aucun message réel envoyé. Aucun portail de recrutement réel n’a été déclaré compatible sur la base des fixtures.
 
 ## Points substantiels encore ouverts
