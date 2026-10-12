@@ -54,11 +54,14 @@ export async function handleCareerCampaignApi(req: IncomingMessage, res: ServerR
       const rawLimit = url.searchParams.get("limit");
       const limit = rawLimit === null ? 50 : Number(rawLimit);
       if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new CareerError(400, "validation", "La limite doit être comprise entre 1 et 100.");
-      const campaigns = context.campaigns.list(limit).map(campaign => {
+      const rawOffset = url.searchParams.get("offset");
+      const offset = rawOffset === null ? 0 : Number(rawOffset);
+      if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new CareerError(400, "validation", "Le décalage doit être compris entre 0 et 1 000 000.");
+      const campaigns = context.campaigns.list(limit, offset).map(campaign => {
         context.engine.reconcile(campaign.id);
         return { ...campaign, counts: context.campaigns.counts(campaign.id) };
       });
-      reply(res, 200, { campaigns }); return true;
+      reply(res, 200, { campaigns, total: context.campaigns.total(), limit, offset }); return true;
     }
     const match = relative.match(/^\/([^/]+)$/);
     if (method === "GET" && match) { reply(res, 200, getDetail(match[1], context)); return true; }

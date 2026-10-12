@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { _electron as electron } from "playwright";
 
 const executablePath = resolve(
-  process.env.ANIMA_DESKTOP_EXECUTABLE || "release/win-unpacked/Anima Connect.exe",
+  process.env.ANIMA_DESKTOP_EXECUTABLE || "release/win-unpacked/Anima Desktop.exe",
 );
 if (process.env.CI === "true" && process.env.ANIMA_SMOKE_NO_SANDBOX === "1") {
   throw new Error("Le smoke test CI doit conserver le sandbox Chromium activé.");
@@ -163,7 +163,7 @@ try {
   application = await electron.launch(launchOptions);
   const window = diagnosticWindow = await application.firstWindow();
   await window.waitForLoadState("load");
-  assert.match(await window.title(), /Anima Connect/i);
+  assert.match(await window.title(), /Anima Desktop/i);
   await window.getByRole("button", { name: "Tableau de bord" }).waitFor({ state: "visible" });
   assert.equal((await application.windows()).length, 1);
   await assertNoHttpListener(expectedPort);
@@ -261,9 +261,9 @@ try {
 
   if (process.env.ANIMA_CAPTURE_DESKTOP_PREVIEW === "1") {
     await mkdir("artifacts", { recursive: true });
-    await restartedWindow.screenshot({ path: "artifacts/anima-connect-desktop.png", timeout: 60_000 });
+    await restartedWindow.screenshot({ path: "artifacts/anima-desktop.png", timeout: 60_000 });
   }
-  console.log("Installé dans un profil temporaire : Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu, campagne persistée après redémarrage et données restaurées vérifiés ; aucun serveur HTTP détecté.");
+  console.log("Installé dans un profil temporaire : Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et campagne persistée après redémarrage vérifiés ; aucun serveur HTTP détecté.");
 } catch (error) {
   smokeError = error;
   if (diagnosticWindow) {

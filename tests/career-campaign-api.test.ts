@@ -66,6 +66,16 @@ test("HTTP create/list/detail validate CSRF, idempotency, bounds and counts", as
   assert.equal(app.campaigns.listItems(detail.campaign.id).length, 1);
   const list = await app.call("/api/career/campaigns?limit=10");
   assert.equal(list.status, 200); assert.equal(((await list.json()) as { campaigns: unknown[] }).campaigns.length, 1);
+  for (let index = 2; index <= 12; index++) {
+    const response = await app.call("/api/career/campaigns", "POST", { ...payload, idempotencyKey: `api-key-${index}` });
+    assert.equal(response.status, 201);
+  }
+  const secondPage = await app.call("/api/career/campaigns?limit=10&offset=10");
+  const paginated = await secondPage.json() as { campaigns: unknown[]; total: number; offset: number };
+  assert.equal(paginated.total, 12);
+  assert.equal(paginated.offset, 10);
+  assert.equal(paginated.campaigns.length, 2, "Campaigns beyond the first page remain accessible");
+  assert.equal((await app.call("/api/career/campaigns?limit=10&offset=-1")).status, 400);
   assert.equal((await app.call(`/api/career/campaigns/${detail.campaign.id}`)).status, 200);
   assert.equal((await app.call("/api/career/campaigns?limit=101")).status, 400);
   assert.equal((await app.call("/api/career/campaigns/no-such-campaign")).status, 404);

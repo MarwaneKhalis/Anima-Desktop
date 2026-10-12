@@ -12,6 +12,47 @@ const profile = (): CareerProfile => ({
   preferences: { titles: [], locations: [], remote: false, contract: "" }, answers: {}, updatedAt: "",
 });
 
+async function chooseCampaignResume(page: import("playwright").Page, label: string) {
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByLabel("CV pour les candidatures").selectOption({ label });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+}
+
+async function openOfferFilters(page: import("playwright").Page) {
+  const details = page.locator(".cw-search-advanced");
+  if (!(await details.evaluate((node) => (node as HTMLDetailsElement).open))) {
+    await page.getByText("Source, lieu et filtres avancés", { exact: true }).click();
+  }
+}
+
+async function revealCampaignActions(page: import("playwright").Page) {
+  const details = page.locator(".cw-search-actions-secondary");
+  if (!(await details.evaluate((node) => (node as HTMLDetailsElement).open))) {
+    await page.getByText("Collecte programmée et candidature", { exact: true }).click();
+  }
+}
+
+async function openCampaignActions(page: import("playwright").Page) {
+  await revealCampaignActions(page);
+  await page.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
+  await confirmCampaignReview(page);
+}
+
+async function confirmCampaignReview(page: import("playwright").Page, mode: "prepare" | "submit" = "submit") {
+  await page.getByRole("dialog", { name: "Récapitulatif de campagne" }).waitFor();
+  if (mode === "submit") {
+    const sendMode = page.getByRole("radio", { name: /Envoyer les candidatures/ });
+    await sendMode.check();
+    assert.equal(await sendMode.isChecked(), true);
+    await page.getByRole("button", { name: "Confirmer et envoyer" }).click();
+  } else {
+    await page.getByRole("button", { name: "Préparer sans envoyer" }).click();
+  }
+  await page.locator(".cw-notice, .cw-alert").first().waitFor({ timeout: 5_000 });
+  const error = page.locator(".cw-alert");
+  if (await error.isVisible()) throw new Error(`Campaign launch failed: ${await error.innerText()}`);
+}
+
 test("career UI completes a real browser application flow and survives reload", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
@@ -74,10 +115,8 @@ test("career UI completes a real browser application flow and survives reload", 
   await page.getByRole("button", { name: "Enregistrer l’offre" }).click();
   const offerCard = page.getByText("Ingénieure plateforme").first();
   await offerCard.waitFor();
-  await page
-    .getByLabel("CV pour les candidatures")
-    .selectOption({ label: "camille-alternatif" });
   await screenshot("03-offers");
+  await chooseCampaignResume(page, "camille-alternatif");
   await page
     .getByRole("button", { name: "Créer une candidature" })
     .first()
@@ -102,8 +141,9 @@ test("career UI completes a real browser application flow and survives reload", 
   assert.equal(app.fixture.submissions.length, 0);
 
   await page
-    .getByRole("button", { name: "Préparer sans envoyer", exact: true })
+    .getByRole("button", { name: "Préparer avec vérification…", exact: true })
     .click();
+  await confirmCampaignReview(page, "prepare");
   const ready = await waitFor(
     async () =>
       (await app.json(`/api/career/applications/${applicationId}`))
@@ -118,8 +158,9 @@ test("career UI completes a real browser application flow and survives reload", 
     .waitFor();
   await screenshot("04-application-ready");
   await page
-    .getByRole("button", { name: "Postuler automatiquement", exact: true })
+    .getByRole("button", { name: "Préparer avec vérification…", exact: true })
     .click();
+  await confirmCampaignReview(page, "submit");
 
   const submitted = await waitFor(
     async () =>
@@ -177,6 +218,7 @@ test("career UI completes a real browser application flow and survives reload", 
   );
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.getByRole("button", { name: "Fermer la candidature" }).click();
+  await page.getByLabel("CV pour les candidatures").selectOption({ label: "camille-principal" });
   const beforeBatch = app.fixture.submissions.length;
   for (let batchIndex = 1; batchIndex <= 2; batchIndex++) {
     const createdJob = await app.json("/api/career/jobs", {
@@ -194,6 +236,9 @@ test("career UI completes a real browser application flow and survives reload", 
     await page
       .getByRole("button", { name: "Lancer une campagne · 1 offre(s) · plafond 10 ↗", exact: true })
       .click();
+    await confirmCampaignReview(page);
+    const updatedApplication = await app.json(`/api/career/applications/${createdApplication.value.id}`);
+    assert.equal(updatedApplication.value.resumeId, afterCreate.resumes.find((resume: any) => resume.name === "camille-principal")?.id, "The CV selected in the recap is the CV used by the batch engine.");
     const result = await waitFor(
       async () =>
         (
@@ -206,6 +251,7 @@ test("career UI completes a real browser application flow and survives reload", 
         ["failed", "blocked", "needs_input", "uncertain"].includes(a.state),
     );
     assert.equal(result.state, "submitted", result.lastError);
+    await page.getByRole("button", { name: "Toutes", exact: true }).click();
     await page
       .getByRole("button", { name: "Lancer une campagne · 0 offre(s) · plafond 10 ↗", exact: true })
       .waitFor();
@@ -215,12 +261,12 @@ test("career UI completes a real browser application flow and survives reload", 
     beforeBatch + 2,
     "successive batches must send each new application exactly once",
   );
-  await page.getByRole("button", { name: "Prospection", exact: true }).click();
+  await page.getByRole("button", { name: "Réseau", exact: true }).click();
   await page
-    .getByRole("heading", { name: "Vos prochaines conversations." })
+    .getByRole("heading", { name: "Contacts" })
     .waitFor();
   assert.equal(
-    await page.locator(".cw-legacy > .sidebar").isVisible(),
+    await page.locator(".cw-legacy-module > .sidebar").isVisible(),
     false,
     "legacy sidebar must be embedded",
   );
@@ -259,10 +305,11 @@ test("France Travail search launches a durable application campaign from the des
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await chooseCampaignResume(page, "CV principal");
+  await openOfferFilters(page);
   await page.getByLabel("Source d’offres").selectOption("france-travail");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
-  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await openCampaignActions(page);
 
   const completed = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
@@ -279,6 +326,13 @@ test("France Travail search launches a durable application campaign from the des
   assert.ok(snapshot.applications[0].receipt?.reference);
   assert.equal(app.fixture.submissions.length, 1);
   assert.equal(app.fixture.submissions[0].fields.email, "camille@example.test");
+  const campaignPage = await app.json("/api/career/campaigns?limit=10&offset=0");
+  assert.equal(campaignPage.value.campaigns.length, 1, JSON.stringify(campaignPage.value));
+  const browserCampaignPage = await page.evaluate(async () => fetch("/api/career/campaigns?limit=10&offset=0&demo=0").then((response) => response.json()));
+  assert.equal(browserCampaignPage.campaigns.length, 1, JSON.stringify(browserCampaignPage));
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByRole("button", { name: "Campagnes", exact: true }).click();
+  assert.equal(await page.locator(".cw-campaigns").count(), 1, `Visible page: ${await page.locator("main").innerText()} · alert: ${await page.locator(".cw-alert").innerText().catch(() => "none")}`);
   await page.getByText("Terminée", { exact: true }).waitFor();
   await mkdir("artifacts/career-ui", { recursive: true });
   await page.screenshot({ path: "artifacts/career-ui/08-france-travail-campaign.png", fullPage: true });
@@ -302,9 +356,11 @@ test("Arbeitnow France can discover and campaign for an offer without France Tra
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  assert.equal(await page.locator(".cw-search-keywords input").isVisible(), true, "The main search criterion is visible before advanced filters are opened.");
+  await openOfferFilters(page);
   await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
-  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await openCampaignActions(page);
   const completed = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
     return value.campaigns[0];
@@ -314,6 +370,8 @@ test("Arbeitnow France can discover and campaign for an offer without France Tra
   assert.equal(snapshot.jobs[0].title, "Offre de test Arbeitnow France");
   assert.equal(snapshot.applications[0].state, "submitted");
   assert.equal(app.fixture.submissions.length, 1);
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByRole("button", { name: "Campagnes", exact: true }).click();
   await page.getByRole("button", { name: "Détails" }).click();
   await page.getByRole("button", { name: "Voir la candidature" }).waitFor();
   await page.getByRole("button", { name: "Voir la candidature" }).click();
@@ -350,11 +408,14 @@ test("automatic campaign submits the highest-ranked offer first when capped", as
   });
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await openOfferFilters(page);
   await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
-  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
-  await page.getByLabel("Plafond d’envoi par campagne").selectOption("1");
-  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await chooseCampaignResume(page, "CV principal");
+  await revealCampaignActions(page);
+  await page.getByLabel("Plafond par défaut").selectOption("1");
+  await page.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
+  await confirmCampaignReview(page);
   const campaign = await waitFor(async () => (await app.json("/api/career/campaigns")).value.campaigns[0], (value) => value?.state === "limit_reached", 20_000);
   assert.equal(campaign.counts.total, 2);
   assert.equal(campaign.counts.submitted, 1);
@@ -375,18 +436,24 @@ test("Arbeitnow search can save offers before a CV is added", async (t) => {
   assert.equal(profileResponse.response.status, 200);
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await openOfferFilters(page);
   await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
   await page.getByRole("button", { name: "Rechercher les offres" }).click();
   await page.getByText(/offre\(s\) récupérée/).waitFor();
+  const firstOffer = await page.locator(".cw-job").first().boundingBox();
+  assert.ok(firstOffer && firstOffer.y < 768 && firstOffer.y + 90 <= 768, "The first offer and its title should appear at 1366 × 768 without scrolling through setup.");
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.screenshot({ path: "artifacts/career-ui/03-offers-1366x768.png" });
   const { value: snapshot } = await app.json("/api/career/bootstrap");
   assert.equal(snapshot.resumes.length, 0);
   assert.equal(snapshot.jobs[0].title, "Offre de test Arbeitnow France");
   assert.deepEqual(snapshot.applications, []);
-  const applyButton = page.getByRole("button", { name: "Trouver et candidater automatiquement" });
+  await page.getByText("Collecte programmée et candidature", { exact: true }).click();
+  const applyButton = page.getByRole("button", { name: "Rechercher et préparer un lancement" });
   assert.equal(await applyButton.isDisabled(), true);
 });
 
@@ -408,12 +475,14 @@ test("default public search aggregates sources and launches one desktop campaign
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await openOfferFilters(page);
   const source = page.getByLabel("Source d’offres");
   assert.equal(await source.inputValue(), "all");
   assert.equal(await page.getByLabel("Métier(s) ou mot(s)-clé(s)").inputValue(), "Ingénieure logiciel");
+  await page.getByText("Sources et limites de collecte", { exact: true }).click();
   assert.match(await page.locator(".cw-automation-note").innerText(), /Himalayas et Remotive ne fournissent qu’une zone d’éligibilité par pays ou région/);
-  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
-  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await chooseCampaignResume(page, "CV principal");
+  await openCampaignActions(page);
   const completed = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
     return value.campaigns[0];
@@ -430,6 +499,7 @@ test("default public search aggregates sources and launches one desktop campaign
     "https://himalayas.app/companies/test/jobs/test-role",
     "https://remotive.com/remote-jobs/test",
   ]));
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
   assert.equal(await page.getByRole("link", { name: /Source Himalayas/ }).getAttribute("href"), "https://himalayas.app/companies/test/jobs/test-role");
   assert.equal(await page.getByRole("link", { name: /Source Remotive/ }).getAttribute("href"), "https://remotive.com/remote-jobs/test");
   assert.equal(snapshot.applications.length, 5);
@@ -455,14 +525,17 @@ test("Jobicy search starts a desktop application campaign without a pasted job U
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await openOfferFilters(page);
   const offerLimit = page.getByLabel("Nombre d’offres à examiner");
   await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await offerLimit.selectOption("450");
   await page.getByLabel("Source d’offres").selectOption("jobicy");
   assert.equal(await offerLimit.inputValue(), "200", "Jobicy's UI limit matches its 200-offer page cap");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
-  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
-  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await chooseCampaignResume(page, "CV principal");
+  await revealCampaignActions(page);
+  await page.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
+  await confirmCampaignReview(page);
 
   const completed = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
@@ -497,18 +570,22 @@ test("Remote OK search keeps source attribution and starts a desktop application
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await openOfferFilters(page);
   const offerLimit = page.getByLabel("Nombre d’offres à examiner");
   await page.getByLabel("Source d’offres").selectOption("arbeitnow");
   await offerLimit.selectOption("450");
   await page.getByLabel("Source d’offres").selectOption("remoteok");
   assert.equal(await offerLimit.inputValue(), "200", "Remote OK's UI limit matches its feed cap");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
-  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
+  await chooseCampaignResume(page, "CV principal");
+  await openOfferFilters(page);
+  await revealCampaignActions(page);
   await page.getByRole("button", { name: "Rechercher les offres" }).click();
   await page.getByRole("heading", { name: "Offre de test Remote OK" }).waitFor();
   const sourceLink = page.getByRole("link", { name: "Source Remote OK" });
   assert.equal(await sourceLink.getAttribute("href"), "https://remoteok.com/remote-jobs/test");
-  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await page.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
+  await confirmCampaignReview(page);
 
   const campaign = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
@@ -548,13 +625,18 @@ test("Himalayas search starts a verified ATS application from its attributed job
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await openOfferFilters(page);
   await page.getByLabel("Source d’offres").selectOption("himalayas");
   assert.equal(await page.getByLabel("Nombre d’offres à examiner").inputValue(), "20");
   assert.equal(await page.getByLabel("Ville ou commune (facultatif)").count(), 0);
+  await page.getByText("Sources et limites de collecte", { exact: true }).click();
   assert.match(await page.locator(".cw-automation-note").innerText(), /ne filtre pas par ville/);
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Product Manager");
-  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV principal" });
-  await page.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await chooseCampaignResume(page, "CV principal");
+  await openOfferFilters(page);
+  await revealCampaignActions(page);
+  await page.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
+  await confirmCampaignReview(page);
   const completed = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
     return value.campaigns[0];
@@ -628,7 +710,8 @@ test("career UI resumes a paused application after saving a missing answer", asy
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Candidatures" }).click();
   await page.getByRole("button", { name: "Ouvrir le suivi →" }).click();
-  await page.getByRole("button", { name: "Postuler automatiquement", exact: true }).click();
+  await page.getByRole("button", { name: "Préparer avec vérification…", exact: true }).click();
+  await confirmCampaignReview(page);
   const paused = await waitFor(
     async () => (await app.json(`/api/career/applications/${createdApplication.value.id}`)).value as Application,
     (value) => value.state === "needs_input",
@@ -643,4 +726,34 @@ test("career UI resumes a paused application after saving a missing answer", asy
   assert.equal(submitted.state, "submitted", submitted.lastError);
   assert.equal(app.fixture.submissions.length, 1);
   assert.equal(app.fixture.submissions[0].fields.workAuthorization, "Yes");
+});
+
+test("today offers direct access to every due follow-up", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV relances", filename: "cv-relances.pdf", mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  const dueAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  for (let index = 1; index <= 4; index++) {
+    const job = await app.json("/api/career/jobs", {
+      url: `${app.fixture.baseUrl}/simple?followup=${index}`,
+      title: `Relance ${index}`, company: "Fixture Relances",
+    });
+    const application = await app.json("/api/career/applications", {
+      jobId: job.value.id, resumeId: resume.value.id,
+    });
+    const updated = await app.json(`/api/career/applications/${application.value.id}`, { nextActionAt: dueAt }, "PATCH");
+    assert.equal(updated.response.status, 200);
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Voir les 4 relances dues →" }).click();
+  await page.getByRole("heading", { name: "Relances à traiter" }).waitFor();
+  assert.equal(await page.locator(".cw-application").count(), 4);
+  assert.equal(await page.getByRole("button", { name: "Relances (4)", exact: true }).getAttribute("class"), "current");
 });

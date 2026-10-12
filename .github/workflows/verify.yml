@@ -1,4 +1,4 @@
-name: Verify Anima Connect
+name: Verify Anima Desktop
 on:
   push:
   pull_request:
@@ -21,17 +21,28 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm desktop:dist
-      - run: pnpm desktop:smoke
+      - name: Upgrade the published v0.3.0 app and smoke-test v0.4.0
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installer = Join-Path (Get-Location) "release/Anima Desktop Setup $version.exe"
+          $env:ANIMA_DESKTOP_INSTALLER = (Resolve-Path -LiteralPath $installer).Path
+          ./scripts/desktop-upgrade-smoke.ps1
       - name: Install and smoke-test NSIS app on a fresh Windows runner
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          $installer = (Resolve-Path "release/Anima Connect Setup $version.exe").Path
-          $installDir = Join-Path $env:RUNNER_TEMP "Anima Connect"
-          $arguments = "/S /D=$installDir"
+          $installer = (Resolve-Path "release/Anima Desktop Setup $version.exe").Path
+          $env:TEMP = $env:RUNNER_TEMP
+          $installDir = Join-Path $env:RUNNER_TEMP "Anima Desktop"
+          $installLog = Join-Path $env:TEMP "anima-desktop-installer.log"
+          $arguments = @("/S", "/D=$installDir")
           $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($process.ExitCode)." }
-          $installedExe = Join-Path $installDir "Anima Connect.exe"
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path -LiteralPath $installLog) { Get-Content -LiteralPath $installLog }
+            throw "NSIS installer failed with exit code $($process.ExitCode)."
+          }
+          $installedExe = Join-Path $installDir "Anima Desktop.exe"
           if (!(Test-Path -LiteralPath $installedExe)) { throw "Installed executable was not found: $installedExe" }
           $icuData = Join-Path $installDir "icudtl.dat"
           if (!(Test-Path -LiteralPath $icuData)) { throw "Installed Electron sandbox data was not found: $icuData" }
@@ -50,13 +61,14 @@ jobs:
           pnpm desktop:smoke
           if ($LASTEXITCODE -ne 0) { throw "Installed app smoke test failed with exit code $LASTEXITCODE." }
           $remaining = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) }
-          if ($remaining) { throw "An Anima Connect process remained after the smoke test: $($remaining.Name -join ', ')" }
+          if ($remaining) { throw "An Anima Desktop process remained after the smoke test: $($remaining.Name -join ', ')" }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: anima-connect-windows
+          name: anima-desktop-windows
           path: |
             artifacts/
             release/*.exe
+            ${{ runner.temp }}/anima-desktop-installer.log
           retention-days: 30
           if-no-files-found: ignore

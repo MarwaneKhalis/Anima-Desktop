@@ -1,6 +1,6 @@
 {
   "name": "anima-connect",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.19.0",
@@ -37,7 +37,7 @@
   "main": "electron/main.cjs",
   "build": {
     "appId": "com.animaconnect.desktop",
-    "productName": "Anima Connect",
+    "productName": "Anima Desktop",
     "directories": {
       "output": "release"
     },

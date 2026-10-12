@@ -6,6 +6,12 @@ const { Readable } = require("node:stream");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
+// Keep the existing Windows profile folder when the visible product name changes.
+if (!process.argv.some((argument) => argument.startsWith("--user-data-dir="))) {
+  app.setPath("userData", path.join(app.getPath("appData"), "Anima Connect"));
+}
+app.setName("Anima Desktop");
+
 const MAX_JSON_BODY_BYTES = 15 * 1024 * 1024;
 const MAX_BINARY_BODY_BYTES = 100 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
@@ -142,7 +148,7 @@ async function handleApiRequest(_event, input) {
       !methodIsSmall ||
       !methods.has(input.method.toUpperCase()) ||
       (input.headers !== undefined && (!input.headers || typeof input.headers !== "object" || Array.isArray(input.headers) || Object.keys(input.headers).length > 32)))
-    throw new Error("Requête Anima Connect invalide.");
+    throw new Error("Requête Anima Desktop invalide.");
   const req = makeRequest(input);
   const res = makeResponse();
   await backend.handleRequest(req, res);
@@ -206,8 +212,8 @@ if (gotSingleInstanceLock) app.whenReady().then(async () => {
   await createWindow();
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch((error) => {
-  console.error("Impossible de démarrer Anima Connect", error);
-  dialog.showErrorBox("Impossible d’ouvrir les données Anima Connect", error instanceof Error ? error.message : String(error));
+  console.error("Impossible de démarrer Anima Desktop", error);
+  dialog.showErrorBox("Impossible d’ouvrir les données Anima Desktop", error instanceof Error ? error.message : String(error));
   app.quit();
 });
 
