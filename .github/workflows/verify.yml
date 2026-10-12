@@ -25,7 +25,8 @@ jobs:
       - name: Install and smoke-test NSIS app on a fresh Windows runner
         shell: pwsh
         run: |
-          $installer = (Resolve-Path "release/Anima Connect Setup 0.2.0.exe").Path
+          $version = node -p "require('./package.json').version"
+          $installer = (Resolve-Path "release/Anima Connect Setup $version.exe").Path
           $installDir = Join-Path $env:RUNNER_TEMP "Anima Connect"
           $arguments = "/S /D=$installDir"
           $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
