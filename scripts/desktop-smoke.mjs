@@ -237,6 +237,7 @@ try {
   await window.getByLabel("CV pour les candidatures").selectOption(selectedResume.id);
   await window.getByRole("button", { name: "Offres", exact: true }).click();
   await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
+  await window.getByText("Collecte programmée et candidature", { exact: true }).click();
   await window.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
   await window.getByRole("heading", { name: "Récapitulatif de campagne" }).waitFor({ state: "visible" });
   await window.locator('input[name="campaign-mode"][value="submit"]').check();
