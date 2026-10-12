@@ -189,6 +189,7 @@ test("sauvegarde AES-GCM portable restaure les données et les re-chiffre avec u
     new Vault(store.db, { dataProtectionKey: sourceKey });
     new CareerCampaignStore(store.db, sourceKey);
     career.saveProfile({ firstName: "Léa", email: "lea.backup@example.test", summary: "Profil de restauration" });
+    const savedSearch = career.saveSavedSearch({ source: "all", criteria: { keywords: "TypeScript", commune: "Paris" }, intervalHours: 24 });
     const snapshot = serializeDatabase(store.db);
     store.close();
     copy = new DatabaseSync(":memory:");
@@ -209,6 +210,9 @@ test("sauvegarde AES-GCM portable restaure les données et les re-chiffre avec u
     ensureAllProtectedScopes(restored, targetKey);
     const restoredCareer = new CareerStore(restored, { dataProtectionKey: targetKey });
     assert.equal(restoredCareer.getProfile().email, "lea.backup@example.test");
+    assert.deepEqual(restoredCareer.getSavedSearch(savedSearch.id).criteria, { keywords: "TypeScript", commune: "Paris" });
+    const protectedCriteria = String((restored.prepare("SELECT criteria FROM career_saved_searches WHERE id=?").get(savedSearch.id) as { criteria: string }).criteria);
+    assert.ok(isProtectedText(protectedCriteria));
     const raw = String((restored.prepare("SELECT value FROM career_profile WHERE id=1").get() as { value: string }).value);
     assert.ok(isProtectedText(raw));
     assert.ok(!raw.includes("lea.backup@example.test"));

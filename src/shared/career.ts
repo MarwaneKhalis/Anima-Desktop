@@ -53,6 +53,7 @@ export interface CareerMetrics {
 export interface CareerSnapshot {
   profile: CareerProfile; resumes: Resume[]; credentials: CredentialSummary[];
   jobs: JobOffer[]; applications: Application[]; events: CareerEvent[];
+  savedSearches: CareerSavedSearch[];
   metrics: CareerMetrics; vault: VaultStatus;
 }
 export interface RunResult {
@@ -66,6 +67,12 @@ export interface OfferSearchCriteria {
   commune?: string;
   contractType?: string;
   limit?: number;
+}
+export type CareerSearchSource = "all" | "arbeitnow" | "jobicy" | "remoteok" | "himalayas" | "remotive";
+export interface CareerSavedSearch {
+  id: string; source: CareerSearchSource; criteria: OfferSearchCriteria;
+  intervalHours: 6 | 12 | 24 | 168; enabled: boolean;
+  lastRunAt: string; nextRunAt: string; lastResultCount: number; lastError: string; updatedAt: string;
 }
 export interface FranceTravailConfigSummary { configured: boolean; scope?: string; updatedAt?: string; }
 export interface OfferSearchService {

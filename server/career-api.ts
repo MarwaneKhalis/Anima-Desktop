@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Application, CareerDiscovery, JobOffer, OfferSearchCriteria, OfferSearchService, RunMode } from '../src/shared/career.ts';
+import type { Application, CareerDiscovery, CareerSavedSearch, JobOffer, OfferSearchCriteria, OfferSearchService, RunMode } from '../src/shared/career.ts';
 import { careerUrl, CareerError, CareerStore } from './career-store.ts';
 import { Vault } from './vault.ts';
 import { CareerAI } from './career-ai.ts';
@@ -18,6 +18,7 @@ export interface CareerApiContext {
   himalayasOfferSearch?: OfferSearchService;
   remotiveOfferSearch?: OfferSearchService;
   allPublicOfferSearch?: OfferSearchService;
+  searchScheduler?: { isRunning():boolean; isStopped?():boolean; isSearchRunning(id:string):boolean; runNow(id:string):Promise<CareerSavedSearch> };
   demo: boolean;
   allowTestAutomation?: boolean;
   allowedTestOrigins?: string[];
@@ -46,7 +47,7 @@ function decodeResumeBase64(value:unknown):Buffer {
 export async function handleCareerApi(req:IncomingMessage,res:ServerResponse,url:URL,context:CareerApiContext):Promise<boolean>{
   const path=url.pathname;if(!path.startsWith('/api/career/'))return false;
   const relative=path.slice('/api/career'.length),method=req.method||'GET';
-    const known=relative==='/bootstrap'||relative==='/profile'||relative==='/resumes'||/^\/resumes\/[^/]+(?:\/download)?$/.test(relative)||relative.startsWith('/vault/')||relative==='/credentials'||/^\/credentials\/[^/]+$/.test(relative)||relative==='/jobs'||relative==='/discover'||relative==='/sources/france-travail'||relative==='/sources/france-travail/search'||relative==='/sources/arbeitnow/search'||relative==='/sources/jobicy/search'||relative==='/sources/remoteok/search'||relative==='/sources/himalayas/search'||relative==='/sources/remotive/search'||relative==='/sources/all-public/search'||relative==='/applications'||/^\/applications\/[^/]+(?:\/(?:run|resume|resolve))?$/.test(relative)||relative==='/ai/config'||relative==='/ai/test'||relative==='/ai/cover-letter';
+    const known=relative==='/bootstrap'||relative==='/profile'||relative==='/resumes'||/^\/resumes\/[^/]+(?:\/download)?$/.test(relative)||relative.startsWith('/vault/')||relative==='/credentials'||/^\/credentials\/[^/]+$/.test(relative)||relative==='/jobs'||relative==='/discover'||relative==='/sources/france-travail'||relative==='/sources/france-travail/search'||relative==='/sources/arbeitnow/search'||relative==='/sources/jobicy/search'||relative==='/sources/remoteok/search'||relative==='/sources/himalayas/search'||relative==='/sources/remotive/search'||relative==='/sources/all-public/search'||relative==='/saved-searches'||/^\/saved-searches\/[^/]+(?:\/run)?$/.test(relative)||relative==='/applications'||/^\/applications\/[^/]+(?:\/(?:run|resume|resolve))?$/.test(relative)||relative==='/ai/config'||relative==='/ai/test'||relative==='/ai/cover-letter';
   if(!known)return false;
   try{
     if(method!=='GET'&&req.headers['x-anima-request']!=='1')throw new CareerError(403,'csrf','En-tête de requête requis.');
@@ -113,7 +114,13 @@ export async function handleCareerApi(req:IncomingMessage,res:ServerResponse,url
       const jobs:JobOffer[]=discovered.offers.map(offer=>store.saveJob(offer));
       reply(res,200,{jobs,note:String(discovered.note||'').slice(0,1000)});return true;
     }
-    if(method==='GET'&&relative==='/bootstrap'){reply(res,200,{profile:store.getProfile(),resumes:store.listResumes(),credentials:vault.listCredentials(),jobs:store.listJobs(),applications:store.listApplications(),events:store.listEvents(),metrics:store.getMetrics(),vault:vault.status()});return true;}
+    if(relative==='/saved-searches'){
+      if(method==='GET'){reply(res,200,{searches:store.listSavedSearches()});return true;}
+      if(method==='POST'){noDemo(context,'Recherche récurrente');const saved=store.saveSavedSearch(await json(req));reply(res,201,saved);return true;}
+    }
+    const savedSearch=relative.match(/^\/saved-searches\/([^/]+)(?:\/(run))?$/);
+    if(savedSearch){const searchId=savedSearch[1];if(method==='PATCH'&&!savedSearch[2]){noDemo(context,'Recherche récurrente');if(context.searchScheduler?.isSearchRunning(searchId))throw new CareerError(409,'search_busy','Cette recherche est déjà en cours.');reply(res,200,store.saveSavedSearch(await json(req),searchId));return true;}if(method==='DELETE'&&!savedSearch[2]){noDemo(context,'Recherche récurrente');if(context.searchScheduler?.isSearchRunning(searchId))throw new CareerError(409,'search_busy','Cette recherche est déjà en cours.');store.deleteSavedSearch(searchId);reply(res,200,{deleted:true});return true;}if(method==='POST'&&savedSearch[2]){noDemo(context,'Collecte récurrente');if(!store.getSavedSearch(searchId).enabled)throw new CareerError(409,'saved_search_paused','Réactivez cette recherche avant de lancer une collecte.');if(!context.searchScheduler||context.searchScheduler.isStopped?.())throw new CareerError(503,'source_unavailable','Collecte récurrente indisponible pendant la maintenance.');if(context.searchScheduler.isRunning())throw new CareerError(409,'search_busy','Une collecte est déjà en cours.');reply(res,200,await context.searchScheduler.runNow(searchId));return true;}}
+    if(method==='GET'&&relative==='/bootstrap'){reply(res,200,{profile:store.getProfile(),resumes:store.listResumes(),credentials:vault.listCredentials(),jobs:store.listJobs(),applications:store.listApplications(),events:store.listEvents(),savedSearches:store.listSavedSearches(),metrics:store.getMetrics(),vault:vault.status()});return true;}
     if(relative.startsWith('/ai/')){
       if(context.demo)throw new CareerError(403,'demo_disabled','Fonctions IA désactivées en démonstration.');
       if(!context.ai)throw new CareerError(503,'ai_unavailable','Service IA indisponible.');

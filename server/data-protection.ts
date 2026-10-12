@@ -45,6 +45,7 @@ const PORTABLE_SCHEMA: Record<string, string[]> = {
   career_jobs: ["id", "url", "title", "company", "location", "description", "source_url", "discovered_at", "updated_at"],
   career_applications: ["id", "job_id", "resume_id", "prospect_id", "state", "outcome", "answers", "missing_fields", "notes", "next_action_at", "last_error", "receipt", "created_at", "updated_at", "submitted_at"],
   career_events: ["id", "application_id", "kind", "detail", "source", "happened_at"],
+  career_saved_searches: ["id", "source", "criteria", "interval_hours", "enabled", "last_run_at", "next_run_at", "last_result_count", "last_error", "updated_at"],
   career_vault: ["id", "version", "salt", "nonce", "ciphertext", "tag"],
   career_credentials: ["id", "origin", "label", "username", "nonce", "ciphertext", "tag", "updated_at"],
   career_ai_settings: ["id", "base_url", "model", "nonce", "ciphertext", "tag", "updated_at"],
@@ -53,7 +54,8 @@ const PORTABLE_SCHEMA: Record<string, string[]> = {
   career_campaign_items: ["id", "campaign_id", "application_id", "job_id", "state", "error", "created_at", "updated_at"],
   anima_data_protection: ["scope", "version", "verifier"],
 };
-const PORTABLE_REQUIRED_TABLES = Object.keys(PORTABLE_SCHEMA).filter(name => name !== "anima_data_protection");
+const PORTABLE_OPTIONAL_TABLES = new Set(["career_saved_searches"]);
+const PORTABLE_REQUIRED_TABLES = Object.keys(PORTABLE_SCHEMA).filter(name => name !== "anima_data_protection" && !PORTABLE_OPTIONAL_TABLES.has(name));
 const LEGACY_REQUIRED_TABLES = ["searches", "prospects", "events", "messages", "queue"];
 const LEGACY_CAMPAIGN_OPTIONAL_COLUMNS = new Set(["idempotency_key", "credential_id", "expected_job_ids", "start_requested"]);
 const PORTABLE_INDEXES: Record<string, { table: string; sql: string }> = {
@@ -132,6 +134,7 @@ export const PROTECTED_SCOPES: ProtectedScope[] = [
       { table: "career_resumes", id: "id", fields: [{ name: "name" }, { name: "filename" }, { name: "mime" }, { name: "sha256" }, { name: "bytes", kind: "blob" }] },
       { table: "career_applications", id: "id", fields: [{ name: "outcome" }, { name: "answers" }, { name: "missing_fields" }, { name: "notes" }, { name: "last_error" }, { name: "receipt" }] },
       { table: "career_events", id: "id", fields: [{ name: "detail" }] },
+      { table: "career_saved_searches", id: "id", fields: [{ name: "criteria" }, { name: "last_error" }] },
     ],
   },
   {

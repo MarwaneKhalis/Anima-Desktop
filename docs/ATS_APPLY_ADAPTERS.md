@@ -54,6 +54,23 @@ Les liens vers des formulaires hébergés ailleurs, les domaines personnalisés 
 
 ## Formulaires observés en lecture seule
 
+### Matrice de compatibilité observée
+
+« Fixture » signifie un formulaire synthétique local; les colonnes live décrivent uniquement des consultations publiques GET, sans remplissage ni clic. Une ligne fixture ne prouve pas la compatibilité de tous les tenants du fournisseur.
+
+| ATS | Contrôle réel en lecture seule | Parcours couvert par fixture | Niveau constaté et limite |
+| --- | --- | --- | --- |
+| Greenhouse | Pages publiques d’offres et formulaires indexés consultés; aucun smoke live récent propre à chaque tenant | Formulaire, CV, réponse personnalisée inconnue, préparation puis envoi avec reçu | Fixture uniquement pour le flux complet; formulaires d’employeur variables |
+| Lever | Démo publique: HTTP 200, lien Apply visible, formulaire non chargé; aucun clic | Lien Apply, script du formulaire, identité, CV, préparation et reçu | Une observation live de page, aucune validation réelle du formulaire |
+| Ashby | Pas de formulaire vérifié par smoke live documenté | Lien Apply, CAPTCHA, réponses requises, questions inconnues et reçu | Fixture uniquement; CAPTCHA exige une intervention |
+| Recruitee | Pas de formulaire vérifié par smoke live documenté | Lien public, question inconnue, préparation puis reçu après réponse explicite | Fixture uniquement |
+| Workable | Pas de formulaire vérifié par smoke live documenté | Lien public, question inconnue, préparation puis reçu après réponse explicite | Fixture uniquement |
+| SmartRecruiters | Pas de formulaire vérifié par smoke live documenté | Lien public, question inconnue, préparation puis reçu après réponse explicite | Fixture uniquement |
+| Teamtailor | Bouton public « Postuler » observé; le formulaire n’a pas chargé pendant la consultation | Lien public, libellé personnalisé, chemin `/applications/new`, question inconnue et reçu | Fixture uniquement pour le formulaire et l’envoi |
+| Workday | Exemple de page carrière publique documenté; aucune soumission réelle | Parcours multi-étapes, « Save and Continue », question inconnue et reçu | Fixture uniquement; SSO et variantes employeur non validés |
+
+Le smoke live actuel n’a testé qu’une page de démonstration Lever en lecture seule. Les contrôles live ne cliquent jamais sur Apply; les résultats de formulaires et d’envoi ci-dessus viennent exclusivement des fixtures. Voir le [rapport de vérification](VERIFICATION.md) et les règles du [smoke ATS](ATS_LIVE_SMOKE.md).
+
 Les résultats publics indexés de pages Greenhouse montrent les champs First Name, Last Name, Email, Phone, Resume/CV, puis des questions propres à chaque employeur. Les pages de candidature Lever montrent Resume/CV, Full name, Email, Phone, parfois Current company, liens, questions sur mesure et une action Submit application. Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday utilisent également des formulaires variables selon l’employeur. Certains parcours présentent un CAPTCHA ou une vérification anti-robot.
 
 Exemples publics consultés : [formulaire Greenhouse Study.com](https://boards.greenhouse.io/embed/job_app?token=4126095008), [formulaire Greenhouse Opendoor](https://boards.greenhouse.io/embed/job_app?token=4572025006), [formulaire Lever Match Group](https://jobs.lever.co/matchgroup/4b304f3c-a2fd-426c-8988-727a5e16bd26/apply) et [formulaire de démonstration Lever](https://jobs.lever.co/leverdemo-8/c737ad83-0a87-4472-9ec3-1813ca12f7fa).
