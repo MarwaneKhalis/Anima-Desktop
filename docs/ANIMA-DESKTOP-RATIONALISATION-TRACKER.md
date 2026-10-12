@@ -1,6 +1,6 @@
 # Anima Desktop — suivi de rationalisation
 
-Base examinée : `a41c77cc2130f6bf60116e9513e31147b49c6080` (`v0.3.0`). Cible de cette branche : `0.4.0`.
+Base examinée : `56b2fd7495a5dee168bfed9c51ec29dbdd9a6df1` (`v0.4.0`). Cible de cette branche : `0.4.1`.
 
 `Vérifié` signifie que le critère d’acceptation complet a été exercé. Les contrôles d’une tranche ou les tests sur fixtures ne suffisent pas à l’affirmer.
 
@@ -14,7 +14,7 @@ Base examinée : `a41c77cc2130f6bf60116e9513e31147b49c6080` (`v0.3.0`). Cible de
 | R06 | P1 | En cours | Campagnes durables, paginées et comptées, avec reprise/arrêt et prévention des doublons. Reste à contrôler leur découverte et leurs actions dans toutes les sections UI. |
 | R07 | P1 | En cours | États, erreurs et prochaine action apparaissent sur les fiches ; les notes de suivi éditables après envoi gagnent une entrée chronologique sans recopier leur contenu sensible. Le suivi employeur reste peu structuré. |
 | R08 | P1 | En cours | Aujourd’hui trie l’incertain puis les blocages, présente les relances échues par échéance pour les candidatures actives, en entretien ou avec offre, compare l’instant exact en tenant compte des fuseaux, omet les rappels futurs et évite le doublon entre blocage et rappel. Un accès « Voir les relances dues » ouvre la liste complète ; tests unitaires et parcours UI dédiés. Contrôler après restauration et dans l’app installée. |
-| R09 | P1 | En cours | Nom affiché et installateur passent à Anima Desktop ; appId, `userData` existant, SQLite, coffre et clés restent inchangés. L’installateur accepte le dossier Anima Connect de la v0.3.0. La CI vérifie la mise à niveau depuis l’installeur officiel v0.3.0 et la conservation du répertoire utilisateur ; un test réel avec une base/coffre utilisateur demeure à faire. |
+| R09 | P1 | En cours | Nom affiché et installateur passent à Anima Desktop ; appId, `userData` existant, SQLite, coffre et clés restent inchangés. La CI 0.4.0 a vérifié la mise à niveau depuis v0.3.0. La CI 0.4.1 vérifie la mise à niveau depuis l’installeur officiel v0.4.0 et la conservation du répertoire utilisateur ; un test réel avec une base/coffre utilisateur demeure à faire. |
 | R10 | P1 | En cours | Libellés d’état communs et résultat employeur séparé de l’automatisation. Une taxonomie centrale complète des opérations reste à faire. |
 | R11 | P2 | En cours | Filtre texte et rangement des listes présents ; filtres métier, tri choisi et vues compactes restent limités. |
 | R12 | P2 | En cours | Score indicatif de recouvrement de mots-clés expliqué, sans prédire une embauche ; date « Repérée par Anima » basée sur la découverte locale et dernière collecte visibles. Aucune date de publication fiable n’est disponible. |
@@ -31,17 +31,17 @@ Base examinée : `a41c77cc2130f6bf60116e9513e31147b49c6080` (`v0.3.0`). Cible de
 
 ## Vérifications de cette tranche
 
-- `pnpm test` : 210 tests réussis, 0 échec (dont scénarios candidature, campagnes et dates de relance sur fixtures).
+- `pnpm test` : 212 tests réussis, 0 échec (dont le non-redémarrage automatique d’une campagne restaurée et les raccourcis de navigation, avec scénarios candidature sur fixtures).
 - `pnpm build` et `pnpm desktop:compile` : réussis après les changements UI et serveur.
 - `git diff --check` : réussi.
-- Un installateur Windows local v0.4.0 avait extrait son payload, puis NSIS signalait un abandon parce que le `icacls /T` post-install rencontrait un fichier Chromium temporaire disparu. La correction retire le parcours récursif après avoir confirmé que l’ACE AppContainer héritée est présente sur `icudtl.dat`. Le runner GitHub Windows a ensuite réussi la mise à niveau depuis l’installateur officiel v0.3.0, le smoke test de l’application mise à niveau et une installation neuve avec smoke test. Le smoke test local reste empêché par l’indisponibilité de DPAPI dans cet environnement Codex.
+- Un installateur Windows local v0.4.0 avait extrait son payload, puis NSIS signalait un abandon parce que le `icacls /T` post-install rencontrait un fichier Chromium temporaire disparu. La correction retire le parcours récursif après avoir confirmé que l’ACE AppContainer héritée est présente sur `icudtl.dat`. Le runner GitHub Windows a réussi la mise à niveau depuis l’installateur officiel v0.3.0, le smoke test de l’application mise à niveau et une installation neuve avec smoke test. La CI du hotfix v0.4.1 reteste la mise à niveau depuis v0.4.0. Le smoke test local reste empêché par l’indisponibilité de DPAPI dans cet environnement Codex.
 - Aucune candidature, invitation ou aucun message réel envoyé. Aucun portail de recrutement réel n’a été déclaré compatible sur la base des fixtures.
 
 ## Points substantiels encore ouverts
 
 - Les retours d’employeur restent dans une note libre : date/canal/type de réponse ne sont pas structurés et la fraîcheur des offres n’est pas une date fournie par l’employeur.
 - Les critères et la cadence d’une recherche enregistrée ne sont pas éditables après sa création.
-- Validation clavier/lecteur d’écran/contraste/DPI complète et restauration dans l’app empaquetée restent à prouver. La CI vérifie l’installation neuve et met à niveau l’installateur v0.3.0 avant la publication.
+- Validation clavier/lecteur d’écran/contraste/DPI complète et restauration dans l’app empaquetée restent à prouver. Le hotfix empêche les campagnes d’une sauvegarde restaurée de repartir automatiquement ; la CI vérifie l’installation neuve et met à niveau l’installateur v0.4.0 avant la publication.
 - Une partie des recommandations P2/P3 reste partielle ; ce lot ne prétend pas achever l’audit R01–R22 ni garantir une compatibilité générale des portails.
 
 ## Direction visuelle

@@ -863,7 +863,10 @@ export default function CareerWorkspace() {
                         <h2>Candidatures récentes</h2>
                         <button
                           className="cw-link"
-                          onClick={() => setTab("applications")}
+                          onClick={() => {
+                            setApplicationsSection("all");
+                            setTab("applications");
+                          }}
                         >
                           Tout voir →
                         </button>
@@ -1309,7 +1312,7 @@ export default function CareerWorkspace() {
                         CV et l’envoi.
                       </p>
                     </div>
-                    <button onClick={() => setTab("jobs")}>
+                    <button onClick={() => { setJobsSection("search"); setTab("jobs"); }}>
                       + Nouvelle candidature
                     </button>
                   </div>

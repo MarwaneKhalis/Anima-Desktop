@@ -662,6 +662,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           runner = new CareerRunner(careerStore, vault, careerBrowser);
           careerStore.recoverInterruptedRuns();
           campaignRuntime = createCareerCampaignRuntime(careerStore, runner, dataProtectionKey);
+          campaignRuntime.engine.holdForManualReviewAfterRestore();
           void campaignRuntime.engine.recoverAfterRestart().catch((error) =>
             console.error("Échec de reprise des campagnes après restauration :", error),
           );

@@ -129,6 +129,25 @@ test("an acknowledged start persisted while queued is recovered and resumed afte
   first.db.close(); disk.dispose();
 });
 
+test("restoring a backup clears campaign auto-resume intent before restart recovery", async () => {
+  const disk = persistent(), port = new FixturePort(); let first = disk.open();
+  const active = create(first.store, port, 2);
+  first.store.requestStart(active.id); first.store.activateRequested(active.id);
+  const queued = create(first.store, port, 1);
+  first.store.requestStart(queued.id); // persisted, but not activated yet
+  first.db.close(); first = disk.open();
+  const engine = new CareerCampaignEngine(first.store, port);
+  engine.holdForManualReviewAfterRestore();
+  await engine.recoverAfterRestart();
+  assert.equal(first.store.get(active.id).state, "paused");
+  assert.equal(first.store.get(active.id).startRequested, false);
+  assert.deepEqual(first.store.listItems(active.id).map(item => item.state), ["pending", "pending"]);
+  assert.equal(first.store.get(queued.id).state, "paused");
+  assert.equal(first.store.get(queued.id).startRequested, false);
+  assert.equal(port.calls.size, 0, "a restored campaign must not submit without human review");
+  first.db.close(); disk.dispose();
+});
+
 test("a manually paused campaign reconciles interrupted items but stays paused", async () => {
   const disk = persistent(), port = new FixturePort(); let first = disk.open();
   const campaign = create(first.store, port, 2);
