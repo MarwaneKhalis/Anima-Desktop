@@ -1,8 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Application } from "../src/shared/career.ts";
-import type { Prospect } from "../src/shared/types.ts";
-import { dueFollowups, dueProspectFollowups, prioritizeAttention, summarizeDailyActions } from "../src/shared/career-dashboard.ts";
+import { dueFollowups, prioritizeAttention } from "../src/shared/career-dashboard.ts";
 
 const application = (overrides: Partial<Application> = {}): Application => ({
   id: "app",
@@ -20,25 +19,6 @@ const application = (overrides: Partial<Application> = {}): Application => ({
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   submittedAt: null,
-  ...overrides,
-});
-
-const prospect = (overrides: Partial<Prospect> = {}): Prospect => ({
-  id: "prospect",
-  linkedinUrl: "",
-  firstName: "Camille",
-  lastName: "Martin",
-  title: "Recruteuse",
-  company: "Fixture",
-  location: "",
-  school: "",
-  status: "À examiner",
-  tags: [],
-  notes: "",
-  nextAction: "",
-  nextActionAt: "",
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
   ...overrides,
 });
 

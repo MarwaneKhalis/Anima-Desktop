@@ -243,6 +243,8 @@ export default function CareerWorkspace() {
   const [focusProspectVersion, setFocusProspectVersion] = useState(0);
   const modeRef = useRef(demo);
   modeRef.current = demo;
+  const campaignListViewRef = useRef({ activeOnly: false, page: 0 });
+  campaignListViewRef.current = { activeOnly: campaignsActiveOnly, page: campaignPage };
   async function api<T>(
     path: string,
     method = "GET",
@@ -278,7 +280,7 @@ export default function CareerWorkspace() {
       setCampaignError(error instanceof Error ? error.message : String(error));
     }
   }
-  async function refreshCampaigns(activeOnly = campaignsActiveOnly, page = campaignPage) {
+  async function refreshCampaigns(activeOnly = campaignListViewRef.current.activeOnly, page = campaignListViewRef.current.page) {
     try {
       const value = await api<{ campaigns: CampaignSummary[]; total?: number }>(`/campaigns?${activeOnly ? "active=1&" : ""}limit=10&offset=${page * 10}`);
       setCampaigns(value.campaigns || []);

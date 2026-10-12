@@ -780,14 +780,22 @@ test("today puts active campaigns first and combines blocked, application, and c
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  const campaignListRequests: string[] = [];
   const activeCampaignRequests: string[] = [];
-  await page.route((url) => {
+  await page.route((url, request) => {
     const parsed = new URL(url);
-    return parsed.pathname === "/api/career/campaigns" && parsed.searchParams.get("active") === "1";
+    return request.method() === "GET" && parsed.pathname === "/api/career/campaigns";
   }, async (route) => {
+    const requestUrl = route.request().url();
+    campaignListRequests.push(requestUrl);
+    const parsed = new URL(requestUrl);
+    if (parsed.searchParams.get("active") !== "1") {
+      await route.continue();
+      return;
+    }
     const response = await route.fetch();
     const body = await response.json();
-    activeCampaignRequests.push(route.request().url());
+    activeCampaignRequests.push(requestUrl);
     await route.fulfill({ response, json: { ...body, total: 11 } });
   });
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
@@ -805,6 +813,16 @@ test("today puts active campaigns first and combines blocked, application, and c
     assert.fail(`Expected the active campaign list. Current page: ${await page.locator("main").innerText()}`);
   });
   await page.getByText("Page 1 sur 2", { exact: true }).waitFor();
+  const requestsBeforePolling = campaignListRequests.length;
+  const polledActiveList = await waitFor(
+    async () => campaignListRequests.slice(requestsBeforePolling).find((url) => {
+      const parsed = new URL(url);
+      return parsed.searchParams.get("active") === "1" && parsed.searchParams.get("offset") === "0";
+    }),
+    Boolean,
+    6000,
+  );
+  assert.ok(polledActiveList, "the automatic refresh keeps the active-only filter");
   await page.getByRole("button", { name: "Suivant" }).click();
   await page.getByText("Page 2 sur 2", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Campagnes", exact: true }).click();
