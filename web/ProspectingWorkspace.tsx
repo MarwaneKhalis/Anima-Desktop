@@ -12,6 +12,7 @@ import {
   type Status,
   type Template,
 } from "../src/shared/types.ts";
+import { MESSAGE_STATE_LABELS as messageStateLabels, NETWORK_QUEUE_STATE_LABELS as networkQueueStates, NETWORK_QUEUE_STATE_META } from "../src/shared/career-labels.ts";
 
 export type Tab =
   | "accueil"
@@ -1418,16 +1419,9 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                         </div>
                         <span
                           className={`status ${q.state === "uncertain" ? "red" : q.state === "sent" ? "green" : "amber"}`}
+                          title={NETWORK_QUEUE_STATE_META[q.state].description}
                         >
-                          {
-                            {
-                              pending: "En attente",
-                              open: "Profil ouvert",
-                              sent: "Envoi confirmé",
-                              uncertain: "À vérifier",
-                              cancelled: "Annulée",
-                            }[q.state]
-                          }
+                          {networkQueueStates[q.state]}
                         </span>
                       </div>
                       {demo ? (
@@ -2323,7 +2317,7 @@ function Draft({
       <div className="section-head">
         <strong>
           {message.kind === "invitation" ? "Invitation" : "Suivi"} ·{" "}
-          {message.state === "sent" ? "Envoyé" : "Brouillon"}
+          {messageStateLabels[message.state]}
         </strong>
         <small>
           {message.sentAt
