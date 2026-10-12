@@ -13,8 +13,8 @@ if ($previousHash -ne "c2dd736990b6080ea04cd5cb0ae438735a537a42eac18175b7686e2e8
   throw "The downloaded v$previousVersion installer did not match its published SHA-256 digest."
 }
 
-$legacyInstallDir = Join-Path $env:LOCALAPPDATA "Programs\Anima Connect"
-$previousExe = Join-Path $legacyInstallDir "Anima Desktop.exe"
+$installDir = Join-Path $env:LOCALAPPDATA "Programs\Anima Desktop"
+$previousExe = Join-Path $installDir "Anima Desktop.exe"
 $previousProcess = Start-Process -FilePath $previousInstaller -ArgumentList @("/S") -Wait -PassThru
 if ($previousProcess.ExitCode -ne 0) { throw "The v$previousVersion installer failed with exit code $($previousProcess.ExitCode)." }
 if (!(Test-Path -LiteralPath $previousExe)) { throw "The v$previousVersion app was not installed at its expected default location: $previousExe" }
@@ -40,5 +40,5 @@ if (!(Test-Path -LiteralPath $sentinel) -or (Get-Content -LiteralPath $sentinel 
 $env:ANIMA_DESKTOP_EXECUTABLE = $previousExe
 pnpm desktop:smoke
 if ($LASTEXITCODE -ne 0) { throw "The upgraded app smoke test failed with exit code $LASTEXITCODE." }
-$remaining = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($legacyInstallDir, [StringComparison]::OrdinalIgnoreCase) }
+$remaining = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) }
 if ($remaining) { throw "An upgraded Anima Desktop process remained after the smoke test: $($remaining.Name -join ', ')" }
