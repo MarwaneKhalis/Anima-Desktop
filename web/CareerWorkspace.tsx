@@ -125,6 +125,57 @@ const campaignStates: Record<CampaignSummary["state"], string> = {
   limit_reached: "Plafond atteint",
 };
 
+function useDialogKeyboardSupport(
+  open: boolean,
+  dialogRef: { current: HTMLElement | null },
+  onClose: () => void,
+) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const container: HTMLElement = dialog;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => Array.from(container.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden");
+    const firstFocus = container.querySelector<HTMLElement>("[data-dialog-initial-focus]") || focusable()[0] || container;
+    firstFocus.focus();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) {
+        event.preventDefault();
+        container.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !container.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !container.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [open, dialogRef]);
+}
+
 export default function CareerWorkspace() {
   const [tab, setTab] = useState<Tab>("home"),
     [legacyTab, setLegacyTab] = useState<LegacyTab>("prospects");
@@ -171,6 +222,8 @@ export default function CareerWorkspace() {
     [batch, setBatch] = useState(false);
   const [campaignPlan, setCampaignPlan] = useState<{ jobIds: string[]; note: string } | null>(null),
     [campaignMode, setCampaignMode] = useState<"prepare" | "submit">("prepare");
+  const campaignDialogRef = useRef<HTMLElement | null>(null);
+  useDialogKeyboardSupport(!!campaignPlan && !!data, campaignDialogRef, () => setCampaignPlan(null));
   const [passphrase, setPassphrase] = useState(""),
     [account, setAccount] = useState({
       origin: "",
@@ -2513,8 +2566,8 @@ export default function CareerWorkspace() {
         </div>
       )}
       {campaignPlan && data && <div className="cw-overlay cw-campaign-overlay" onClick={() => setCampaignPlan(null)}>
-        <section className="cw-drawer cw-campaign-review" role="dialog" aria-modal="true" aria-labelledby="campaign-review-title" onClick={(event) => event.stopPropagation()}>
-          <div className="cw-section-head"><div><span className="cw-eyebrow">AVANT DE CONTINUER</span><h2 id="campaign-review-title">Récapitulatif de campagne</h2></div><button aria-label="Fermer le récapitulatif" onClick={() => setCampaignPlan(null)}>×</button></div>
+        <section ref={campaignDialogRef} className="cw-drawer cw-campaign-review" role="dialog" aria-modal="true" aria-labelledby="campaign-review-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
+          <div className="cw-section-head"><div><span className="cw-eyebrow">AVANT DE CONTINUER</span><h2 id="campaign-review-title">Récapitulatif de campagne</h2></div><button data-dialog-initial-focus aria-label="Fermer le récapitulatif" onClick={() => setCampaignPlan(null)}>×</button></div>
           <p>{campaignPlan.jobIds.length} offre(s) · ordre de pertinence conservé. {campaignPlan.note}</p>
           <div className="cw-campaign-review-jobs" aria-label="Offres de la campagne">
             {campaignPlan.jobIds.map((jobId, index) => {

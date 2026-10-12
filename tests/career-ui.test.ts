@@ -806,6 +806,39 @@ test("form controls keep a visible keyboard focus ring, including forced colors"
   assert.equal(forcedFocus.boxShadow, "none");
 });
 
+test("campaign review traps keyboard focus and Escape returns to its opener", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV clavier", filename: "cv-clavier.pdf", mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  const job = await app.json("/api/career/jobs", { url: `${app.fixture.baseUrl}/keyboard`, title: "Poste au clavier", company: "Employeur Fixture" });
+  await app.json("/api/career/applications", { jobId: job.value.id, resumeId: resume.value.id });
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByRole("button", { name: "Ouvrir le suivi →" }).click();
+  const trigger = page.getByRole("button", { name: "Préparer le lancement…" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Récapitulatif de campagne" });
+  await dialog.waitFor();
+  const initialFocus = await dialog.getByRole("button", { name: "Fermer le récapitulatif" }).evaluate((element) => document.activeElement === element);
+  assert.equal(initialFocus, true, "opening the modal moves focus to its close button");
+
+  const lastButton = dialog.getByRole("button").last();
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await lastButton.evaluate((element) => document.activeElement === element), true, "Shift+Tab wraps to the last action");
+  await page.keyboard.press("Tab");
+  assert.equal(await dialog.getByRole("button", { name: "Fermer le récapitulatif" }).evaluate((element) => document.activeElement === element), true, "Tab wraps to the first control");
+
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  assert.equal(await trigger.evaluate((element) => document.activeElement === element), true, "closing restores focus to the launch action");
+});
+
 test("application drawer records a structured employer response without changing the outcome", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
