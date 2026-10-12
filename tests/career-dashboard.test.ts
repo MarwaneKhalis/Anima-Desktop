@@ -1,7 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Application } from "../src/shared/career.ts";
-import { dueFollowups, prioritizeAttention } from "../src/shared/career-dashboard.ts";
+import type { Prospect } from "../src/shared/types.ts";
+import { dueFollowups, dueProspectFollowups, prioritizeAttention, summarizeDailyActions } from "../src/shared/career-dashboard.ts";
+
+const prospect = (overrides: Partial<Prospect> = {}): Prospect => ({
+  id: "prospect",
+  linkedinUrl: "https://www.linkedin.com/in/prospect",
+  firstName: "Camille",
+  lastName: "Martin",
+  title: "Recruteuse",
+  company: "Entreprise",
+  location: "",
+  school: "",
+  status: "Invitation acceptée",
+  tags: [],
+  notes: "",
+  nextAction: "",
+  nextActionAt: "",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  ...overrides,
+});
 
 const application = (overrides: Partial<Application> = {}): Application => ({
   id: "app",
