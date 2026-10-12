@@ -164,7 +164,7 @@ try {
   const window = diagnosticWindow = await application.firstWindow();
   await window.waitForLoadState("load");
   assert.match(await window.title(), /Anima Desktop/i);
-  await window.getByRole("button", { name: "Tableau de bord" }).waitFor({ state: "visible" });
+  await window.getByRole("button", { name: "Aujourd’hui" }).waitFor({ state: "visible" });
   assert.equal((await application.windows()).length, 1);
   await assertNoHttpListener(expectedPort);
   await assertSingleInstance(executablePath, env, userDataDir);
