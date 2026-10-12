@@ -153,6 +153,12 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
       } else page(res, "Invalid login");
       return;
     }
+    if (req.method === "POST" && path === "/mfa-verify") {
+      await read(req);
+      mfaSolved = true;
+      page(res, `<h1>Authentication complete</h1>${simple("/submit")}`);
+      return;
+    }
     if (req.method === "POST" && path.startsWith("/submit")) {
       submissions.push(parseSubmission(req, await read(req), path));
       if (path === "/submit-slow") await new Promise(resolve => setTimeout(resolve, 3000));
@@ -202,8 +208,10 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     if (path === "/radio-authorization") { page(res, simple("/submit", `<fieldset><legend>Work authorization</legend><label><input type="radio" name="workAuthorization" value="Yes" required checked>Yes</label><label><input type="radio" name="workAuthorization" value="No" required>No</label></fieldset>`)); return; }
     if (path === "/consent") { page(res, simple("/submit", `<label>I agree to the terms <input type="checkbox" name="consent" required></label>`)); return; }
     if (path === "/challenge") { page(res, `<h1>Verify you are human</h1><div class="captcha">CAPTCHA</div>${simple("/submit")}<script>setInterval(()=>fetch('/challenge-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('.captcha')?.remove();document.querySelector('h1').textContent='Verification complete'}}),100)</script>`); return; }
+    if (path === "/challenge-invalid-final") { page(res, `<h1>Verify you are human</h1><div class="captcha">CAPTCHA</div><form action="/submit" method="post"><label>Required reference <input name="unknown_reference" required></label><button type="submit">Submit application</button></form><script>setInterval(()=>fetch('/challenge-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('.captcha')?.remove();document.querySelector('h1').textContent='Verification complete'}}),100)</script>`); return; }
     if (path === "/challenge-manual-submit") { page(res, `<h1>Verify you are human</h1><div class="captcha">CAPTCHA</div><form action="/submit-manual-before-challenge" method="post"><button type="submit">Submit application</button></form><script>setInterval(()=>fetch('/manual-submit-challenge-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('.captcha')?.remove();document.querySelector('h1').textContent='Verification complete';document.querySelector('form').action='/submit-manual-after-challenge'}}),100)</script>`); return; }
-    if (path === "/mfa") { page(res, `<h1>Two-factor authentication required</h1>${simple("/submit")}<script>setInterval(()=>fetch('/mfa-state').then(r=>r.text()).then(s=>{if(s==='solved')document.querySelector('h1').textContent='Authentication complete'}),100)</script>`); return; }
+    if (path === "/mfa-manual") { page(res, `<h1>Two-factor authentication required</h1><form action="/mfa-verify" method="post"><label>Authentication code <input name="otp" required></label><button type="submit">Verify code</button></form>${simple("/submit")}`); return; }
+    if (path === "/mfa") { page(res, `<h1>Two-factor authentication required</h1><form action="/mfa-verify" method="post"><label>Authentication code <input name="otp" required></label><button type="submit">Verify code</button></form>${simple("/submit")}<script>setInterval(()=>fetch('/mfa-state').then(r=>r.text()).then(s=>{if(s==='solved'){document.querySelector('h1').textContent='Authentication complete';document.querySelector('form[action="/mfa-verify"]')?.remove()}}),100)</script>`); return; }
     if (path === "/uncertain") { page(res, simple("/submit-uncertain")); return; }
     if (path === "/slow") { await new Promise(resolve => setTimeout(resolve, 1500)); page(res, simple("/submit")); return; }
     if (path === "/slow-submit") { page(res, simple("/submit-slow")); return; }

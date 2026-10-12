@@ -557,6 +557,40 @@ test("CAPTCHA and MFA leave the browser open until the user resolves the challen
   }
   assert.equal(fx.submissions.length, count + 2);
 });
+test("submitting an MFA code during intervention is not mistaken for an application submit", async () => {
+  const count = fx.submissions.length;
+  const b = browser();
+  try {
+    const paused = await b.run(inputFor("/mfa-manual", "submit"));
+    assert.equal(paused.state, "blocked");
+    const session = (b as unknown as { pausedSession?: { page: { locator(selector: string): { fill(value: string): Promise<void>; click(): Promise<void> } } } }).pausedSession;
+    assert.ok(session, "the MFA browser remains open for user intervention");
+    await session.page.locator('[name="otp"]').fill("123456");
+    await session.page.locator('form[action="/mfa-verify"] button[type="submit"]').click();
+    assert.equal(fx.submissions.length, count, "verifying MFA does not send the application");
+    const resumed = await b.resume(inputFor("/mfa-manual", "submit"));
+    assert.equal(resumed.state, "submitted");
+    assert.equal(fx.submissions.length, count + 1, "the application is sent once after MFA succeeds");
+  } finally { await b.close(); }
+});
+test("an invalid final-button click during intervention does not create an uncertain submission", async () => {
+  const count = fx.submissions.length;
+  const b = browser(); let marker = 0;
+  try {
+    const paused = await b.run(inputFor("/challenge-invalid-final", "submit", {}, () => { marker++; }));
+    assert.equal(paused.state, "blocked");
+    const session = (b as unknown as { pausedSession?: { page: { locator(selector: string): { click(): Promise<void> } } } }).pausedSession;
+    assert.ok(session, "the browser remains open for manual intervention");
+    await session.page.locator('button[type="submit"]').click();
+    assert.equal(fx.submissions.length, count, "native validation blocks the invalid click");
+    fx.resolveChallenge();
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 350));
+    const resumed = await b.resume(inputFor("/challenge-invalid-final", "submit", {}, () => { marker++; }));
+    assert.equal(resumed.state, "needs_input");
+    assert.equal(marker, 0, "an invalid click does not persist a submitting marker");
+    assert.equal(fx.submissions.length, count);
+  } finally { await b.close(); }
+});
 test("a manual submit during intervention is never replayed when the ATS receipt is unrecognized", async () => {
   const count = fx.submissions.length;
   const b = browser(); let marker = 0;
