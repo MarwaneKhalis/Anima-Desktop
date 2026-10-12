@@ -76,8 +76,8 @@ try {
     parse(await request(window, "/api/career/applications/" + applicationRecord.id, "PATCH", {
       notes: "Note chiffrée de conservation après mise à niveau.",
     }), 200);
-    parse(await request(window, "/api/vault/initialize", "POST", { passphrase }), 201);
-    parse(await request(window, "/api/credentials", "POST", {
+    parse(await request(window, "/api/career/vault/initialize", "POST", { passphrase }), 201);
+    parse(await request(window, "/api/career/credentials", "POST", {
       origin: "https://jobs.example.org",
       label: "Identifiant synthétique CI",
       username: "upgrade-fixture@example.test",
@@ -107,7 +107,7 @@ try {
     assert.equal(applicationRecord.resumeId, resume.id);
     assert.equal(applicationRecord.notes, "Note chiffrée de conservation après mise à niveau.");
 
-    parse(await request(window, "/api/vault/unlock", "POST", { passphrase }), 200);
+    parse(await request(window, "/api/career/vault/unlock", "POST", { passphrase }), 200);
     const verified = parse(await request(window, "/api/career/bootstrap"), 200);
     const credentials = verified.credentials;
     assert.ok(credentials.some((entry) => entry.label === "Identifiant synthétique CI" && entry.username === "upgrade-fixture@example.test"));
