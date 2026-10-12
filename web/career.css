@@ -434,6 +434,9 @@
   align-items: center;
   gap: 10px;
 }
+.cw-saved-search-editor > small {
+  grid-column: 1 / -1;
+}
 .cw-saved-search-editor > div > button {
   min-width: 0;
 }
