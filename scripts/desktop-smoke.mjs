@@ -237,7 +237,10 @@ try {
   await window.getByLabel("CV pour les candidatures").selectOption(selectedResume.id);
   await window.getByRole("button", { name: "Offres", exact: true }).click();
   await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
-  await window.getByRole("button", { name: "Trouver et candidater automatiquement" }).click();
+  await window.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
+  await window.getByRole("heading", { name: "Récapitulatif de campagne" }).waitFor({ state: "visible" });
+  await window.locator('input[name="campaign-mode"][value="submit"]').check();
+  await window.getByRole("button", { name: "Confirmer et envoyer" }).click();
   const campaign = await waitForCampaign(window);
   assert.equal(campaign.counts.submitted, 1, "La campagne bureau doit envoyer le formulaire fixture.");
   assert.equal(fixtureSubmissions.length, 2, "Chaque candidature fixture doit être envoyée exactement une fois.");
