@@ -8,15 +8,22 @@ The interface should make the next useful action obvious while keeping automatio
 
 ## Visual direction
 
-Use the first “Carmin technique” direction from the Anima identity mockups as the working visual baseline: quiet ivory surfaces, charcoal-green text, restrained carmine for meaningful actions and active states, and muted brass for secondary emphasis.
+Use one coherent desktop interface, with a shared neutral foundation and restrained visual accents that distinguish major areas. The user has approved Xenogears/Weltall as the inspiration family and this working mapping:
 
-This is a working baseline from the mockups, not a reason to repaint the whole app in one pass. Preserve existing components and behavior unless the requested scope calls for a redesign. Keep the other mockup directions (“Nuit de Weltall” and “Papier d’archive”) as alternatives; do not mix their palettes into a single screen.
+| App area | Inspiration | Visual cue |
+| --- | --- | --- |
+| Profile and setup | Weltall | Indigo-blue steel and silver, with a small carmine signal |
+| Offer discovery | Weltall II | Cooler blue-steel emphasis and a more technical, ordered feel |
+| Application campaigns | Weltall-Id | Deep carmine/oxide red and graphite, kept to compact active-process accents |
+| Overview and follow-up | Xenogears | Pearl/ivory base with restrained blue-violet, carmine, and muted gold details |
 
-The Xenogears inspiration should remain indirect: subtle material warmth, a sense of a connected journey, and a few restrained geometric cues. Do not use game logos, named factions, characters, recognizable symbols, or lore.
+These are design cues, not separate themes. Keep page backgrounds, navigation, typography, spacing, controls, and interaction patterns consistent across the app. Apply area colors only through restrained accents such as active navigation, small labels, progress details, and selected controls. Do not tint whole screens by default.
 
-## Working color tokens
+The Xenogears inspiration should remain indirect: use the shift from cool mechanical steel to a more integrated, luminous palette as a subtle visual story. Do not use game logos, named factions, characters, recognizable symbols, copied artwork, or lore.
 
-These values come from the “Carmin technique” mockup and may be used when creating or consolidating shared design tokens:
+## Shared foundation
+
+The previous mockups provide a provisional neutral foundation. Reconcile it with the tokens already in code before implementing changes; these values are a starting point, not permission for a wholesale recolor.
 
 | Token | Value | Use |
 | --- | --- | --- |
@@ -26,22 +33,16 @@ These values come from the “Carmin technique” mockup and may be used when cr
 | Ink | `#26332F` | Primary text and strong icons |
 | Muted ink | `#768078` | Supporting text |
 | Border | `#E1E2D8` | Dividers and control outlines |
-| Carmine | `#994047` | Primary action and current location, used sparingly |
-| Carmine soft | `#F1E6E2` | Selected navigation and subtle emphasis |
-| Carmine ink | `#79353D` | Text and icons on carmine-soft surfaces |
-| Muted brass | `#A48657` | Secondary emphasis and progress detail |
-| Brass soft | `#F3EDE3` | Quiet brass-tinted surface |
-| Danger | `#AA6457` | Errors and destructive states |
 
-Treat these as a direction to reconcile with the tokens already in the code. Avoid introducing duplicate one-off colors. Do not use carmine or brass as decoration where they do not clarify hierarchy or state.
+Area colors should be selected and checked against the actual reference art before creating shared tokens. Use accessible contrast and preserve one shared danger color for errors and destructive actions; Weltall-Id red must not make normal campaign activity look like an error.
 
 ## Interaction and hierarchy
 
 - Organize screens around the user's immediate task and its next step.
 - Keep one clear primary action per surface; make secondary and destructive actions visually distinct.
 - Let status and progress read before supporting detail. Use progressive disclosure for uncommon or advanced options.
-- Keep related steps visually connected without making the interface feel like a game HUD.
-- Distinguish automated work, user review, and blocked states with explicit labels and accessible color-plus-text cues.
+- Keep connected tasks visually related without making the interface feel like a game HUD.
+- Distinguish automated work, user review, and blocked states with explicit labels as well as color.
 - Use motion only to explain a state change or maintain orientation; keep it short and unobtrusive.
 - Design loading, empty, success, error, paused, and needs-attention states with the same hierarchy as the happy path.
 
