@@ -757,3 +757,24 @@ test("today offers direct access to every due follow-up", async (t) => {
   assert.equal(await page.locator(".cw-application").count(), 4);
   assert.equal(await page.getByRole("button", { name: "Relances (4)", exact: true }).getAttribute("class"), "current");
 });
+
+test("dashboard shortcuts reset the destination to its primary view", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByRole("button", { name: "Campagnes", exact: true }).click();
+  await page.getByRole("button", { name: "Aujourd’hui", exact: true }).click();
+  await page.getByRole("button", { name: "Tout voir →", exact: true }).click();
+  await page.getByRole("heading", { name: "Vos candidatures" }).waitFor();
+
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByRole("button", { name: "Recherches enregistrées", exact: true }).click();
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByRole("button", { name: "+ Nouvelle candidature", exact: true }).click();
+  await page.getByRole("heading", { name: "Trouver une offre" }).waitFor();
+});

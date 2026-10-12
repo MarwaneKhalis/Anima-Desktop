@@ -1832,6 +1832,9 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                   <p>
                     La base actuelle est conservée dans le dossier local avant restauration. Les fichiers .anima-backup nécessitent leur phrase secrète.
                   </p>
+                  <p className="cw-help">
+                    Les campagnes en cours dans la sauvegarde seront mises en pause. Vérifiez les candidatures déjà envoyées avant de les reprendre manuellement : aucune campagne restaurée ne repart automatiquement.
+                  </p>
                   <label className="field">
                     <span>Phrase de sauvegarde</span>
                     <input type="password" autoComplete="current-password" maxLength={1024} value={restorePassphrase} onChange={(event) => setRestorePassphrase(event.target.value)} />

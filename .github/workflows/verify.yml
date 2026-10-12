@@ -21,7 +21,7 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm desktop:dist
-      - name: Upgrade the published v0.3.0 app and smoke-test v0.4.0
+      - name: Upgrade the published previous release and smoke-test this release
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"

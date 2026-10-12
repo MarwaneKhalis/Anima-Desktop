@@ -144,6 +144,12 @@ export class CareerCampaignStore {
     return counts;
   }
   listRecoverable(): Campaign[] { return (this.db.prepare("SELECT c.* FROM career_campaigns c WHERE c.state='running' OR (c.state='queued' AND c.start_requested=1) OR (c.state='paused' AND EXISTS (SELECT 1 FROM career_campaign_items i WHERE i.campaign_id=c.id AND i.state='running')) ORDER BY c.created_at,c.id").all() as Row[]).map(r => this.campaign(r)); }
+  /** A restored snapshot may predate submissions already accepted by an ATS. Never
+   * replay its durable start intent automatically; require a human review first. */
+  holdForManualReviewAfterRestore(): void {
+    this.db.prepare("UPDATE career_campaigns SET state=CASE WHEN state='running' OR (state='queued' AND start_requested=1) THEN 'paused' ELSE state END,start_requested=0,updated_at=? WHERE state='running' OR start_requested=1")
+      .run(stamp());
+  }
   pauseRunning(): void { this.db.prepare("UPDATE career_campaigns SET state='paused',updated_at=? WHERE state='running'").run(stamp()); }
   listItems(id: string): CampaignItem[] { return (this.db.prepare("SELECT * FROM career_campaign_items WHERE campaign_id=? ORDER BY created_at,id").all(id) as Row[]).map(r => this.item(r)); }
   getItem(id: string, itemId: string): CampaignItem {
@@ -348,6 +354,10 @@ export class CareerCampaignEngine {
   async wait(id: string): Promise<void> { await this.loops.get(id); }
   pauseAll(): void {
     this.store.pauseRunning();
+    this.wakeWorkers();
+  }
+  holdForManualReviewAfterRestore(): void {
+    this.store.holdForManualReviewAfterRestore();
     this.wakeWorkers();
   }
   async waitAll(): Promise<void> { await Promise.all([...this.loops.values()]); }
