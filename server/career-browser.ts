@@ -20,7 +20,7 @@ type BrowserRunInput = {
   application: Application; job: JobOffer; profile: CareerProfile;
   resume: { meta: Resume; bytes: Buffer }; mode: RunMode;
   getCredential: (origin: string) => { username: string; password: string } | null;
-  beforeSubmit: () => void; signal?: AbortSignal; fileFieldKey?: string; closeOnNeedsInput?: boolean;
+  beforeSubmit: () => void; cancelSubmit?: () => void; signal?: AbortSignal; fileFieldKey?: string; closeOnNeedsInput?: boolean;
 };
 type BrowserSession = {
   input: BrowserRunInput; page: Page; flowOrigin: string; initialNavigation: boolean;
@@ -338,7 +338,7 @@ export class CareerBrowser {
         if (session?.manualInterventionOpen) session.manualSubmissionObserved = true;
       });
       await page.addInitScript(({ pausedKey, observedKey }) => {
-        const context = window as Window & { __animaManualSubmitPaused?: boolean; __animaManualSubmissionObserved?: boolean; __animaObserveManualSubmission?: () => Promise<void> };
+        const context = window as Window & { __animaManualSubmitPaused?: boolean; __animaManualSubmissionObserved?: boolean; __animaSingleFinalSubmitGuard?: boolean; __animaFinalSubmissionClaimed?: boolean; __animaFinalSubmitClickPending?: boolean; __animaFinalSubmitEventClaimed?: boolean; __animaFinalSubmitInvalidAtClick?: boolean; __animaObserveManualSubmission?: () => Promise<void> };
         try {
           context.__animaManualSubmitPaused = sessionStorage.getItem(pausedKey) === "1";
           context.__animaManualSubmissionObserved = sessionStorage.getItem(observedKey) === "1";
@@ -351,17 +351,40 @@ export class CareerBrowser {
           void context.__animaObserveManualSubmission?.();
         };
         document.addEventListener("click", event => {
-          if (!context.__animaManualSubmitPaused) return;
           const target = event.target instanceof Element ? event.target.closest('button, input[type="submit"]') as HTMLButtonElement | HTMLInputElement | null : null;
           const label = target instanceof HTMLInputElement ? target.value : target?.textContent || target?.getAttribute("aria-label") || "";
-          if (target && finalLabel.test(normalize(label.trim())) && (!target.form || target.form.checkValidity())) mark();
+          if (!target || !finalLabel.test(normalize(label.trim()))) return;
+          if (target.form && !target.form.checkValidity()) {
+            if (context.__animaSingleFinalSubmitGuard && !context.__animaFinalSubmissionClaimed) context.__animaFinalSubmitInvalidAtClick = true;
+            return;
+          }
+          if (context.__animaManualSubmitPaused) { mark(); return; }
+          if (!context.__animaSingleFinalSubmitGuard) return;
+          if (context.__animaFinalSubmissionClaimed) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+          }
+          context.__animaFinalSubmissionClaimed = true;
+          context.__animaFinalSubmitClickPending = true;
+          setTimeout(() => { context.__animaFinalSubmitClickPending = false; }, 0);
         }, true);
         document.addEventListener("submit", event => {
-          if (!context.__animaManualSubmitPaused) return;
           const submitter = (event as SubmitEvent).submitter;
           const target = submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement ? submitter : null;
           const label = target instanceof HTMLInputElement ? target.value : target?.textContent || target?.getAttribute("aria-label") || "";
-          if (target && finalLabel.test(normalize(label.trim())) && (!target.form || target.form.checkValidity())) mark();
+          if (!target || !finalLabel.test(normalize(label.trim()))) return;
+          if (target.form && !target.form.checkValidity()) return;
+          if (context.__animaManualSubmitPaused) { mark(); return; }
+          if (!context.__animaSingleFinalSubmitGuard) return;
+          if (!context.__animaFinalSubmitEventClaimed && (context.__animaFinalSubmitClickPending || context.__animaFinalSubmissionClaimed || !event.isTrusted)) {
+            context.__animaFinalSubmitEventClaimed = true;
+            context.__animaFinalSubmitClickPending = false;
+            context.__animaFinalSubmissionClaimed = true;
+            return;
+          }
+          event.preventDefault();
+          event.stopImmediatePropagation();
         }, true);
       }, { pausedKey: MANUAL_SUBMIT_PAUSED_KEY, observedKey: MANUAL_SUBMIT_OBSERVED_KEY });
       page.on("request", request => {
@@ -643,22 +666,23 @@ export class CareerBrowser {
       }
       if (finals.length !== 1) return result("blocked", "Bouton final de candidature introuvable ou ambigu.");
       const finalControl = page.locator('button, input[type="submit"]').nth(finals[0].index);
+      const finalControlHandle = await finalControl.elementHandle().catch(() => null);
+      if (!finalControlHandle) return result("blocked", "Le bouton final a changé ; vérifiez le formulaire avant de reprendre.");
       if (!await sameOriginForm(page, finalControl, session.flowOrigin)) return result("blocked", "Envoi vers une origine différente interdite.");
       if (input.mode === "prepare") return result("ready", "Formulaire prêt à être envoyé.");
       if (input.signal?.aborted) return result("failed", "Parcours interrompu avant l’envoi.");
       const beforeText = await page.locator("body").innerText().catch(() => "");
       const lastChanceManualSubmission = await this.detectManualSubmission(session);
       if (lastChanceManualSubmission) return lastChanceManualSubmission;
-      const finalControlValidity = await finalControl.evaluate(el => {
+      const finalControlValidity = await finalControlHandle.evaluate(el => {
         const form = (el as HTMLButtonElement | HTMLInputElement).form;
         return !form || form.checkValidity();
       }).catch(() => false);
       if (!finalControlValidity) return result("blocked", "Le formulaire contient des champs invalides ; corrigez-les avant l’envoi.");
       // Persist the submitting marker before any final click so a retry cannot duplicate an uncertain send.
       input.beforeSubmit();
-      session.submittedClick = true;
-      const finalClick = await finalControl.evaluate((el, { pausedKey, observedKey, expectedOrigin }) => {
-        const context = window as Window & { __animaManualSubmitPaused?: boolean; __animaManualSubmissionObserved?: boolean };
+      const finalClick = await finalControlHandle.evaluate((el, { pausedKey, observedKey, expectedOrigin }) => {
+        const context = window as Window & { __animaManualSubmitPaused?: boolean; __animaManualSubmissionObserved?: boolean; __animaSingleFinalSubmitGuard?: boolean; __animaFinalSubmissionClaimed?: boolean; __animaFinalSubmitEventClaimed?: boolean; __animaFinalSubmitInvalidAtClick?: boolean };
         let observed = context.__animaManualSubmissionObserved === true;
         try { observed ||= sessionStorage.getItem(observedKey) === "1"; } catch { /* The in-memory observer remains active. */ }
         if (observed) return "manual";
@@ -667,24 +691,36 @@ export class CareerBrowser {
         if (form && !form.checkValidity()) return "invalid";
         const action = new URL(form?.action || location.href, location.href);
         if (action.origin !== expectedOrigin) return "foreign";
-        // Check and click in one page task so a human event cannot slip between
-        // the final observation check and the automated submission.
+        // Arm an at-most-once guard before yielding to Playwright. If a human click
+        // races with the trusted Playwright click, the first valid submit wins.
         context.__animaManualSubmitPaused = false;
         try { sessionStorage.removeItem(pausedKey); } catch { /* The synchronous click is still guarded. */ }
-        control.click();
-        return "clicked";
+        context.__animaSingleFinalSubmitGuard = true;
+        context.__animaFinalSubmissionClaimed = false;
+        context.__animaFinalSubmitEventClaimed = false;
+        context.__animaFinalSubmitInvalidAtClick = false;
+        return "ready";
       }, { pausedKey: MANUAL_SUBMIT_PAUSED_KEY, observedKey: MANUAL_SUBMIT_OBSERVED_KEY, expectedOrigin: session.flowOrigin }).catch(() => "failed");
       if (finalClick === "manual") {
         session.manualSubmissionObserved = true;
+        session.submittedClick = true;
         const proof = await receipt(page, session.pausedPageBody || "");
         return proof
           ? result("submitted", "Candidature confirmée dans le navigateur.", [], proof)
           : result("uncertain", "Une soumission manuelle a été détectée ; vérifiez son résultat avant toute nouvelle tentative.");
       }
-      if (finalClick === "invalid") return result("blocked", "Le formulaire contient des champs invalides ; corrigez-les avant l’envoi.");
-      if (finalClick === "foreign") return result("blocked", "Envoi vers une origine différente interdite.");
-      if (finalClick !== "clicked") return result("blocked", "Le clic final n’a pas pu être confirmé ; vérifiez le formulaire avant toute nouvelle tentative.");
+      if (finalClick === "invalid") { input.cancelSubmit?.(); return result("blocked", "Le formulaire contient des champs invalides ; corrigez-les avant l’envoi."); }
+      if (finalClick === "foreign") { input.cancelSubmit?.(); return result("blocked", "Envoi vers une origine différente interdite."); }
+      if (finalClick !== "ready") return result("blocked", "Le clic final n’a pas pu être confirmé ; vérifiez le formulaire avant toute nouvelle tentative.");
       session.manualInterventionOpen = false;
+      session.submittedClick = true;
+      await finalControlHandle.click();
+      const invalidAtClick = await page.evaluate(() => (window as Window & { __animaFinalSubmitInvalidAtClick?: boolean }).__animaFinalSubmitInvalidAtClick === true).catch(() => false);
+      if (invalidAtClick) {
+        input.cancelSubmit?.();
+        session.submittedClick = false;
+        return result("blocked", "Le formulaire est devenu invalide avant l’envoi ; corrigez-le avant de reprendre.");
+      }
       await page.waitForLoadState("domcontentloaded").catch(() => {});
       for (let retry = 0; retry < 10; retry++) {
         const proof = await receipt(page, beforeText);
