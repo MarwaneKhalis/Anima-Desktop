@@ -1,6 +1,6 @@
 # Anima Desktop — suivi de rationalisation
 
-Base examinée : `a9f3014e776f2935c5b0c7bf209509ee8a138faf` (`v0.4.2`). `v0.4.3` est publiée ; cible suivante : `0.4.4`.
+Base examinée : `dba84b892db149c06c4f25ccd0d4370a3651eea1` (`v0.4.3`). `v0.4.4` est en préparation ; cible suivante : `0.4.5`.
 
 `Vérifié` signifie que le critère d’acceptation complet a été exercé. Les contrôles d’une tranche ou les tests sur fixtures ne suffisent pas à l’affirmer.
 
@@ -14,7 +14,7 @@ Base examinée : `a9f3014e776f2935c5b0c7bf209509ee8a138faf` (`v0.4.2`). `v0.4.3`
 | R06 | P1 | En cours | Campagnes durables, paginées et comptées, avec reprise/arrêt et prévention des doublons. Reste à contrôler leur découverte et leurs actions dans toutes les sections UI. |
 | R07 | P1 | Vérifié | Les états, erreurs et prochaines actions apparaissent sur les fiches ; les notes de suivi éditables alimentent l’historique sans recopier leur contenu sensible. Un formulaire manuel consigne date de réception, canal, type et résumé dans un événement versionné et chiffré, daté séparément de son enregistrement. Son parcours UI, la validation API, l’absence d’effet sur le résultat employeur et l’absence d’envoi sont testés. |
 | R08 | P1 | En cours | Aujourd’hui trie l’incertain puis les blocages, présente les relances échues par échéance pour les candidatures actives, en entretien ou avec offre, compare l’instant exact en tenant compte des fuseaux, omet les rappels futurs et évite le doublon entre blocage et rappel. Un accès « Voir les relances dues » ouvre la liste complète ; tests unitaires et parcours UI dédiés. Contrôler après restauration et dans l’app installée. |
-| R09 | P1 | En cours | Nom affiché et installateur passent à Anima Desktop ; appId, `userData` existant, SQLite, coffre et clés restent inchangés. La CI 0.4.0 a vérifié la mise à niveau depuis v0.3.0. Les CI 0.4.1 et 0.4.2 vérifient une mise à niveau depuis un installeur officiel antérieur et la conservation du répertoire utilisateur ; un test réel avec une base/coffre utilisateur demeure à faire. La prochaine vérification sera faite depuis v0.4.2. |
+| R09 | P1 | En cours | Nom affiché et installateur passent à Anima Desktop ; appId, `userData` existant, SQLite, coffre et clés restent inchangés. La CI 0.4.0 a vérifié la mise à niveau depuis v0.3.0. La CI de la v0.4.3 a confirmé la mise à niveau depuis v0.4.2 ; celle de la v0.4.4 a confirmé la mise à niveau depuis v0.4.3 et une installation neuve. Un test avec une base et un coffre utilisateur réels demeure à faire. |
 | R10 | P1 | En cours | Libellés d’état communs et résultat employeur séparé de l’automatisation. Une taxonomie centrale complète des opérations reste à faire. |
 | R11 | P2 | En cours | Filtre texte et rangement des listes présents ; critères et cadence des recherches récurrentes maintenant modifiables depuis leur liste. Filtres métier, tri choisi et vues compactes restent limités. |
 | R12 | P2 | En cours | Score indicatif de recouvrement de mots-clés expliqué, sans prédire une embauche ; date « Repérée par Anima » basée sur la découverte locale et dernière collecte visibles. Aucune date de publication fiable n’est disponible. |
@@ -25,7 +25,7 @@ Base examinée : `a9f3014e776f2935c5b0c7bf209509ee8a138faf` (`v0.4.2`). `v0.4.3`
 | R17 | P2 | En cours | Réglages IA rangés sous Connexions ; persistance et édition chiffrée des brouillons de lettres à vérifier/compléter. |
 | R18 | P2 | En cours | Contacts, recherches LinkedIn et messages sont regroupés dans Réseau ; les invitations/messages demeurent manuels. Vérifier le parcours de bout en bout. |
 | R19 | P2 | En cours | Sauvegarde, restauration, mode démo et aide rangés dans les sections secondaires ; scénario de restauration dans l’app empaquetée non démontré ici. |
-| R20 | P3 | En cours | Tokens visuels communs et accents discrets par section : Weltall, Weltall-2, Weltall-Id, Xenogears. Vérifier contraste mesuré et cohérence de tous les états. |
+| R20 | P3 | Vérifié | Base neutre et tokens d’accent nommés selon leur rôle ; accents sobres distincts par section : Weltall (cuivre rouge), Weltall-2 (pétrole), Weltall-Id (violet), Xenogears (or). Le texte des boutons et pastilles pastel dépasse 4,5:1 dans les quatre sections ; statuts succès, attente, activité, échec et neutre dépassent également 4,5:1. Captures bureau contrôlées pour Aujourd’hui, Offres, Profil & CV et Campagnes. |
 | R21 | P2 | En cours | Captures viewport bureau et mobile disponibles ; clavier, focus, lecteur d’écran, contrastes mesurés et facteurs d’échelle Windows restent à valider. |
 | R22 | P3 | En cours | Coquille et espace historique séparés progressivement avec ré-export de compatibilité ; aucune réécriture métier étendue. D’autres découpages doivent être justifiés par les prochaines évolutions. |
 
@@ -33,6 +33,7 @@ Base examinée : `a9f3014e776f2935c5b0c7bf209509ee8a138faf` (`v0.4.2`). `v0.4.3`
 
 - `node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts` : 225 tests réussis, 0 échec (dont retours employeur structurés, restauration sans reprise automatique, navigation, recherche récurrente, flux de candidature et protection anti-double envoi).
 - `tsc --noEmit`, `vite build --configLoader native` et `tsc -p tsconfig.desktop.json` : réussis sur les changements de cette tranche. `git diff --check` : réussi.
+- Vérification WCAG des accents : ratios bouton/blanc de 6,29:1 (Weltall), 5,25:1 (Weltall-2), 7,10:1 (Weltall-Id), 5,76:1 (Xenogears) ; ratio texte/fond doux minimum de 7,06:1. Les libellés de statuts mesurés vont de 5,76:1 à 6,82:1. Captures UI contrôlées : `01-dashboard`, `02-profile`, `03-offers` et `08-france-travail-campaign`.
 - Parcours navigateur R04 : tests sur fixtures couvrant soumission manuelle pendant intervention, OTP MFA, clic final bloqué par la validation HTML, invalidation tardive et annulation cohérente du marqueur, clic réentrant valide/invalide, navigation après marqueur et `requestSubmit()` ATS différé. Aucun portail réel ni installateur empaqueté n’a été validé dans cette tranche.
 - Un installateur Windows local v0.4.0 avait extrait son payload, puis NSIS signalait un abandon parce que le `icacls /T` post-install rencontrait un fichier Chromium temporaire disparu. La correction retire le parcours récursif après avoir confirmé que l’ACE AppContainer héritée est présente sur `icudtl.dat`. Le runner GitHub Windows a réussi la mise à niveau depuis l’installateur officiel v0.3.0, le smoke test de l’application mise à niveau et une installation neuve avec smoke test. La CI du hotfix v0.4.1 reteste la mise à niveau depuis v0.4.0 ; la CI v0.4.2 l’a aussi validée depuis v0.4.0 (et non depuis v0.4.1). La release v0.4.3 a réussi la mise à niveau depuis l’installateur officiel v0.4.2 ainsi qu’une installation neuve avec smoke test. Le smoke test local reste empêché par l’indisponibilité de DPAPI dans cet environnement Codex.
 - Aucune candidature, invitation ou aucun message réel envoyé. Aucun portail de recrutement réel n’a été déclaré compatible sur la base des fixtures.
@@ -41,7 +42,7 @@ Base examinée : `a9f3014e776f2935c5b0c7bf209509ee8a138faf` (`v0.4.2`). `v0.4.3`
 
 - Le journal des retours employeur est structuré. La fraîcheur des offres n’est toujours pas une date de publication fournie par l’employeur.
 - Les critères et la cadence d’une recherche enregistrée peuvent maintenant être modifiés dans l’interface. L’édition reste à vérifier avec une collecte en cours et dans l’app empaquetée.
-- Validation clavier/lecteur d’écran/contraste/DPI complète et restauration dans l’app empaquetée restent à prouver. Le hotfix empêche les campagnes d’une sauvegarde restaurée de repartir automatiquement ; la CI vérifie l’installation neuve et met à niveau l’installateur v0.4.0 avant la publication.
+- Validation clavier/lecteur d’écran/contraste de l’ensemble des textes/DPI complète et restauration dans l’app empaquetée restent à prouver. Les accents et principales pastilles d’état ont été mesurés au-dessus de 4,5:1. Le hotfix empêche les campagnes d’une sauvegarde restaurée de repartir automatiquement ; les CI récentes valident l’installation neuve et la mise à niveau depuis l’installateur officiel précédent.
 - Une partie des recommandations P2/P3 reste partielle ; ce lot ne prétend pas achever l’audit R01–R22 ni garantir une compatibilité générale des portails.
 
 ## Direction visuelle
