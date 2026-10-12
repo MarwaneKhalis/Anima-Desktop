@@ -130,12 +130,16 @@ export class CareerCampaignStore {
     });
   }
   get(id: string): Campaign { const row = this.db.prepare("SELECT * FROM career_campaigns WHERE id=?").get(id) as Row | undefined; if (!row) throw new CampaignError(404, "not_found", "Campagne introuvable."); return this.campaign(row); }
-  list(limit = 50, offset = 0): Campaign[] {
+  list(limit = 50, offset = 0, activeOnly = false): Campaign[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("La liste des campagnes est limitée à 1–100 éléments.");
     if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new Error("Le décalage des campagnes est invalide.");
-    return (this.db.prepare("SELECT * FROM career_campaigns ORDER BY updated_at DESC,created_at DESC LIMIT ? OFFSET ?").all(limit, offset) as Row[]).map(r => this.campaign(r));
+    const where = activeOnly ? "WHERE state IN ('queued','running','paused')" : "";
+    return (this.db.prepare(`SELECT * FROM career_campaigns ${where} ORDER BY updated_at DESC,created_at DESC LIMIT ? OFFSET ?`).all(limit, offset) as Row[]).map(r => this.campaign(r));
   }
-  total(): number { return Number((this.db.prepare("SELECT COUNT(*) AS n FROM career_campaigns").get() as Row).n); }
+  total(activeOnly = false): number {
+    const where = activeOnly ? "WHERE state IN ('queued','running','paused')" : "";
+    return Number((this.db.prepare(`SELECT COUNT(*) AS n FROM career_campaigns ${where}`).get() as Row).n);
+  }
   counts(id: string): CampaignCounts {
     this.get(id);
     const rows = this.db.prepare("SELECT state,COUNT(*) AS n FROM career_campaign_items WHERE campaign_id=? GROUP BY state").all(id) as Row[];

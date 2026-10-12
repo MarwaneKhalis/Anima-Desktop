@@ -145,9 +145,14 @@ const filterText = (f: SearchFilters) => ({
   industries: fmtList(f.industries),
 });
 
-export default function ProspectingWorkspace({ initialTab = "accueil", demoMode, embedded = false, settingsSection, onFeedback }: {initialTab?: Tab; demoMode?: boolean; embedded?: boolean; settingsSection?: "connections" | "data" | "preferences" | "about"; onFeedback?: (kind: "error" | "notice", message: string) => void} = {}) {
+export default function ProspectingWorkspace({ initialTab = "accueil", demoMode, embedded = false, settingsSection, onFeedback, onProspectsChange, focusProspectId, focusProspectVersion }: {initialTab?: Tab; demoMode?: boolean; embedded?: boolean; settingsSection?: "connections" | "data" | "preferences" | "about"; onFeedback?: (kind: "error" | "notice", message: string) => void; onProspectsChange?: (prospects: Prospect[]) => void; focusProspectId?: string | null; focusProspectVersion?: number} = {}) {
   const [tab, setTab] = useState<Tab>(initialTab);
   useEffect(() => setTab(initialTab), [initialTab]);
+  useEffect(() => {
+    if (!focusProspectId || focusProspectVersion === undefined) return;
+    setTab("prospects");
+    void openProspect(focusProspectId);
+  }, [focusProspectId, focusProspectVersion]);
   const [demo, setDemo] = useState(
     () => demoMode ?? localStorage.getItem("anima-demo") === "1",
   );
@@ -226,6 +231,7 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
   async function load(mode = demo) {
     const snapshot = await api<Snapshot>("/bootstrap", undefined, mode);
     setData(snapshot);
+    onProspectsChange?.(snapshot.prospects);
     setLimit(snapshot.settings.invitationLimit);
     return snapshot;
   }

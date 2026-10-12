@@ -728,7 +728,7 @@ test("career UI resumes a paused application after saving a missing answer", asy
   assert.equal(app.fixture.submissions[0].fields.workAuthorization, "Yes");
 });
 
-test("today offers direct access to every due follow-up", async (t) => {
+test("today puts active campaigns first and combines blocked, application, and contact actions", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
   const resume = await app.json("/api/career/resumes", {
@@ -747,15 +747,105 @@ test("today offers direct access to every due follow-up", async (t) => {
     const updated = await app.json(`/api/career/applications/${application.value.id}`, { nextActionAt: dueAt }, "PATCH");
     assert.equal(updated.response.status, 200);
   }
+  const blockedJob = await app.json("/api/career/jobs", {
+    url: `${app.fixture.baseUrl}/unknown`, title: "Candidature bloquée", company: "Fixture Blocage",
+  });
+  const blockedApplication = await app.json("/api/career/applications", {
+    jobId: blockedJob.value.id, resumeId: resume.value.id,
+  });
+  await app.json(`/api/career/applications/${blockedApplication.value.id}/run`, { mode: "prepare" }, "POST");
+  await waitFor(
+    async () => (await app.json(`/api/career/applications/${blockedApplication.value.id}`)).value,
+    (value) => value.state !== "running",
+  );
+  const blockedState = await app.json(`/api/career/applications/${blockedApplication.value.id}`);
+  assert.equal(blockedState.value.state, "needs_input");
+  const contactDueAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const imported = await app.json("/api/prospects/import", {
+    prospects: [{
+      linkedinUrl: "https://www.linkedin.com/in/amelie-fixture",
+      firstName: "Amélie", lastName: "Durant", title: "Recruteuse",
+      company: "Fixture Réseau", status: "Invitation acceptée",
+      nextAction: "Préparer un échange", nextActionAt: contactDueAt,
+    }],
+  }, "POST");
+  assert.equal(imported.response.status, 200);
+  const snapshot = await app.json("/api/career/bootstrap");
+  const campaign = await app.json("/api/career/campaigns", {
+    resumeId: resume.value.id, jobIds: [snapshot.value.jobs[0].id],
+    maxSubmissions: 1, idempotencyKey: "today-active-campaign",
+  }, "POST");
+  assert.equal(campaign.response.status, 201);
 
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  const campaignListRequests: string[] = [];
+  const activeCampaignRequests: string[] = [];
+  await page.route((url) => new URL(url).pathname === "/api/career/campaigns", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    const requestUrl = route.request().url();
+    campaignListRequests.push(requestUrl);
+    const parsed = new URL(requestUrl);
+    if (parsed.searchParams.get("active") !== "1") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const body = await response.json();
+    activeCampaignRequests.push(requestUrl);
+    await route.fulfill({ response, json: { ...body, total: 11 } });
+  });
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Voir les 4 relances dues →" }).click();
-  await page.getByRole("heading", { name: "Relances à traiter" }).waitFor();
-  assert.equal(await page.locator(".cw-application").count(), 4);
-  assert.equal(await page.getByRole("button", { name: "Relances (4)", exact: true }).getAttribute("class"), "current");
+  const actions = page.locator(".cw-panel").filter({ has: page.getByRole("heading", { name: "À ne pas laisser passer" }) });
+  await actions.getByRole("button", { name: /Campagne · En attente/ }).waitFor();
+  const rows = actions.locator(".cw-row");
+  assert.match(await rows.nth(0).innerText(), /Campagne · En attente/);
+  assert.match(await rows.nth(1).innerText(), /Voir les 11 campagnes actives/);
+  assert.match(await rows.nth(2).innerText(), /Candidature bloquée/);
+  assert.equal(await rows.count(), 8, "the list includes one campaign, one overflow link, one blocker, four application reminders, and one contact reminder");
+  assert.match(await actions.locator(".cw-muted").innerText(), /11 campagne\(s\) active\(s\) · 1 candidature\(s\) à traiter · 5 relance\(s\) échue\(s\)/);
+
+  await actions.getByRole("button", { name: "Voir les 11 campagnes actives" }).click();
+  await page.getByRole("heading", { name: "Campagnes actives", level: 2 }).waitFor({ timeout: 5000 }).catch(async () => {
+    assert.fail(`Expected the active campaign list. Current page: ${await page.locator("main").innerText()}`);
+  });
+  await page.getByText("Page 1 sur 2", { exact: true }).waitFor();
+  const requestsBeforePolling = campaignListRequests.length;
+  const polledActiveList = await waitFor(
+    async () => campaignListRequests.slice(requestsBeforePolling).find((url) => {
+      const parsed = new URL(url);
+      return parsed.searchParams.get("active") === "1" && parsed.searchParams.get("offset") === "0";
+    }),
+    Boolean,
+    6000,
+  );
+  assert.ok(polledActiveList, "the automatic refresh keeps the active-only filter");
+  await page.getByRole("button", { name: "Suivant" }).click();
+  await page.getByText("Page 2 sur 2", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Campagnes", exact: true }).click();
+  await page.getByRole("heading", { name: "Campagnes de candidature", level: 2 }).waitFor();
+  assert.ok(activeCampaignRequests.some((url) => new URL(url).searchParams.get("offset") === "0"));
+  assert.ok(activeCampaignRequests.some((url) => new URL(url).searchParams.get("offset") === "10"));
+
+  await page.getByRole("button", { name: "Aujourd’hui", exact: true }).click();
+  const todayRows = actions.locator(".cw-row");
+
+  await todayRows.nth(0).click();
+  await page.getByRole("heading", { name: "Campagnes actives", level: 2 }).waitFor();
+  await page.locator(".cw-campaign-items").waitFor();
+  await page.getByRole("button", { name: "Aujourd’hui", exact: true }).click();
+  await rows.filter({ hasText: "Candidature bloquée" }).first().click();
+  await page.locator(".cw-drawer h2").getByText("Candidature bloquée", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Fermer la candidature" }).click();
+  await page.getByRole("button", { name: "Aujourd’hui", exact: true }).click();
+  await rows.filter({ hasText: "Relance contact · Amélie Durant" }).click();
+  await page.getByRole("heading", { name: "Amélie Durant" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Réseau", exact: true }).getAttribute("aria-current"), "page");
+  assert.deepEqual(await app.fixture.submissions, []);
 });
 
 test("keyboard tab focus has a visible outline in the active section accent", async (t) => {

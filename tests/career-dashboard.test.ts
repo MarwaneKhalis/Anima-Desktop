@@ -1,7 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Application } from "../src/shared/career.ts";
-import { dueFollowups, prioritizeAttention } from "../src/shared/career-dashboard.ts";
+import type { Prospect } from "../src/shared/types.ts";
+import { dueFollowups, dueProspectFollowups, prioritizeAttention, summarizeDailyActions } from "../src/shared/career-dashboard.ts";
+
+const prospect = (overrides: Partial<Prospect> = {}): Prospect => ({
+  id: "prospect",
+  linkedinUrl: "https://www.linkedin.com/in/prospect",
+  firstName: "Camille",
+  lastName: "Martin",
+  title: "Recruteuse",
+  company: "Entreprise",
+  location: "",
+  school: "",
+  status: "Invitation acceptée",
+  tags: [],
+  notes: "",
+  nextAction: "",
+  nextActionAt: "",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  ...overrides,
+});
 
 const application = (overrides: Partial<Application> = {}): Application => ({
   id: "app",
@@ -54,12 +74,43 @@ test("daily restart orders due follow-ups and excludes future, inactive, and alr
 
 test("follow-up due state uses the exact instant, including timezone offsets", () => {
   const applications = [
+    application({ id: "later-instant", nextActionAt: "2026-10-12T10:30:00-04:00" }),
     application({ id: "earlier-today", nextActionAt: "2026-10-12T14:00:00+02:00" }),
     application({ id: "later-today", nextActionAt: "2026-10-12T16:00:00+02:00" }),
     application({ id: "malformed", nextActionAt: "not-a-date" }),
   ];
   assert.deepEqual(
-    dueFollowups(applications, new Date("2026-10-12T12:30:00.000Z")).map(({ id }) => id),
-    ["earlier-today"],
+    dueFollowups(applications, new Date("2026-10-12T16:00:00.000Z")).map(({ id }) => id),
+    ["earlier-today", "later-today", "later-instant"],
   );
+});
+
+test("daily contact reminders require an action, exclude inactive contacts, and sort by due time", () => {
+  const prospects = [
+    prospect({ id: "later", firstName: "Zoé", nextAction: "Envoyer un message manuellement", nextActionAt: "2026-10-11T10:30:00-04:00" }),
+    prospect({ id: "earlier", firstName: "Amélie", nextAction: "Préparer un échange", nextActionAt: "2026-10-10T09:00:00Z" }),
+    prospect({ id: "future", nextAction: "Relancer", nextActionAt: "2026-10-13T09:00:00Z" }),
+    prospect({ id: "no-action", nextActionAt: "2026-10-09T09:00:00Z" }),
+    prospect({ id: "no-date", nextAction: "Relancer" }),
+    prospect({ id: "inactive", status: "Sans suite", nextAction: "Relancer", nextActionAt: "2026-10-08T09:00:00Z" }),
+    prospect({ id: "do-not-contact", status: "À ne pas contacter", nextAction: "Relancer", nextActionAt: "2026-10-08T09:00:00Z" }),
+    prospect({ id: "malformed", nextAction: "Relancer", nextActionAt: "pas une date" }),
+  ];
+  assert.deepEqual(
+    dueProspectFollowups(prospects, new Date("2026-10-12T12:00:00.000Z")).map(({ id }) => id),
+    ["earlier", "later"],
+  );
+});
+
+test("daily summary counts every action while keeping extra blockers discoverable", () => {
+  const summary = summarizeDailyActions(["running"], ["uncertain", "needs-input", "blocked", "failed"], ["application", "contact"], 12);
+  assert.deepEqual(summary, {
+    campaignCount: 12,
+    hiddenCampaignCount: 11,
+    attentionCount: 4,
+    followupCount: 2,
+    visibleAttention: ["uncertain", "needs-input", "blocked"],
+    hiddenAttentionCount: 1,
+    totalCount: 18,
+  });
 });

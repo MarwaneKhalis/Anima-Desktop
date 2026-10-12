@@ -2,7 +2,7 @@
 
 ## Résultats locaux — 13 octobre 2026
 
-La suite locale passe **229 tests sur 229**, `pnpm build` et `pnpm desktop:compile`. `pnpm desktop:dist` génère l’installateur NSIS x64. `pnpm desktop:smoke` vérifie le lancement du package dans un profil temporaire Windows, l’embarquement de Chromium, la création de la clé locale, la préparation sans envoi, un seul POST vers le serveur de fixture, le reçu et la persistance de la campagne après redémarrage. Le smoke confirme aussi qu’aucun serveur HTTP n’écoute dans l’application empaquetée. Aucune candidature n’a été envoyée à un employeur.
+La suite locale passe **231 tests sur 231**, `pnpm build` et `pnpm desktop:compile`. `pnpm desktop:dist` génère l’installateur NSIS x64. `pnpm desktop:smoke` vérifie le lancement du package dans un profil temporaire Windows, l’embarquement de Chromium, la création de la clé locale, la préparation sans envoi, un seul POST vers le serveur de fixture, le reçu et la persistance de la campagne après redémarrage. Le smoke confirme aussi qu’aucun serveur HTTP n’écoute dans l’application empaquetée. Aucune candidature n’a été envoyée à un employeur.
 
 La recherche publique agrège Arbeitnow, Jobicy, Remote OK, Himalayas et Remotive, garde les sources des annonces et déduplique les résultats. Remotive garde son flux localement, l’actualise au plus une fois par 24 heures, filtre les mots-clés sur l’appareil et conserve uniquement les annonces explicitement ouvertes à la France, à l’Europe/EMEA ou partout. Cette source ne fournit pas la ville. Sa réponse live n’a pas été vérifiée dans ce smoke; les filtres, limites, cache et erreurs sont testés avec des réponses synthétiques.
 
@@ -12,7 +12,7 @@ Le navigateur de candidature utilise un proxy éphémère. À chaque connexion H
 
 Le smoke ATS live est resté en lecture seule sur l’environnement de démonstration public Lever : HTTP 200, lien Apply visible, aucun formulaire chargé, sept requêtes hors politique bloquées. Aucun clic, remplissage ou envoi n’a été effectué. Les adaptateurs Greenhouse, Lever, Ashby, Recruitee, Workable, SmartRecruiters, Teamtailor et Workday sont validés sur des formulaires synthétiques; CAPTCHA, MFA, nouveaux comptes et réponses inconnues demandent toujours l’intervention de l’utilisateur.
 
-L’installateur produit est non signé faute de certificat de signature fourni. La procédure de signature locale est décrite dans [RELEASING.md](RELEASING.md). Le nouveau smoke de mise à niveau avec profil synthétique doit encore être exercé par la CI Windows avant sa fusion. Les derniers PR intégrés ont chacun passé les workflows Windows de tests, build, mise à niveau et installation neuve.
+L’installateur produit est non signé faute de certificat de signature fourni. La procédure de signature locale est décrite dans [RELEASING.md](RELEASING.md). La CI Windows du PR #16 (run 38316982427) a passé les tests, le build, la mise à niveau depuis v0.4.3 avec profil synthétique et l’installation neuve. Le smoke local reste limité par l’indisponibilité de DPAPI dans cet environnement Codex.
 
 ### Résultats historiques — 7 octobre 2026
 

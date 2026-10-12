@@ -51,17 +51,20 @@ export async function handleCareerCampaignApi(req: IncomingMessage, res: ServerR
   try {
     if (method !== "GET" && req.headers["x-anima-request"] !== "1") throw new CareerError(403, "csrf", "En-tête de requête requis.");
     if (method === "GET" && relative === "") {
+      const rawActive = url.searchParams.get("active");
+      if (rawActive !== null && rawActive !== "1") throw new CareerError(400, "validation", "Le filtre actif doit valoir 1.");
+      const activeOnly = rawActive === "1";
       const rawLimit = url.searchParams.get("limit");
       const limit = rawLimit === null ? 50 : Number(rawLimit);
       if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new CareerError(400, "validation", "La limite doit être comprise entre 1 et 100.");
       const rawOffset = url.searchParams.get("offset");
       const offset = rawOffset === null ? 0 : Number(rawOffset);
       if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new CareerError(400, "validation", "Le décalage doit être compris entre 0 et 1 000 000.");
-      const campaigns = context.campaigns.list(limit, offset).map(campaign => {
+      const campaigns = context.campaigns.list(limit, offset, activeOnly).map(campaign => {
         context.engine.reconcile(campaign.id);
         return { ...campaign, counts: context.campaigns.counts(campaign.id) };
       });
-      reply(res, 200, { campaigns, total: context.campaigns.total(), limit, offset }); return true;
+      reply(res, 200, { campaigns, total: context.campaigns.total(activeOnly), limit, offset, activeOnly }); return true;
     }
     const match = relative.match(/^\/([^/]+)$/);
     if (method === "GET" && match) { reply(res, 200, getDetail(match[1], context)); return true; }

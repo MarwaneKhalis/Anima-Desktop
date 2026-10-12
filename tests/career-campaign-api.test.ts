@@ -75,6 +75,14 @@ test("HTTP create/list/detail validate CSRF, idempotency, bounds and counts", as
   assert.equal(paginated.total, 12);
   assert.equal(paginated.offset, 10);
   assert.equal(paginated.campaigns.length, 2, "Campaigns beyond the first page remain accessible");
+  app.campaigns.setState(detail.campaign.id, "completed");
+  const activeResponse = await app.call("/api/career/campaigns?active=1&limit=100");
+  const activePage = await activeResponse.json() as { campaigns: Array<{ id: string }>; total: number; activeOnly: boolean };
+  assert.equal(activePage.activeOnly, true);
+  assert.equal(activePage.total, 11);
+  assert.equal(activePage.campaigns.length, 11);
+  assert.ok(activePage.campaigns.every(campaign => campaign.id !== detail.campaign.id), "completed campaigns do not hide active campaigns from Today");
+  assert.equal((await app.call("/api/career/campaigns?active=2")).status, 400);
   assert.equal((await app.call("/api/career/campaigns?limit=10&offset=-1")).status, 400);
   assert.equal((await app.call(`/api/career/campaigns/${detail.campaign.id}`)).status, 200);
   assert.equal((await app.call("/api/career/campaigns?limit=101")).status, 400);
