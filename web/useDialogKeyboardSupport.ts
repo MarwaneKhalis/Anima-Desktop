@@ -13,8 +13,9 @@ export function useDialogKeyboardSupport(
   onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const container = dialogRef.current;
-    if (!container) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const container: HTMLElement = dialog;
     const requestedFocus = returnFocusRef?.current;
     const previousFocus = requestedFocus?.isConnected
       ? requestedFocus
