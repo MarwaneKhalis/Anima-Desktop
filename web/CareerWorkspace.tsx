@@ -181,7 +181,6 @@ export default function CareerWorkspace() {
     [notice, setNotice] = useState("");
   const [refreshError, setRefreshError] = useState("");
   const backgroundRefreshInFlight = useRef(false);
-  const initializedRef = useRef(false);
   const [campaignError, setCampaignError] = useState("");
   const [focusResultsAfterSearch, setFocusResultsAfterSearch] = useState(false);
   const offerSearchAdvancedRef = useRef<HTMLDetailsElement | null>(null);
@@ -259,7 +258,6 @@ export default function CareerWorkspace() {
     const currentMode = demo;
     const value = await api<CareerSnapshot>("/bootstrap");
     if (currentMode !== modeRef.current) return;
-    initializedRef.current = true;
     setRefreshError("");
     setData(value);
     if (resetProfile) {
@@ -338,7 +336,6 @@ export default function CareerWorkspace() {
   useEffect(() => {
     setData(null);
     setProfile(null);
-    initializedRef.current = false;
     setRefreshError("");
     profileSnapshotRef.current = "";
     setDetail(null);
@@ -346,7 +343,7 @@ export default function CareerWorkspace() {
     setError("");
     load(true)
       .then(() => recoverPendingCampaign())
-      .catch((e) => setError(e.message));
+      .catch((e) => setRefreshError(e instanceof Error ? e.message : String(e)));
     refreshFranceTravail();
   }, [demo]);
   useEffect(() => {
@@ -394,8 +391,7 @@ export default function CareerWorkspace() {
       backgroundRefreshInFlight.current = true;
       void load().catch((e) => {
         const message = e instanceof Error ? e.message : String(e);
-        if (initializedRef.current) setRefreshError(message);
-        else setError(message);
+        setRefreshError(message);
       }).finally(() => {
         backgroundRefreshInFlight.current = false;
       });
@@ -918,7 +914,9 @@ export default function CareerWorkspace() {
             <div className="cw-alert" role="status">
               Connexion locale interrompue : {refreshError}
               <button disabled={busy} onClick={() => {
-                void load().catch((e) => setRefreshError(e instanceof Error ? e.message : String(e)));
+                void load(!data)
+                  .then(() => data ? undefined : recoverPendingCampaign())
+                  .catch((e) => setRefreshError(e instanceof Error ? e.message : String(e)));
               }}>Réessayer</button>
             </div>
           )}
