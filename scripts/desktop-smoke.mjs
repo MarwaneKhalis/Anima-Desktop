@@ -165,6 +165,28 @@ try {
   await window.waitForLoadState("load");
   assert.match(await window.title(), /Anima Desktop/i);
   await window.getByRole("button", { name: "Aujourd’hui" }).waitFor({ state: "visible" });
+  await window.keyboard.press("Tab");
+  const keyboardFocus = await window.evaluate(() => {
+    const active = document.activeElement;
+    const style = getComputedStyle(active);
+    return {
+      visible: active.matches(":focus-visible"),
+      outlineWidth: style.outlineWidth,
+      outlineStyle: style.outlineStyle,
+    };
+  });
+  assert.equal(keyboardFocus.visible, true, "La navigation clavier doit afficher un focus visible.");
+  assert.equal(keyboardFocus.outlineWidth, "3px", "Le focus visible doit garder un anneau de 3 px.");
+  assert.equal(keyboardFocus.outlineStyle, "solid");
+  await window.emulateMedia({ forcedColors: "active" });
+  assert.equal(await window.evaluate(() => matchMedia("(forced-colors: active)").matches), true);
+  const forcedColorsFocus = await window.evaluate(() => {
+    const style = getComputedStyle(document.activeElement);
+    return { outlineWidth: style.outlineWidth, outlineStyle: style.outlineStyle };
+  });
+  assert.equal(forcedColorsFocus.outlineWidth, "3px", "Le focus reste visible en couleurs forcées.");
+  assert.equal(forcedColorsFocus.outlineStyle, "solid");
+  await window.emulateMedia({ forcedColors: "none" });
   assert.equal((await application.windows()).length, 1);
   await assertNoHttpListener(expectedPort);
   await assertSingleInstance(executablePath, env, userDataDir);
