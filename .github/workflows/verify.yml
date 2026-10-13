@@ -8,6 +8,7 @@ jobs:
     timeout-minutes: 45
     env:
       PLAYWRIGHT_BROWSERS_PATH: .playwright-browsers
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

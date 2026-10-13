@@ -5,7 +5,9 @@ if (!$installer -or !(Test-Path -LiteralPath $installer)) { throw "Current insta
 
 $version = node -p "require('./package.json').version"
 $currentVersion = [version]$version
-$releases = Invoke-RestMethod -Uri "https://api.github.com/repos/MarwaneKhalis/Anima-Desktop/releases?per_page=100" -Headers @{ "User-Agent" = "Anima-Desktop-CI"; "Accept" = "application/vnd.github+json" }
+$releasesJson = gh api "repos/MarwaneKhalis/Anima-Desktop/releases?per_page=100"
+if ($LASTEXITCODE -ne 0) { throw "Could not list published Anima Desktop releases through the authenticated GitHub CLI." }
+$releases = $releasesJson | ConvertFrom-Json
 $previousRelease = @($releases | Where-Object {
   !$_.prerelease -and !$_.draft -and $_.tag_name -match '^v\d+\.\d+\.\d+$' -and
   ([version]($_.tag_name -replace '^v', '')) -lt $currentVersion
