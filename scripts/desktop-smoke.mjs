@@ -128,11 +128,9 @@ async function findCampaignRowByJobTitle(window, title) {
     const matchingRows = rows.filter({ hasText: title });
     if (await matchingRows.count()) return matchingRows;
 
-    const collapsedRows = rows.filter({
-      has: window.getByRole("button", { name: "Détails", exact: true }),
-    });
-    if (!(await collapsedRows.count())) break;
-    await collapsedRows.first().getByRole("button", { name: "Détails", exact: true }).click();
+    const detailButtons = window.getByRole("button", { name: "Détails", exact: true });
+    if (!(await detailButtons.count())) break;
+    await detailButtons.first().click();
   }
   assert.fail(`Aucune campagne ne contient l’offre « ${title} ».`);
 }
