@@ -848,18 +848,32 @@ test("today puts active campaigns first and combines blocked, application, and c
   assert.deepEqual(await app.fixture.submissions, []);
 });
 
-test("offer results support description search, source filtering, sorting, and compact density", async (t) => {
+test("offer results support description search, date and application filters, sorting, and persistent density", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
+  const initialized = await app.json("/api/career/vault/initialize", { passphrase: "offer-filter-fixture-passphrase" });
+  assert.equal(initialized.response.status, 201);
   const fixtures = [
     { url: "https://jobs.alpha.test/data", title: "Data Engineer", company: "Alpha", location: "Paris", description: "Données PostgreSQL et GraphQL" },
     { url: "https://jobs.beta.test/design", title: "UX Designer", company: "Beta", location: "Lyon", description: "Design system accessible" },
     { url: "https://jobs.gamma.test/ops", title: "DevOps", company: "Gamma", location: "Remote", description: "Kubernetes et TypeScript" },
   ];
+  const jobs = [];
   for (const job of fixtures) {
     const created = await app.json("/api/career/jobs", job);
     assert.equal(created.response.status, 201);
+    jobs.push(created.value);
   }
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV filtres offres",
+    filename: "cv-filtres.pdf",
+    mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\\n%%EOF\\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
+  const application = await app.json("/api/career/applications", { jobId: jobs[0].id, resumeId: resume.value.id });
+  assert.equal(application.response.status, 201);
+
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
@@ -868,9 +882,21 @@ test("offer results support description search, source filtering, sorting, and c
   await page.getByRole("button", { name: "Offres", exact: true }).click();
   await page.getByRole("heading", { name: "Résultats de recherche" }).waitFor();
   assert.equal(await page.locator(".cw-job").count(), 3);
+  assert.equal(await page.getByRole("button", { name: "Vue confortable" }).getAttribute("aria-pressed"), "true", "compact density is the default");
+
+  const today = await page.evaluate(() => new Date().toISOString().slice(0, 10));
+  await page.getByLabel("Repérée depuis").fill(today);
+  await page.getByLabel("Repérée jusqu’au").fill(today);
+  assert.equal(await page.locator(".cw-job").count(), 3, "the discovered date range includes both boundary dates");
+  await page.getByLabel("Filtrer par candidature").selectOption("applied");
+  assert.equal(await page.locator(".cw-job").count(), 1, "the applied filter finds the existing application");
+  assert.equal((await page.locator(".cw-job h2").innerText()).trim(), "Data Engineer");
+  await page.getByLabel("Filtrer par candidature").selectOption("unapplied");
+  assert.equal(await page.locator(".cw-job").count(), 2);
+
+  await page.getByRole("button", { name: "Effacer les filtres" }).click();
   await page.getByLabel("Trier les offres").selectOption("title");
   assert.deepEqual((await page.locator(".cw-job h2").allTextContents()).map((value) => value.trim()), ["Data Engineer", "DevOps", "UX Designer"]);
-
   await page.getByLabel("Rechercher une offre").fill("donnees");
   assert.equal(await page.locator(".cw-job").count(), 1, "search includes descriptions and ignores accents");
   assert.equal((await page.locator(".cw-job h2").innerText()).trim(), "Data Engineer");
@@ -880,12 +906,17 @@ test("offer results support description search, source filtering, sorting, and c
   await page.getByLabel("Filtrer par source").selectOption("jobs.alpha.test");
   assert.equal(await page.locator(".cw-job").count(), 1);
   assert.equal((await page.locator(".cw-job h2").innerText()).trim(), "Data Engineer");
-  const compact = page.getByRole("button", { name: "Vue compacte" });
-  await compact.click();
-  assert.equal(await page.getByRole("button", { name: "Vue confortable" }).getAttribute("aria-pressed"), "true");
-  assert.match(await page.locator(".cw-jobs").getAttribute("class") || "", /is-compact/);
-});
+  await page.getByRole("button", { name: "Vue confortable" }).click();
+  assert.equal(await page.getByRole("button", { name: "Vue compacte" }).getAttribute("aria-pressed"), "false");
+  assert.doesNotMatch(await page.locator(".cw-jobs").getAttribute("class") || "", /is-compact/);
 
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByRole("heading", { name: "Résultats de recherche" }).waitFor();
+  assert.equal(await page.locator(".cw-job").count(), 3, "transient search and filters reset after reload");
+  assert.equal(await page.getByRole("button", { name: "Vue compacte" }).getAttribute("aria-pressed"), "false", "density preference persists");
+  assert.deepEqual((await page.locator(".cw-job h2").allTextContents()).map((value) => value.trim()), ["Data Engineer", "DevOps", "UX Designer"], "sort preference persists");
+});
 test("keyboard tab focus has a visible outline in the active section accent", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
