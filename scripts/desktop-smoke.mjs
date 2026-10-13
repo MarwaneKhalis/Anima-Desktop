@@ -172,9 +172,17 @@ try {
   const mainContent = window.locator("#career-content");
   assert.equal(await mainContent.evaluate((element) => element === document.activeElement), true,
     "Activer le lien d’évitement doit placer le focus sur le contenu principal.");
-  await window.getByRole("button", { name: "Aujourd’hui" }).waitFor({ state: "visible" });
+  const todayNavigation = window.getByRole("button", { name: "Aujourd’hui", exact: true });
+  await todayNavigation.waitFor({ state: "visible" });
   await window.setViewportSize({ width: 1366, height: 768 });
-  await window.getByRole("button", { name: "Offres", exact: true }).click();
+  await todayNavigation.focus();
+  await window.keyboard.press("Tab");
+  const offersNavigation = window.getByRole("button", { name: "Offres", exact: true });
+  assert.equal(await offersNavigation.evaluate((element) => element === document.activeElement), true,
+    "Tab depuis Aujourd’hui doit avancer vers Offres dans la navigation principale.");
+  await window.keyboard.press("Enter");
+  assert.equal(await offersNavigation.getAttribute("aria-current"), "page",
+    "Entrée doit ouvrir Offres et signaler la destination active.");
   const firstOffers = parseJson(await requestJson(window, "/api/career/bootstrap"), 200);
   assert.equal(firstOffers.jobs.length, 0, "Le smoke doit commencer avec une liste d’offres vierge.");
   const offerKeyword = window.getByLabel("Métier(s) ou mot(s)-clé(s)");
