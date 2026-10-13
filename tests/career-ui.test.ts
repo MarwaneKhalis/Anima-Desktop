@@ -921,6 +921,49 @@ test("offer results support description search, date and application filters, so
   assert.equal(await page.getByRole("button", { name: "Vue compacte" }).getAttribute("aria-pressed"), "false", "density preference persists");
   assert.deepEqual((await page.locator(".cw-job h2").allTextContents()).map((value) => value.trim()), ["Data Engineer", "DevOps", "UX Designer"], "sort preference persists");
 });
+test("reusable profile answers can be searched and edited without removing the original first", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const initialized = await app.json("/api/career/vault/initialize", { passphrase: "answer-library-fixture-passphrase" });
+  assert.equal(initialized.response.status, 201);
+  const seededProfile = {
+    ...profile(),
+    answers: {
+      "Avez-vous le droit de travailler en France ?": false,
+      "Disponibilité": "Immédiate",
+    },
+  };
+  const saved = await app.json("/api/career/profile", seededProfile, "PUT");
+  assert.equal(saved.response.status, 200);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Profil & CV", exact: true }).click();
+  await page.getByRole("heading", { name: "Réponses réutilisables" }).waitFor();
+
+  const search = page.getByLabel("Filtrer les réponses");
+  await search.fill("travail");
+  const permissionAnswer = page.locator(".cw-row").filter({ hasText: "Avez-vous le droit de travailler en France ?" });
+  assert.equal(await permissionAnswer.count(), 1);
+  assert.equal(await page.locator(".cw-row").count(), 1, "search narrows the catalog by question");
+  await permissionAnswer.getByRole("button", { name: "Modifier" }).click();
+  assert.equal(await page.getByLabel("Réponse").inputValue(), "false", "a saved false answer remains a boolean false when edited");
+  await page.getByLabel("Question").fill("Disponibilité");
+  assert.equal(await page.getByRole("button", { name: "Enregistrer les modifications" }).isDisabled(), true, "editing cannot overwrite another answer");
+  await page.getByLabel("Question").fill("Avez-vous l'autorisation de travailler en France ?");
+  await page.getByRole("button", { name: "Enregistrer les modifications" }).click();
+  await page.getByText("Non", { exact: true }).waitFor();
+  assert.equal(await page.locator(".cw-row").count(), 1);
+  assert.match(await page.locator(".cw-row").innerText(), /Avez-vous l'autorisation de travailler en France ?/);
+
+  await search.fill("");
+  const availabilityAnswer = page.locator(".cw-row").filter({ hasText: "Disponibilité" });
+  await availabilityAnswer.getByRole("button", { name: "Modifier" }).click();
+  await page.getByLabel("Réponse").fill("Dès maintenant");
+  await page.getByRole("button", { name: "Enregistrer les modifications" }).click();
+  assert.match(await page.locator(".cw-row").filter({ hasText: "Disponibilité" }).innerText(), /Dès maintenant/);
+});
 test("keyboard tab focus has a visible outline in the active section accent", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
