@@ -948,7 +948,7 @@ test("reusable profile answers can be searched and edited without removing the o
   assert.equal(await permissionAnswer.count(), 1);
   assert.equal(await page.locator(".cw-row").count(), 1, "search narrows the catalog by question");
   await permissionAnswer.getByRole("button", { name: "Modifier" }).click();
-  assert.equal(await page.getByLabel("Réponse").inputValue(), "false", "a saved false answer remains a boolean false when edited");
+  assert.equal(await page.getByLabel("Réponse", { exact: true }).inputValue(), "false", "a saved false answer remains a boolean false when edited");
   await page.getByLabel("Question").fill("Disponibilité");
   assert.equal(await page.getByRole("button", { name: "Enregistrer les modifications" }).isDisabled(), true, "editing cannot overwrite another answer");
   await page.getByLabel("Question").fill("Avez-vous l'autorisation de travailler en France ?");
@@ -960,7 +960,7 @@ test("reusable profile answers can be searched and edited without removing the o
   await search.fill("");
   const availabilityAnswer = page.locator(".cw-row").filter({ hasText: "Disponibilité" });
   await availabilityAnswer.getByRole("button", { name: "Modifier" }).click();
-  await page.getByLabel("Réponse").fill("Dès maintenant");
+  await page.getByLabel("Réponse", { exact: true }).fill("Dès maintenant");
   await page.getByRole("button", { name: "Enregistrer les modifications" }).click();
   assert.match(await page.locator(".cw-row").filter({ hasText: "Disponibilité" }).innerText(), /Dès maintenant/);
 });
