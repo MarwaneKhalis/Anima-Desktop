@@ -76,7 +76,7 @@ const initial: Snapshot = {
 };
 function useDialogKeyboardSupport(
   open: boolean,
-  dialogRef: { current: HTMLDivElement | null },
+  dialogRef: { current: HTMLElement | null },
   onClose: () => void,
 ) {
   const onCloseRef = useRef(onClose);
@@ -85,7 +85,7 @@ function useDialogKeyboardSupport(
     if (!open) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
-    const container: HTMLDivElement = dialog;
+    const container: HTMLElement = dialog;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusable = () => Array.from(container.querySelectorAll<HTMLElement>(
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -243,8 +243,10 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
   const [templateEdit, setTemplateEdit] = useState<Template | null>(null);
   const templateDialogRef = useRef<HTMLDivElement | null>(null);
   const confirmDialogRef = useRef<HTMLDivElement | null>(null);
+  const detailDialogRef = useRef<HTMLElement | null>(null);
   useDialogKeyboardSupport(!!templateEdit, templateDialogRef, () => setTemplateEdit(null));
   useDialogKeyboardSupport(!!confirmItem, confirmDialogRef, () => setConfirmItem(null));
+  useDialogKeyboardSupport(!!detail && !!edit, detailDialogRef, () => setDetail(null));
   const [limit, setLimit] = useState(10);
   const [backupPassphrase, setBackupPassphrase] = useState("");
   const [restorePassphrase, setRestorePassphrase] = useState("");
@@ -1315,7 +1317,19 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                       </thead>
                       <tbody>
                         {filtered.map((p) => (
-                          <tr key={p.id} onClick={() => openProspect(p.id)}>
+                          <tr
+                            key={p.id}
+                            tabIndex={0}
+                            aria-label={`Ouvrir la fiche de ${fullName(p)}`}
+                            onKeyDown={(event) => {
+                              if (event.target !== event.currentTarget) return;
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                void openProspect(p.id);
+                              }
+                            }}
+                            onClick={() => openProspect(p.id)}
+                          >
                             <td>
                               <div className="table-person">
                                 <span className="person-avatar">
@@ -2055,21 +2069,21 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
       </MainRegion>
       {detail && edit && (
         <div className="drawer-backdrop" onClick={() => setDetail(null)}>
-          <aside className="drawer" onClick={(e) => e.stopPropagation()}>
+          <aside ref={detailDialogRef} className="drawer" role="dialog" aria-modal="true" aria-labelledby="contact-detail-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
             <div className="drawer-head">
               <div className="table-person">
                 <span className="person-avatar big">
                   {(detail.firstName[0] || "?") + (detail.lastName[0] || "")}
                 </span>
                 <span>
-                  <h2>{fullName(detail)}</h2>
+                  <h2 id="contact-detail-title">{fullName(detail)}</h2>
                   <small>
                     {detail.title || "Poste inconnu"}{" "}
                     {detail.company ? `· ${detail.company}` : ""}
                   </small>
                 </span>
               </div>
-              <button className="close" aria-label="Fermer la fiche contact" onClick={() => setDetail(null)}>
+              <button className="close" aria-label="Fermer la fiche contact" data-dialog-initial-focus onClick={() => setDetail(null)}>
                 ×
               </button>
             </div>
