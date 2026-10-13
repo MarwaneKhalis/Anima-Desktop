@@ -384,17 +384,34 @@ try {
   await window.getByRole("button", { name: "Effacer les filtres" }).click();
   assert.ok(await window.locator(".cw-application").count() >= 1, "La remise à zéro doit restaurer la liste des candidatures.");
   await visit("Profil & CV", "Votre profil. Vos possibilités.");
-  const networkImport = parseJson(await requestJson(window, "/api/prospects/import", "POST", {
-    prospects: [{
-      linkedinUrl: "https://www.linkedin.com/in/anima-desktop-smoke-r18-nadia/",
-      firstName: "Nadia",
-      lastName: "Leroy",
-      title: "Responsable recrutement",
-      company: "Atelier Horizon",
-      location: "Paris",
-    }],
-  }), 200)[0];
-  assert.equal(networkImport.created, true, "Le smoke doit créer un contact synthétique sans toucher à LinkedIn.");
+  await window.getByRole("button", { name: "Réseau", exact: true }).click();
+  await window.getByRole("button", { name: "Recherches LinkedIn", exact: true }).click();
+  await window.getByRole("heading", { name: "Recherches enregistrées", exact: true, level: 1 }).waitFor();
+  const networkSearchName = "Recherche smoke R18";
+  await window.getByLabel("Nom de la recherche").fill(networkSearchName);
+  await window.getByLabel("Intitulés de poste").fill("Responsable recrutement");
+  await window.getByLabel("Pays, régions ou villes").fill("Paris");
+  await window.getByRole("button", { name: "Enregistrer la recherche", exact: true }).click();
+  await window.getByText("Recherche enregistrée.", { exact: true }).waitFor();
+  const savedNetworkSearch = parseJson(await requestJson(window, "/api/bootstrap"), 200).searches
+    .find((item) => item.name === networkSearchName);
+  assert.ok(savedNetworkSearch?.id, "Les critères saisis doivent être enregistrés localement.");
+  assert.deepEqual(savedNetworkSearch.filters.titles, ["Responsable recrutement"]);
+  await window.getByRole("button", { name: /Ajouter un prospect manuellement à cette recherche/ }).click();
+  const manualCandidate = window.locator(".candidate").first();
+  await manualCandidate.getByLabel("Prénom").fill("Nadia");
+  await manualCandidate.getByLabel("Nom", { exact: true }).fill("Leroy");
+  await manualCandidate.getByLabel("URL du profil").fill("https://www.linkedin.com/in/anima-desktop-smoke-r18-nadia/");
+  await manualCandidate.getByLabel("Poste").fill("Responsable recrutement");
+  await manualCandidate.getByLabel("Entreprise").fill("Atelier Horizon");
+  await manualCandidate.getByLabel("Lieu").fill("Paris");
+  await window.getByRole("button", { name: "Importer les profils sélectionnés", exact: true }).click();
+  await window.getByRole("heading", { name: "Contacts", exact: true, level: 1 }).waitFor();
+  const networkContact = parseJson(await requestJson(window, "/api/bootstrap"), 200).prospects
+    .find((item) => item.firstName === "Nadia" && item.lastName === "Leroy");
+  assert.ok(networkContact?.id, "Le profil relu doit être importé dans Contacts.");
+  assert.ok(networkContact.sources?.some((source) => source.searchId === savedNetworkSearch.id),
+    "Le contact importé doit conserver le lien vers sa recherche LinkedIn.");
   const networkTemplate = parseJson(await requestJson(window, "/api/templates", "POST", {
     name: "Invitation smoke R18",
     kind: "invitation",
@@ -421,7 +438,7 @@ try {
   await window.getByRole("heading", { name: "File d’actions", exact: true, level: 1 }).waitFor();
   await window.getByText("Aucun envoi automatique", { exact: true }).waitFor();
   const queuedNetworkAction = parseJson(await requestJson(window, "/api/bootstrap"), 200).queue
-    .find((item) => item.prospectId === networkImport.prospect.id);
+    .find((item) => item.prospectId === networkContact.id);
   assert.equal(queuedNetworkAction?.state, "pending", "Le brouillon reste en attente d’une action humaine.");
   const queuedNetworkCard = window.locator(".queue-card").filter({ hasText: "Nadia Leroy" });
   await queuedNetworkCard.getByRole("button", { name: "Ouvrir le profil ↗", exact: true }).waitFor({ state: "visible" });
