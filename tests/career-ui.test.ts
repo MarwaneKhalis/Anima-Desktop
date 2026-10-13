@@ -884,7 +884,11 @@ test("offer results support description search, date and application filters, so
   assert.equal(await page.locator(".cw-job").count(), 3);
   assert.equal(await page.getByRole("button", { name: "Vue confortable" }).getAttribute("aria-pressed"), "true", "compact density is the default");
 
-  const today = await page.evaluate(() => new Date().toISOString().slice(0, 10));
+  const today = await page.evaluate(() => {
+    const date = new Date();
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 10);
+  });
   await page.getByLabel("Repérée depuis").fill(today);
   await page.getByLabel("Repérée jusqu’au").fill(today);
   assert.equal(await page.locator(".cw-job").count(), 3, "the discovered date range includes both boundary dates");
