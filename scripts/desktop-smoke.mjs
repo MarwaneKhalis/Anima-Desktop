@@ -261,6 +261,80 @@ try {
   assert.ok(fixtureSubmissions[1].includes(selectedResumeBytes), "La campagne doit reprendre le CV choisi.");
   await window.getByText("Terminée", { exact: true }).waitFor();
 
+  // Exercise the offer toolbar in the installed Windows renderer using local
+  // rows only; none of these external-looking links are opened during the smoke.
+  parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: "https://jobicy.com/jobs/anima-desktop-smoke-analyst",
+    title: "Analyste données",
+    company: "Alpha Data",
+    location: "Lyon",
+    description: "Offre synthétique pour vérifier la recherche locale.",
+  }), 201);
+  parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: "https://remoteok.com/remote-jobs/anima-desktop-smoke-qa",
+    title: "Remote QA Engineer",
+    company: "Zeta Studio",
+    location: "France",
+    description: "Offre synthétique, aucun formulaire externe ne sera ouvert.",
+  }), 201);
+  await window.reload();
+  await window.waitForLoadState("load");
+  await window.getByRole("button", { name: "Offres", exact: true }).click();
+  const offerCards = window.locator(".cw-job");
+  await window.getByRole("heading", { name: "Analyste données" }).waitFor();
+  await window.getByRole("heading", { name: "Remote QA Engineer" }).waitFor();
+  assert.ok(await offerCards.count() >= 3, "Les offres existantes et les offres synthétiques doivent apparaître dans l’app installée.");
+  const offerQuery = window.getByLabel("Rechercher une offre");
+  await offerQuery.fill("remote qa");
+  assert.equal(await window.locator(".cw-job").count(), 1, "La recherche locale doit réduire la liste au résultat correspondant.");
+  await window.getByLabel("Filtrer par source").selectOption({ label: "Remote OK" });
+  assert.equal(await window.locator(".cw-job").count(), 1, "Le filtre par source doit s’appliquer au résultat.");
+  await window.getByRole("heading", { name: "Remote QA Engineer" }).waitFor();
+  await window.getByRole("button", { name: "Effacer les filtres" }).click();
+  await window.getByLabel("Trier les offres").selectOption("company");
+  const companies = await offerCards.evaluateAll((cards) => cards.map((card) =>
+    card.querySelector("p")?.textContent?.split("·")[0]?.trim() ?? "",
+  ));
+  assert.deepEqual(companies, [...companies].sort((left, right) => left.localeCompare(right, "fr")),
+    "Le tri alphabétique doit suivre l’entreprise dans l’app installée.");
+  const compactView = window.getByRole("button", { name: "Vue compacte" });
+  await compactView.click();
+  assert.equal(await window.locator(".cw-job-density").getAttribute("aria-pressed"), "true");
+  assert.equal(await window.locator(".cw-jobs").evaluate((node) => node.classList.contains("is-compact")), true);
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await window.screenshot({ path: "artifacts/career-ui/09-offer-filters-packaged.png" });
+
+  // Verify the reorganized destinations and their legacy embedded screens in
+  // the installed app without changing preferences or triggering any sends.
+  const visit = async (buttonName, headingName) => {
+    await window.getByRole("button", { name: buttonName, exact: true }).click();
+    await window.getByRole("heading", { name: headingName, exact: true, level: 1 }).waitFor();
+  };
+  await visit("Aujourd’hui", "Bonjour Camille.");
+  await visit("Candidatures", "Vos candidatures");
+  await visit("Profil & CV", "Votre profil. Vos possibilités.");
+  await visit("Réseau", "Contacts");
+  await window.getByRole("button", { name: "Colonnes", exact: true }).click();
+  await window.getByRole("heading", { name: "Pipeline", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Liste", exact: true }).click();
+  await window.getByRole("heading", { name: "Contacts", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Recherches LinkedIn", exact: true }).click();
+  await window.getByRole("heading", { name: "Recherches enregistrées", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Messages", exact: true }).click();
+  await window.getByRole("heading", { name: "File d’actions", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Modèles", exact: true }).click();
+  await window.getByRole("heading", { name: "Modèles de messages", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Historique", exact: true }).click();
+  await window.getByRole("heading", { name: "Activité", exact: true, level: 1 }).waitFor();
+  await visit("Paramètres", "Les comptes, sans la répétition.");
+  await window.getByRole("button", { name: "Données & sauvegardes", exact: true }).click();
+  await window.getByRole("heading", { name: "Données & sauvegardes", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Préférences", exact: true }).click();
+  await window.getByRole("heading", { name: "Préférences", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "À propos", exact: true }).click();
+  await window.getByRole("heading", { name: "Anima Desktop", exact: true, level: 1 }).waitFor();
+  await visit("Aide", "Aide & erreurs");
+
   const userDatabase = join(userDataDir, "data", "anima-connect.sqlite");
   assert.ok((await stat(userDatabase)).isFile(), "La base doit être écrite dans le profil utilisateur temporaire.");
   await application.close();
@@ -310,3 +384,4 @@ if (smokeError) {
   throw smokeError;
 }
 if (cleanupErrors.length) throw new AggregateError(cleanupErrors, "Nettoyage du smoke test échoué.");
+
