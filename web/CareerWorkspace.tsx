@@ -101,6 +101,7 @@ function useDialogKeyboardSupport(
   open: boolean,
   dialogRef: { current: HTMLElement | null },
   onClose: () => void,
+  returnFocusRef: { current: HTMLElement | null },
 ) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -109,7 +110,9 @@ function useDialogKeyboardSupport(
     const dialog = dialogRef.current;
     if (!dialog) return;
     const container: HTMLElement = dialog;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousFocus = returnFocusRef.current?.isConnected
+      ? returnFocusRef.current
+      : document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusable = () => Array.from(container.querySelectorAll<HTMLElement>(
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     )).filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden");
@@ -144,6 +147,7 @@ function useDialogKeyboardSupport(
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
       if (previousFocus?.isConnected) previousFocus.focus();
+      returnFocusRef.current = null;
     };
   }, [open, dialogRef]);
 }
@@ -219,8 +223,13 @@ export default function CareerWorkspace() {
   const [campaignPlan, setCampaignPlan] = useState<{ jobIds: string[]; note: string } | null>(null),
     [campaignMode, setCampaignMode] = useState<"prepare" | "submit">("prepare");
   const campaignDialogRef = useRef<HTMLElement | null>(null);
+  const campaignReturnFocusRef = useRef<HTMLElement | null>(null);
+  function rememberCampaignTrigger(element?: HTMLElement | null) {
+    const active = document.activeElement;
+    campaignReturnFocusRef.current = element ?? (active instanceof HTMLElement ? active : null);
+  }
   profileLatestRef.current = profile;
-  useDialogKeyboardSupport(!!campaignPlan && !!data, campaignDialogRef, () => setCampaignPlan(null));
+  useDialogKeyboardSupport(!!campaignPlan && !!data, campaignDialogRef, () => setCampaignPlan(null), campaignReturnFocusRef);
   const [passphrase, setPassphrase] = useState(""),
     [account, setAccount] = useState({
       origin: "",
@@ -1376,7 +1385,7 @@ export default function CareerWorkspace() {
                               {[1, 3, 5, 10, 20, 50].map((n) => <option key={n} value={n}>{n} candidature{n > 1 ? "s" : ""}</option>)}
                             </select>
                           </label>
-                        <button type="button" className="cw-primary cw-apply-button" disabled={busy || demo || (searchSource === "france-travail" && (!franceTravail.configured || !data.vault.unlocked)) || !resumeId} onClick={() => action(() => searchOffers(true), "Récapitulatif de campagne prêt.")}>Rechercher et préparer un lancement</button>
+                        <button type="button" className="cw-primary cw-apply-button" disabled={busy || demo || (searchSource === "france-travail" && (!franceTravail.configured || !data.vault.unlocked)) || !resumeId} onClick={(event) => { rememberCampaignTrigger(event.currentTarget); void action(() => searchOffers(true), "Récapitulatif de campagne prêt."); }}>Rechercher et préparer un lancement</button>
                           {searchSource !== "france-travail" && <label className="cw-cap">Fréquence de collecte
                             <select value={searchIntervalHours} onChange={(e) => setSearchIntervalHours(Number(e.target.value) as 6 | 12 | 24 | 168)}>
                               <option value={6}>Toutes les 6 heures</option><option value={12}>Toutes les 12 heures</option><option value={24}>Chaque jour</option><option value={168}>Chaque semaine</option>
@@ -1691,7 +1700,7 @@ export default function CareerWorkspace() {
                     <button
                       className="cw-primary"
                       disabled={busy || batch || demo || !visibleSelected.length}
-                      onClick={() => runBatch(visibleSelected)}
+                      onClick={(event) => { rememberCampaignTrigger(event.currentTarget); void runBatch(visibleSelected); }}
                     >
                       Lancer une campagne · {visibleSelected.length} offre(s) · plafond {maxSubmissions} ↗
                     </button>
@@ -2515,7 +2524,7 @@ export default function CareerWorkspace() {
                   batch ||
                   !runnable.some((a) => a.id === current.id)
                 }
-                onClick={() => { setCampaignMode("prepare"); setCampaignPlan({ jobIds: [current.jobId], note: "Candidature sélectionnée" }); }}
+                onClick={(event) => { rememberCampaignTrigger(event.currentTarget); setCampaignMode("prepare"); setCampaignPlan({ jobIds: [current.jobId], note: "Candidature sélectionnée" }); }}
               >
                 Préparer avec vérification…
               </button>
@@ -2527,7 +2536,7 @@ export default function CareerWorkspace() {
                   batch ||
                   !runnable.some((a) => a.id === current.id)
                 }
-                onClick={() => { setCampaignMode("prepare"); setCampaignPlan({ jobIds: [current.jobId], note: "Candidature sélectionnée" }); }}
+                onClick={(event) => { rememberCampaignTrigger(event.currentTarget); setCampaignMode("prepare"); setCampaignPlan({ jobIds: [current.jobId], note: "Candidature sélectionnée" }); }}
               >
                 Préparer le lancement…
               </button>
