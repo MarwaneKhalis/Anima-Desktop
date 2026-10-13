@@ -813,6 +813,7 @@ export default function CareerWorkspace() {
         : "weltall";
   return (
     <div className="cw-shell" data-identity={identityTone}>
+      <a className="cw-skip-link" href="#career-content">Passer au contenu</a>
       <aside className="cw-sidebar">
         <a
           className="cw-brand"
@@ -899,7 +900,7 @@ export default function CareerWorkspace() {
           </div>
         </div>
       </aside>
-      <main className="cw-main">
+      <main id="career-content" className="cw-main" tabIndex={-1}>
         <header className="cw-top">
           <div>
             Mon espace <span>/</span>{" "}
