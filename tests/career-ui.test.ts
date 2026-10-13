@@ -1375,6 +1375,7 @@ test("linked contacts and applications expose their shared context in both lists
   const contactRow = page.locator("tr").filter({ hasText: "Ada Martin" });
   await contactRow.waitFor();
   assert.match(await contactRow.innerText(), /Candidature liée · Data Engineer · Fixture Labs/);
+  await page.getByRole("button", { name: "Fermer la fiche contact" }).click();
   await page.getByRole("button", { name: "Candidatures", exact: true }).click();
   const applicationCard = page.locator(".cw-application").filter({ hasText: "Data Engineer" });
   await applicationCard.waitFor();
@@ -1407,7 +1408,7 @@ test("possible duplicate imports link directly to the existing contact for revie
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Réseau", exact: true }).click();
-  await page.getByRole("button", { name: "Recherches", exact: true }).click();
+  await page.getByRole("button", { name: "＋ Ajouter via une recherche" }).click();
   await page.getByRole("button", { name: /Recherche R15/ }).click();
   await page.getByRole("button", { name: "＋ Ajouter un prospect manuellement à cette recherche" }).click();
   await page.getByLabel("Prénom").fill("Amelie");
