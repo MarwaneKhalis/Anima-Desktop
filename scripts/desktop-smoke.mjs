@@ -288,7 +288,19 @@ try {
   await window.getByRole("button", { name: "Offres", exact: true }).click();
   await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
   await window.getByText("Collecte programmée et candidature", { exact: true }).click();
-  await window.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
+  const launchReviewButton = window.getByRole("button", { name: "Rechercher et préparer un lancement" });
+  await launchReviewButton.click();
+  const campaignReviewHeading = window.getByRole("heading", { name: "Récapitulatif de campagne" });
+  await campaignReviewHeading.waitFor({ state: "visible" });
+  await window.keyboard.press("Escape");
+  await campaignReviewHeading.waitFor({ state: "hidden" });
+  assert.equal(
+    await launchReviewButton.evaluate((element) => element === document.activeElement),
+    true,
+    "Fermer le récapitulatif par Échap doit rendre le focus au bouton déclencheur.",
+  );
+  assert.equal(fixtureSubmissions.length, 1, "Fermer le récapitulatif ne doit envoyer aucun formulaire.");
+  await launchReviewButton.click();
   await window.getByRole("heading", { name: "Récapitulatif de campagne" }).waitFor({ state: "visible" });
   await window.locator('input[name="campaign-mode"][value="submit"]').check();
   await window.getByRole("button", { name: "Confirmer et envoyer" }).click();
