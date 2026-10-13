@@ -402,13 +402,18 @@ try {
   await window.getByRole("heading", { name: "Données & sauvegardes", exact: true, level: 1 }).waitFor();
   const uiBackupPassphrase = "AnimaDesktopSmokeUiBackup-2026";
   await window.getByLabel("Phrase de sauvegarde (12 caractères minimum)").fill(uiBackupPassphrase);
-  const [uiBackupResponse] = await Promise.all([
-    window.waitForResponse((response) => response.url().includes("/api/backup?demo=0") && response.status() === 200),
-    window.getByRole("button", { name: "Sauvegarder chiffré ↓", exact: true }).click(),
-  ]);
-  const uiBackupBytes = await uiBackupResponse.body();
-  assert.ok(uiBackupBytes.length > 0, "L’export UI doit produire une sauvegarde chiffrée non vide.");
+  await window.getByRole("button", { name: "Sauvegarder chiffré ↓", exact: true }).click();
   await window.getByText("Sauvegarde chiffrée téléchargée.", { exact: true }).waitFor();
+  const uiBackupReply = await window.evaluate(async (passphrase) => window.anima.request({
+    method: "POST",
+    path: "/api/backup?demo=0",
+    headers: { "Content-Type": "application/json", "X-Anima-Request": "1" },
+    body: JSON.stringify({ passphrase }),
+  }), uiBackupPassphrase);
+  assert.equal(uiBackupReply.status, 200, "Le fichier réimporté doit venir d’une sauvegarde valide.");
+  assert.equal(uiBackupReply.base64, true, "La sauvegarde chiffrée doit traverser le pont IPC en binaire.");
+  const uiBackupBytes = Buffer.from(uiBackupReply.body, "base64");
+  assert.ok(uiBackupBytes.length > 0, "L’export UI doit produire une sauvegarde chiffrée non vide.");
   await window.getByLabel("Phrase de sauvegarde", { exact: true }).fill(uiBackupPassphrase);
   const restoreDialogs = [];
   const acceptRestoreDialog = async (dialog) => {
