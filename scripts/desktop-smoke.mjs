@@ -593,11 +593,22 @@ try {
   const queuedNetworkAction = parseJson(await requestJson(window, "/api/bootstrap"), 200).queue
     .find((item) => item.prospectId === networkContact.id);
   assert.equal(queuedNetworkAction?.state, "pending", "Le brouillon reste en attente d’une action humaine.");
+  const isolatedUncertainReply = await requestJson(
+    window,
+    `/api/queue/${queuedNetworkAction.id}/uncertain`,
+    "POST",
+    { reason: "État de test isolé pour le smoke test clavier." },
+  );
+  assert.ok(isolatedUncertainReply.status >= 200 && isolatedUncertainReply.status < 300,
+    isolatedUncertainReply.body);
+  const uncertainNetworkAction = parseJson(await requestJson(window, "/api/bootstrap"), 200).queue
+    .find((item) => item.id === queuedNetworkAction.id);
+  assert.equal(uncertainNetworkAction?.state, "uncertain",
+    "Le smoke prépare un état incertain local sans ouvrir LinkedIn ni envoyer de message.");
+  await window.reload();
+  await window.waitForLoadState("load");
   const queuedNetworkCard = window.locator(".queue-card").filter({ hasText: "Nadia Leroy" });
-  const openNetworkProfile = queuedNetworkCard.getByRole("button", { name: "Ouvrir le profil ↗", exact: true });
-  await openNetworkProfile.waitFor({ state: "visible" });
-  await openNetworkProfile.click();
-  const confirmNetworkAction = queuedNetworkCard.getByRole("button", { name: "J’ai effectué l’envoi", exact: true });
+  const confirmNetworkAction = queuedNetworkCard.getByRole("button", { name: "Vérifié : envoyé", exact: true });
   await confirmNetworkAction.waitFor({ state: "visible" });
   await confirmNetworkAction.focus();
   await window.keyboard.press("Enter");
