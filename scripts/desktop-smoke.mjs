@@ -180,6 +180,28 @@ try {
   assert.ok(mobileLayout.content <= mobileLayout.viewport + 1, `La vue mobile ne doit pas déborder horizontalement : ${JSON.stringify(mobileLayout)}`);
   await window.screenshot({ path: "artifacts/career-ui/03-offers-390-packaged.png" });
   await window.setViewportSize({ width: 1366, height: 768 });
+  const defaultZoomRatio = await window.evaluate(() => window.devicePixelRatio);
+  for (let step = 0; step < 5; step += 1) await window.keyboard.press("Control+=");
+  await window.waitForFunction(
+    (defaultRatio) => window.devicePixelRatio >= defaultRatio * 1.5,
+    defaultZoomRatio,
+  );
+  const zoomedOfferLayout = await window.evaluate(() => ({
+    ratio: window.devicePixelRatio,
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }));
+  assert.ok(zoomedOfferLayout.ratio >= defaultZoomRatio * 1.5,
+    `Le raccourci de zoom doit agrandir le contenu au-delà de 150 % : ${JSON.stringify(zoomedOfferLayout)}`);
+  assert.ok(zoomedOfferLayout.content <= zoomedOfferLayout.viewport + 1,
+    `Les offres ne doivent pas déborder horizontalement à fort zoom : ${JSON.stringify(zoomedOfferLayout)}`);
+  assert.equal(await offerKeyword.isVisible(), true, "La recherche reste visible à fort zoom.");
+  await window.screenshot({ path: "artifacts/career-ui/03-offers-zoom-packaged.png" });
+  await window.keyboard.press("Control+0");
+  await window.waitForFunction(
+    (defaultRatio) => Math.abs(window.devicePixelRatio - defaultRatio) < 0.01,
+    defaultZoomRatio,
+  );
   await window.keyboard.press("Tab");
   const keyboardFocus = await window.evaluate(() => {
     const active = document.activeElement;
