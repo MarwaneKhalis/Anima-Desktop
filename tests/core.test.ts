@@ -91,6 +91,29 @@ test("signale un doublon possible lorsque nom et entreprise coïncident avec une
   }
 });
 
+test("repère les doublons possibles sans tenir compte de la casse ni des accents", () => {
+  const { store, search } = sampleStore();
+  try {
+    store.importProspects(search.id, [{
+      linkedinUrl: "linkedin.com/in/demo-amelie-existing",
+      firstName: "Amélie",
+      lastName: "Lévy",
+      company: "Étoile",
+    }]);
+    const imported = store.importProspects(search.id, [{
+      linkedinUrl: "linkedin.com/in/demo-amelie-new",
+      firstName: "AMELIE",
+      lastName: "Levy",
+      company: "Etoile",
+    }])[0];
+    assert.equal(imported.created, true);
+    assert.equal(imported.possibleDuplicates.length, 1);
+    assert.equal(imported.possibleDuplicates[0].firstName, "Amélie");
+  } finally {
+    store.close();
+  }
+});
+
 test("interdit une seconde invitation après envoi, y compris après redémarrage et retour manuel au statut initial", () => {
   const path = join(tmpdir(), `anima-test-${randomUUID()}.sqlite`);
   let store = new Store(path);
