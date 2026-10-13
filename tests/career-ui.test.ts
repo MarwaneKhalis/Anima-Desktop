@@ -1242,5 +1242,6 @@ test("Gear section accents follow the identity map and keep readable contrast", 
     assert.equal(contrast.accent, section.accent);
     assert.ok(contrast.buttonOnWhite >= 4.5, `${section.identity} button contrast: ${contrast.buttonOnWhite}`);
     assert.ok(contrast.strongOnSoft >= 4.5, `${section.identity} soft text contrast: ${contrast.strongOnSoft}`);
+    await page.screenshot({ path: `artifacts/career-ui/14-gear-${section.identity}.png`, fullPage: true });
   }
 });
