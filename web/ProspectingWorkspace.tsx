@@ -2011,7 +2011,7 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                   </small>
                 </span>
               </div>
-              <button className="close" onClick={() => setDetail(null)}>
+              <button className="close" aria-label="Fermer la fiche contact" onClick={() => setDetail(null)}>
                 ×
               </button>
             </div>
