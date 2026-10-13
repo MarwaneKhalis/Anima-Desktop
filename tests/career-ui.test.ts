@@ -1203,3 +1203,44 @@ test("profile drafts recover from autosave errors, navigation, and reload", asyn
   assert.equal(bootstrap.value.profile.city, "Lyon");
   assert.equal(bootstrap.value.profileDraft, null);
 });
+
+
+test("Gear section accents follow the identity map and keep readable contrast", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+
+  const sections = [
+    { label: "Profil & CV", identity: "weltall", accent: "#526b80" },
+    { label: "Offres", identity: "weltall-ii", accent: "#5d776b" },
+    { label: "Candidatures", identity: "weltall-id", accent: "#8a3d4e" },
+    { label: "Aujourd’hui", identity: "xenogears", accent: "#696487" },
+  ];
+  for (const section of sections) {
+    await page.getByRole("button", { name: section.label, exact: true }).click();
+    const shell = page.locator(".cw-shell");
+    assert.equal(await shell.getAttribute("data-identity"), section.identity);
+    const contrast = await shell.evaluate((element) => {
+      const styles = getComputedStyle(element);
+      const luminance = (hex: string) => {
+        const rgb = hex.match(/[0-9a-f]{2}/gi)?.map((part) => parseInt(part, 16) / 255) || [];
+        const linear = rgb.map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+      };
+      const ratio = (foreground: string, background: string) => {
+        const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+        return (values[0] + 0.05) / (values[1] + 0.05);
+      };
+      const accent = styles.getPropertyValue("--section-accent").trim();
+      const strong = styles.getPropertyValue("--section-accent-strong").trim();
+      const soft = styles.getPropertyValue("--accent-soft").trim();
+      return { accent, buttonOnWhite: ratio(accent, "#ffffff"), strongOnSoft: ratio(strong, soft) };
+    });
+    assert.equal(contrast.accent, section.accent);
+    assert.ok(contrast.buttonOnWhite >= 4.5, `${section.identity} button contrast: ${contrast.buttonOnWhite}`);
+    assert.ok(contrast.strongOnSoft >= 4.5, `${section.identity} soft text contrast: ${contrast.strongOnSoft}`);
+  }
+});
