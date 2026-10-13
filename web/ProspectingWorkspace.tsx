@@ -85,11 +85,12 @@ function useDialogKeyboardSupport(
     if (!open) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
+    const container: HTMLDivElement = dialog;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(
+    const focusable = () => Array.from(container.querySelectorAll<HTMLElement>(
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     )).filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden");
-    const firstFocus = dialog.querySelector<HTMLElement>("[data-dialog-initial-focus]") || focusable()[0] || dialog;
+    const firstFocus = container.querySelector<HTMLElement>("[data-dialog-initial-focus]") || focusable()[0] || container;
     firstFocus.focus();
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -102,23 +103,23 @@ function useDialogKeyboardSupport(
       const items = focusable();
       if (!items.length) {
         event.preventDefault();
-        dialog.focus();
+        container.focus();
         return;
       }
       const first = items[0];
       const last = items[items.length - 1];
       const active = document.activeElement;
-      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+      if (event.shiftKey && (active === first || !container.contains(active))) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+      } else if (!event.shiftKey && (active === last || !container.contains(active))) {
         event.preventDefault();
         first.focus();
       }
     }
-    dialog.addEventListener("keydown", handleKeyDown);
+    container.addEventListener("keydown", handleKeyDown);
     return () => {
-      dialog.removeEventListener("keydown", handleKeyDown);
+      container.removeEventListener("keydown", handleKeyDown);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [open, dialogRef]);
