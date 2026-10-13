@@ -384,7 +384,48 @@ try {
   await window.getByRole("button", { name: "Effacer les filtres" }).click();
   assert.ok(await window.locator(".cw-application").count() >= 1, "La remise à zéro doit restaurer la liste des candidatures.");
   await visit("Profil & CV", "Votre profil. Vos possibilités.");
+  const networkImport = parseJson(await requestJson(window, "/api/prospects/import", "POST", {
+    prospects: [{
+      linkedinUrl: "https://www.linkedin.com/in/anima-desktop-smoke-r18-nadia/",
+      firstName: "Nadia",
+      lastName: "Leroy",
+      title: "Responsable recrutement",
+      company: "Atelier Horizon",
+      location: "Paris",
+    }],
+  }), 200)[0];
+  assert.equal(networkImport.created, true, "Le smoke doit créer un contact synthétique sans toucher à LinkedIn.");
+  const networkTemplate = parseJson(await requestJson(window, "/api/templates", "POST", {
+    name: "Invitation smoke R18",
+    kind: "invitation",
+    content: "Bonjour {prenom}, ceci est un brouillon de test à envoyer manuellement.",
+  }), 201);
+  await window.reload();
+  await window.waitForLoadState("load");
   await visit("Réseau", "Contacts");
+  const networkContactRow = window.getByRole("row").filter({ hasText: "Nadia Leroy" });
+  await networkContactRow.waitFor({ state: "visible" });
+  await networkContactRow.click();
+  await window.getByRole("heading", { name: "Nadia Leroy", exact: true }).waitFor();
+  const prepareMessageSection = window.locator(".drawer-section").filter({
+    has: window.getByRole("heading", { name: "Préparer un message", exact: true }),
+  });
+  await prepareMessageSection.getByRole("combobox").selectOption(networkTemplate.id);
+  await prepareMessageSection.getByRole("button", { name: "Générer un brouillon", exact: true }).click();
+  const networkDraft = window.locator(".drawer .draft textarea");
+  await networkDraft.waitFor({ state: "visible" });
+  assert.equal(await networkDraft.inputValue(), "Bonjour Nadia, ceci est un brouillon de test à envoyer manuellement.");
+  await prepareMessageSection.getByRole("button", { name: "Placer dans la file →", exact: true }).click();
+  await window.getByRole("button", { name: "Fermer la fiche contact" }).click();
+  await window.getByRole("button", { name: "Messages", exact: true }).click();
+  await window.getByRole("heading", { name: "File d’actions", exact: true, level: 1 }).waitFor();
+  await window.getByText("Aucun envoi automatique", { exact: true }).waitFor();
+  const queuedNetworkAction = parseJson(await requestJson(window, "/api/bootstrap"), 200).queue
+    .find((item) => item.prospectId === networkImport.prospect.id);
+  assert.equal(queuedNetworkAction?.state, "pending", "Le brouillon reste en attente d’une action humaine.");
+  const queuedNetworkCard = window.locator(".queue-card").filter({ hasText: "Nadia Leroy" });
+  await queuedNetworkCard.getByRole("button", { name: "Ouvrir le profil ↗", exact: true }).waitFor({ state: "visible" });
+  assert.equal(fixtureSubmissions.length, 2, "Mettre le brouillon dans la file ne déclenche aucun envoi.");
   await window.getByRole("button", { name: "Colonnes", exact: true }).click();
   await window.getByRole("heading", { name: "Pipeline", exact: true, level: 1 }).waitFor();
   await window.getByRole("button", { name: "Liste", exact: true }).click();
