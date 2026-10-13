@@ -277,6 +277,34 @@ try {
   assert.equal(queuedCampaign.campaign.state, "queued", "La campagne reste en attente de confirmation humaine.");
   assert.equal(fixtureSubmissions.length, 2, "La mise en file d’attente ne doit déclencher aucun envoi.");
 
+  const backupPassphrase = "AnimaDesktopSmokeRestore-2026";
+  const portableBackup = await window.evaluate(async (passphrase) => window.anima.request({
+    method: "POST",
+    path: "/api/backup?demo=0",
+    headers: { "Content-Type": "application/json", "X-Anima-Request": "1" },
+    body: JSON.stringify({ passphrase }),
+  }), backupPassphrase);
+  assert.equal(portableBackup.status, 200, "La sauvegarde chiffrée doit être exportée dans l’app empaquetée.");
+  assert.equal(portableBackup.base64, true, "Le fichier de sauvegarde doit traverser le pont IPC en binaire.");
+  const stoppedCampaign = parseJson(await requestJson(window, `/api/career/campaigns/${queuedCampaign.campaign.id}/stop`, "POST", {}), 200);
+  assert.equal(stoppedCampaign.campaign.state, "stopped", "La campagne de fixture doit être arrêtée avant restauration.");
+  const restoredBackup = await window.evaluate(async ({ passphrase, portableBackup }) => window.anima.request({
+    method: "POST",
+    path: "/api/restore?demo=0",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Anima-Request": "1",
+      "X-Anima-Backup-Passphrase-Base64": btoa(passphrase),
+    },
+    body: { base64: portableBackup },
+  }), { passphrase: backupPassphrase, portableBackup: portableBackup.body });
+  assert.equal(restoredBackup.status, 200, restoredBackup.body);
+  assert.equal(JSON.parse(restoredBackup.body).restored, true);
+  const campaignsAfterRestore = parseJson(await requestJson(window, "/api/career/campaigns"), 200);
+  const restoredQueueAfterRestore = campaignsAfterRestore.campaigns.find((item) => item.id === queuedCampaign.campaign.id);
+  assert.equal(restoredQueueAfterRestore?.state, "queued", "La restauration doit rétablir la campagne en attente sans l’exécuter.");
+  assert.equal(fixtureSubmissions.length, 2, "La restauration ne doit déclencher aucun envoi.");
+
   // Exercise the offer toolbar in the installed Windows renderer using local
   // rows only; none of these external-looking links are opened during the smoke.
   parseJson(await requestJson(window, "/api/career/jobs", "POST", {
