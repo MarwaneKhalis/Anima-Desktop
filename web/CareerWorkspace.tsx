@@ -2170,6 +2170,7 @@ Aucune offre ne correspond à ces filtres.
                         Réponse
                         {answerBoolean ? (
                           <select
+                            aria-label="Réponse"
                             value={answerValue}
                             onChange={(e) => setAnswerValue(e.target.value)}
                           >
@@ -2179,6 +2180,7 @@ Aucune offre ne correspond à ces filtres.
                           </select>
                         ) : (
                           <input
+                            aria-label="Réponse"
                             value={answerValue}
                             onChange={(e) => setAnswerValue(e.target.value)}
                           />
