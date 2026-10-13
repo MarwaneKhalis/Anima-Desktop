@@ -467,6 +467,8 @@ try {
 
   const pauseJobs = [];
   for (const [title, url] of [
+    ["Campagne initiale smoke", `${fixtureOrigin}/apply-campaign`],
+    ["Campagne secondaire smoke", `${fixtureOrigin}/apply-campaign`],
     ["Campagne pause smoke", `${fixtureOrigin}/apply-pause?hold=1`],
     ["Campagne reprise smoke", `${fixtureOrigin}/apply-campaign`],
   ]) {
@@ -475,7 +477,7 @@ try {
     }), 201));
   }
   const pauseCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
-    jobIds: pauseJobs.map((item) => item.id), resumeId: selectedResume.id, maxSubmissions: 2,
+    jobIds: pauseJobs.map((item) => item.id), resumeId: selectedResume.id, maxSubmissions: 4,
     idempotencyKey: "anima-desktop-smoke-pause-resume",
   }), 201);
   const stopJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
@@ -509,15 +511,25 @@ try {
   assert.ok(pauseFixtureRequests > 0, "La campagne doit être entrée dans la page fixture suspendue avant sa pause.");
   await pauseRow.getByRole("button", { name: "Pause", exact: true }).click();
   const pausedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "paused");
-  assert.equal(pausedCampaign.items.filter((item) => item.state === "pending").length, 1,
-    "Mettre en pause conserve la seconde offre de la file.");
-  assert.equal(fixtureSubmissions.length, 2, "La pause d’une page fixture ne doit déclencher aucun envoi.");
+  const pauseDrainDeadline = Date.now() + 15_000;
+  let pausedAndDrained = pausedCampaign;
+  while (Date.now() < pauseDrainDeadline &&
+    (pausedAndDrained.campaign.state !== "paused" || pausedAndDrained.campaign.counts.running !== 0)) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    pausedAndDrained = parseJson(await requestJson(window, `/api/career/campaigns/${pauseCampaign.campaign.id}`), 200);
+  }
+  assert.equal(pausedAndDrained.campaign.state, "paused");
+  assert.equal(pausedAndDrained.campaign.counts.running, 0, "Pause attend la fin de l’offre en cours.");
+  assert.equal(pausedAndDrained.items.filter((item) => item.state === "pending").length, 1,
+    "Mettre en pause conserve les offres restantes après l’offre déjà engagée.");
+  assert.equal(pausedAndDrained.items.filter((item) => item.state === "submitted").length, 3);
+  assert.equal(fixtureSubmissions.length, 5, "Seules les trois offres locales déjà engagées ont été traitées.");
   await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).waitFor({ state: "visible" });
   await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).click();
   const resumedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "completed");
-  assert.equal(resumedCampaign.items.filter((item) => item.state === "submitted").length, 1,
-    "La reprise traite l’offre restante.");
-  assert.equal(fixtureSubmissions.length, 3, "La reprise envoie uniquement la seconde candidature synthétique.");
+  assert.equal(resumedCampaign.items.filter((item) => item.state === "submitted").length, 4,
+    "La reprise traite la seule offre restante après la pause.");
+  assert.equal(fixtureSubmissions.length, 6, "La reprise envoie uniquement la dernière candidature synthétique locale.");
 
   const stopRow = await findCampaignRowByJobTitle(window, "Campagne arrêt smoke");
   await stopRow.getByRole("button", { name: "Arrêter", exact: true }).click();
@@ -528,7 +540,7 @@ try {
   await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).click();
   const skippedControl = await waitForCampaignState(window, skipCampaign.campaign.id, "completed");
   assert.equal(skippedControl.campaign.counts.skipped, 1, "Passer une offre la marque comme ignorée et termine la campagne.");
-  assert.equal(fixtureSubmissions.length, 3, "Arrêter et passer une offre ne déclenchent aucun envoi.");
+  assert.equal(fixtureSubmissions.length, 6, "Arrêter et passer une offre ne déclenchent aucun envoi.");
 
   const backupPassphrase = "AnimaDesktopSmokeRestore-2026";
   const portableBackup = await window.evaluate(async (passphrase) => window.anima.request({
