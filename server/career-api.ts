@@ -47,11 +47,13 @@ function decodeResumeBase64(value:unknown):Buffer {
 export async function handleCareerApi(req:IncomingMessage,res:ServerResponse,url:URL,context:CareerApiContext):Promise<boolean>{
   const path=url.pathname;if(!path.startsWith('/api/career/'))return false;
   const relative=path.slice('/api/career'.length),method=req.method||'GET';
-    const known=relative==='/bootstrap'||relative==='/profile'||relative==='/profile/draft'||relative==='/resumes'||/^\/resumes\/[^/]+(?:\/download)?$/.test(relative)||relative.startsWith('/vault/')||relative==='/credentials'||/^\/credentials\/[^/]+$/.test(relative)||relative==='/jobs'||relative==='/discover'||relative==='/sources/france-travail'||relative==='/sources/france-travail/search'||relative==='/sources/arbeitnow/search'||relative==='/sources/jobicy/search'||relative==='/sources/remoteok/search'||relative==='/sources/himalayas/search'||relative==='/sources/remotive/search'||relative==='/sources/all-public/search'||relative==='/saved-searches'||/^\/saved-searches\/[^/]+(?:\/run)?$/.test(relative)||relative==='/applications'||/^\/applications\/[^/]+(?:\/(?:run|resume|resolve))?$/.test(relative)||/^\/applications\/[^/]+\/employer-responses$/.test(relative)||relative==='/ai/config'||relative==='/ai/test'||relative==='/ai/cover-letter';
+    const known=relative==='/bootstrap'||relative==='/profile'||relative==='/profile/draft'||relative==='/resumes'||/^\/resumes\/[^/]+(?:\/download)?$/.test(relative)||relative.startsWith('/vault/')||relative==='/credentials'||/^\/credentials\/[^/]+$/.test(relative)||relative==='/jobs'||relative==='/discover'||relative==='/sources/france-travail'||relative==='/sources/france-travail/search'||relative==='/sources/arbeitnow/search'||relative==='/sources/jobicy/search'||relative==='/sources/remoteok/search'||relative==='/sources/himalayas/search'||relative==='/sources/remotive/search'||relative==='/sources/all-public/search'||relative==='/saved-searches'||/^\/saved-searches\/[^/]+(?:\/run)?$/.test(relative)||relative==='/applications'||/^\/applications\/[^/]+(?:\/(?:run|resume|resolve))?$/.test(relative)||/^\/applications\/[^/]+\/cover-letter-draft$/.test(relative)||/^\/applications\/[^/]+\/employer-responses$/.test(relative)||relative==='/ai/config'||relative==='/ai/test'||relative==='/ai/cover-letter';
   if(!known)return false;
   try{
     if(method!=='GET'&&req.headers['x-anima-request']!=='1')throw new CareerError(403,'csrf','En-tête de requête requis.');
     const {store,vault,runner}=context;
+    const coverLetterDraft=relative.match(/^\/applications\/([^/]+)\/cover-letter-draft$/);
+    if(coverLetterDraft){const applicationId=string(coverLetterDraft[1],'Candidature',64);if(method==='GET'){reply(res,200,{draft:store.getCoverLetterDraft(applicationId)});return true;}if(method==='PUT'){noDemo(context,'Brouillon de lettre');const o=await json(req);fields(o,['draft','model']);reply(res,200,{draft:store.saveCoverLetterDraft(applicationId,string(o.draft,'Brouillon',12000),o.model===undefined?'':string(o.model,'Modèle',200))});return true;}if(method==='DELETE'){noDemo(context,'Suppression du brouillon');store.clearCoverLetterDraft(applicationId);reply(res,200,{deleted:true});return true;}}
     if(relative==='/sources/france-travail'){
       if(method==='GET'){reply(res,200,vault.franceTravailConfigSummary());return true;}
       if(method==='POST'){noDemo(context,'Configuration source France Travail');const o=await json(req);fields(o,['clientId','clientSecret','scope']);const value=vault.saveFranceTravailConfig({clientId:string(o.clientId,'Identifiant client',500),clientSecret:string(o.clientSecret,'Secret client',2000),scope:string(o.scope,'Périmètre API',500)});reply(res,200,value);return true;}
@@ -151,4 +153,5 @@ export async function handleCareerApi(req:IncomingMessage,res:ServerResponse,url
     return false;
   }catch(error){const e=error instanceof CareerError?error:new CareerError(500,'internal','Erreur interne de candidature.');reply(res,e.status,{error:e.message,code:e.code});return true;}
 }
+
 
