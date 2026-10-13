@@ -20,6 +20,14 @@ Le test Playwright `artifacts/career-ui/11-offer-context.png` vérifie que la co
 
 Le smoke Windows de l’app empaquetée ajoute deux offres synthétiques locales puis vérifie dans l’interface installée la recherche textuelle, le filtre Remote OK, le tri alphabétique par entreprise et le mode compact. Il enregistre `artifacts/career-ui/09-offer-filters-packaged.png`. Les liens de ces offres ne sont jamais ouverts. Les filtres propres à chaque source et la persistance des préférences ne sont pas couverts par ce parcours.
 
+### R01/R02 — Destinations empaquetées
+
+Le smoke Windows ouvre Aujourd’hui, Offres, Candidatures, Réseau, Profil & CV, Paramètres et Aide, puis vérifie Contacts en liste/colonnes, Recherches LinkedIn, File d’actions, Modèles, Activité, Connexions, Données & sauvegardes, Préférences, À propos et Aide & erreurs. Ces assertions n’écrivent aucun réglage et n’envoient aucun message; les dialogues et réglages interactifs restent à parcourir.
+
+### R11 — Filtres des candidatures
+
+La liste recherche poste, entreprise, état ou retour employeur; filtre par état et résultat employeur; et se trie par mise à jour ou prochaine action. Le parcours fixture vérifie les résultats, l’état vide, la remise à zéro et capture `artifacts/career-ui/13-application-filters.png`. Le smoke empaqueté les ajoute avant fusion.
+
 ### R13 — Brouillons du profil
 
 Le profil se sauvegarde comme brouillon chiffré après 700 ms sans frappe. Le brouillon est restauré après un changement de section ou un rechargement; une panne de sauvegarde n’efface pas les champs et le statut signale clairement l’échec. « Enregistrer le profil » écrit la version validée et efface le brouillon dans la même transaction. Le test Playwright force une erreur d’API, vérifie la reprise, la navigation et le rechargement, puis confirme l’enregistrement final; capture `artifacts/career-ui/10-profile-draft-recovery.png`. Les tests SQLite confirment que l’adresse e-mail et le résumé ne sont pas lisibles dans le fichier brut, et que le brouillon suit une sauvegarde portable chiffrée puis une restauration avec une nouvelle clé. Le smoke Windows traverse aussi l’interface empaquetée, vérifie navigation/rechargement/enregistrement et enregistre `artifacts/career-ui/10-profile-draft-recovery-packaged.png`; CI Windows réussie sur le PR #20 (run 38329975546 : build, tests, mise à niveau depuis v0.4.9 et installation neuve).

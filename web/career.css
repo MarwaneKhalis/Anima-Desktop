@@ -1472,6 +1472,11 @@
   }
 }
 
+.cw-application-toolbar { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(150px, 1fr)) auto; align-items: end; gap: 12px; margin: 12px 0; }
+.cw-application-toolbar label { min-width: 0; margin: 0; }
+.cw-application-toolbar input, .cw-application-toolbar select { max-width: none; }
+.cw-application-clear { min-height: 38px; white-space: nowrap; }
+.cw-application-count { grid-column: 1 / -1; }
 .cw-job-toolbar {
   display: grid;
   grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(180px, 1fr) auto auto;
@@ -1508,6 +1513,8 @@
   margin: 10px 0 14px;
 }
 @media (max-width: 720px) {
+  .cw-application-toolbar { grid-template-columns: 1fr 1fr; }
+  .cw-application-toolbar label:first-child, .cw-application-count { grid-column: 1 / -1; }
   .cw-job-toolbar {
     grid-template-columns: 1fr 1fr;
   }

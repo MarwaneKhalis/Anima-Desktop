@@ -312,6 +312,15 @@ try {
   };
   await visit("Aujourd’hui", "Bonjour Camille.");
   await visit("Candidatures", "Vos candidatures");
+  const applicationSearch = window.getByRole("searchbox", { name: "Rechercher une candidature" });
+  await applicationSearch.fill("Ingénieure logiciel");
+  assert.ok(await window.locator(".cw-application").count() >= 1, "La recherche doit retrouver une candidature par intitulé.");
+  await window.getByLabel("Filtrer par état de candidature").selectOption("submitted");
+  assert.ok(await window.locator(".cw-application").count() >= 1, "Le filtre d’état doit garder les candidatures envoyées correspondantes.");
+  await window.getByLabel("Filtrer par retour employeur").selectOption("active");
+  await window.getByLabel("Trier les candidatures").selectOption("action");
+  await window.getByRole("button", { name: "Effacer les filtres" }).click();
+  assert.ok(await window.locator(".cw-application").count() >= 1, "La remise à zéro doit restaurer la liste des candidatures.");
   await visit("Profil & CV", "Votre profil. Vos possibilités.");
   await visit("Réseau", "Contacts");
   await window.getByRole("button", { name: "Colonnes", exact: true }).click();
