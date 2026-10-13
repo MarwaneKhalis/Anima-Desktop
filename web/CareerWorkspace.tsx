@@ -2195,7 +2195,7 @@ Aucune offre ne correspond à ces filtres.
                         />
                         Oui / non
                       </label>
-                      {duplicateAnswerKey && <small className="cw-error" role="alert">Une réponse existe déjà pour cette question.</small>}
+                      {duplicateAnswerKey && <small className="cw-alert" role="alert">Une réponse existe déjà pour cette question.</small>}
                       <button
                         type="button"
                         disabled={!answerKey.trim() || !answerValue || duplicateAnswerKey}
