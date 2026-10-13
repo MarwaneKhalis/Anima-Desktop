@@ -261,6 +261,22 @@ try {
   assert.ok(fixtureSubmissions[1].includes(selectedResumeBytes), "La campagne doit reprendre le CV choisi.");
   await window.getByText("Terminée", { exact: true }).waitFor();
 
+  const queuedJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: `${fixtureOrigin}/apply-campaign?queued=1`,
+    sourceUrl: `${fixtureOrigin}/apply-campaign?queued=1`,
+    title: "Campagne à reprendre",
+    company: "Entreprise de test",
+    location: "Paris",
+  }), 201);
+  const queuedCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
+    jobIds: [queuedJob.id],
+    resumeId: selectedResume.id,
+    maxSubmissions: 1,
+    idempotencyKey: "anima-desktop-smoke-persisted-queue",
+  }), 201);
+  assert.equal(queuedCampaign.campaign.state, "queued", "La campagne reste en attente de confirmation humaine.");
+  assert.equal(fixtureSubmissions.length, 2, "La mise en file d’attente ne doit déclencher aucun envoi.");
+
   // Exercise the offer toolbar in the installed Windows renderer using local
   // rows only; none of these external-looking links are opened during the smoke.
   parseJson(await requestJson(window, "/api/career/jobs", "POST", {
@@ -376,8 +392,18 @@ try {
   assert.equal(afterRestart.profileDraft, null, "Un brouillon enregistré ne doit pas réapparaître après redémarrage.");
   assert.equal(afterRestart.resumes.length, 2);
   const campaignsAfterRestart = parseJson(await requestJson(restartedWindow, "/api/career/campaigns"), 200);
-  assert.equal(campaignsAfterRestart.campaigns[0]?.state, "completed", "La campagne terminée doit rester persistée après redémarrage.");
-  assert.equal(campaignsAfterRestart.campaigns[0]?.counts.submitted, 1);
+  const completedCampaignAfterRestart = campaignsAfterRestart.campaigns.find((item) => item.id === campaign.id);
+  assert.equal(completedCampaignAfterRestart?.state, "completed", "La campagne terminée doit rester persistée après redémarrage.");
+  assert.equal(completedCampaignAfterRestart?.counts.submitted, 1);
+  const restoredQueue = campaignsAfterRestart.campaigns.find((item) => item.id === queuedCampaign.campaign.id);
+  assert.equal(restoredQueue?.state, "queued", "La campagne non lancée doit rester en attente après redémarrage.");
+  await restartedWindow.getByRole("button", { name: "Aujourd’hui", exact: true }).click();
+  const todayActions = restartedWindow.locator(".cw-panel").filter({ has: restartedWindow.getByRole("heading", { name: "À ne pas laisser passer" }) });
+  const queuedAction = todayActions.getByRole("button", { name: /Campagne · En attente/ });
+  await queuedAction.waitFor({ state: "visible" });
+  await queuedAction.click();
+  await restartedWindow.getByRole("heading", { name: "Campagnes actives", level: 2 }).waitFor();
+  assert.equal(fixtureSubmissions.length, 2, "Ouvrir la campagne depuis Aujourd’hui ne lance aucun envoi.");
   await assertNoHttpListener(expectedPort);
 
   if (process.env.ANIMA_CAPTURE_DESKTOP_PREVIEW === "1") {
