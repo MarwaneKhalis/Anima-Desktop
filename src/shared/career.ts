@@ -57,7 +57,7 @@ export interface CareerMetrics {
   needsAttention: number; interviews: number; offers: number; rejected: number;
 }
 export interface CareerSnapshot {
-  profile: CareerProfile; resumes: Resume[]; credentials: CredentialSummary[];
+  profile: CareerProfile; profileDraft?: CareerProfile | null; resumes: Resume[]; credentials: CredentialSummary[];
   jobs: JobOffer[]; applications: Application[]; events: CareerEvent[];
   savedSearches: CareerSavedSearch[];
   metrics: CareerMetrics; vault: VaultStatus;

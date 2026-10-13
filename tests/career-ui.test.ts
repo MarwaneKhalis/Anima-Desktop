@@ -1066,3 +1066,45 @@ test("saved recurring searches can edit criteria and cadence", async (t) => {
   assert.equal(value.searches[0].intervalHours, 168);
   assert.equal(value.searches[0].enabled, true);
 });
+
+test("profile drafts recover from autosave errors, navigation, and reload", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Profil & CV" }).click();
+
+  await page.route("**/api/career/profile/draft**", async (route) => {
+    if (route.request().method() === "PUT") {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Écriture indisponible." }) });
+      return;
+    }
+    await route.continue();
+  });
+  await page.getByLabel("Prénom").fill("Camille");
+  await page.getByRole("status").filter({ hasText: "Brouillon non sauvegardé" }).waitFor({ timeout: 5_000 });
+  assert.equal(await page.getByLabel("Prénom").inputValue(), "Camille");
+
+  await page.unroute("**/api/career/profile/draft**");
+  await page.getByLabel("Ville").fill("Lyon");
+  await page.getByRole("status").filter({ hasText: "Brouillon sauvegardé automatiquement" }).waitFor({ timeout: 5_000 });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByRole("button", { name: "Profil & CV" }).click();
+  assert.equal(await page.getByLabel("Prénom").inputValue(), "Camille");
+  assert.equal(await page.getByLabel("Ville").inputValue(), "Lyon");
+  await page.screenshot({ path: "artifacts/career-ui/10-profile-draft-recovery.png", fullPage: true });
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Profil & CV" }).click();
+  assert.equal(await page.getByLabel("Prénom").inputValue(), "Camille");
+  assert.equal(await page.getByLabel("Ville").inputValue(), "Lyon");
+  await page.getByRole("button", { name: "Enregistrer le profil" }).click();
+  await page.getByText("Profil enregistré", { exact: true }).waitFor({ timeout: 5_000 });
+  const bootstrap = await app.json("/api/career/bootstrap");
+  assert.equal(bootstrap.value.profile.firstName, "Camille");
+  assert.equal(bootstrap.value.profile.city, "Lyon");
+  assert.equal(bootstrap.value.profileDraft, null);
+});

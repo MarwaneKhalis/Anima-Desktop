@@ -166,6 +166,12 @@ export default function CareerWorkspace() {
   );
   const [data, setData] = useState<CareerSnapshot | null>(null),
     [profile, setProfile] = useState<CareerProfile | null>(null);
+  const [profileDraftStatus, setProfileDraftStatus] = useState<"profileSaved" | "draftSaved" | "pending" | "saving" | "error">("profileSaved");
+  const profileSnapshotRef = useRef("");
+  const profileLatestRef = useRef<CareerProfile | null>(null);
+  const profileDraftQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const profileDraftTimerRef = useRef<number | null>(null);
+  const profileSaveInProgressRef = useRef(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
@@ -201,6 +207,7 @@ export default function CareerWorkspace() {
   const [campaignPlan, setCampaignPlan] = useState<{ jobIds: string[]; note: string } | null>(null),
     [campaignMode, setCampaignMode] = useState<"prepare" | "submit">("prepare");
   const campaignDialogRef = useRef<HTMLElement | null>(null);
+  profileLatestRef.current = profile;
   useDialogKeyboardSupport(!!campaignPlan && !!data, campaignDialogRef, () => setCampaignPlan(null));
   const [passphrase, setPassphrase] = useState(""),
     [account, setAccount] = useState({
@@ -238,7 +245,12 @@ export default function CareerWorkspace() {
     const value = await api<CareerSnapshot>("/bootstrap");
     if (currentMode !== modeRef.current) return;
     setData(value);
-    if (resetProfile) setProfile(structuredClone(value.profile));
+    if (resetProfile) {
+      const restoredProfile = structuredClone(value.profileDraft ?? value.profile);
+      setProfile(restoredProfile);
+      profileSnapshotRef.current = JSON.stringify(restoredProfile);
+      setProfileDraftStatus(value.profileDraft ? "draftSaved" : "profileSaved");
+    }
     setResumeId((id) =>
       value.resumes.some((r) => r.id === id) ? id : value.resumes[0]?.id || "",
     );
@@ -299,6 +311,7 @@ export default function CareerWorkspace() {
   useEffect(() => {
     setData(null);
     setProfile(null);
+    profileSnapshotRef.current = "";
     setDetail(null);
     setSelected([]);
     setError("");
@@ -307,6 +320,37 @@ export default function CareerWorkspace() {
       .catch((e) => setError(e.message));
     refreshFranceTravail();
   }, [demo]);
+  useEffect(() => {
+    if (!profile || profileSaveInProgressRef.current) return;
+    const serialized = JSON.stringify(profile);
+    if (serialized === profileSnapshotRef.current) return;
+    setProfileDraftStatus("pending");
+    profileDraftTimerRef.current = window.setTimeout(() => {
+      setProfileDraftStatus("saving");
+      profileDraftQueueRef.current = profileDraftQueueRef.current.catch(() => {}).then(async () => {
+        await api("/profile/draft", "PUT", profile);
+        if (JSON.stringify(profileLatestRef.current) === serialized) {
+          profileSnapshotRef.current = serialized;
+          setProfileDraftStatus("draftSaved");
+        }
+      }).catch(() => {
+        if (JSON.stringify(profileLatestRef.current) === serialized) setProfileDraftStatus("error");
+      });
+    }, 700);
+    return () => {
+      if (profileDraftTimerRef.current !== null) window.clearTimeout(profileDraftTimerRef.current);
+      profileDraftTimerRef.current = null;
+    };
+  }, [profile, demo]);
+  useEffect(() => {
+    if (!profile || JSON.stringify(profile) === profileSnapshotRef.current) return;
+    const warnAboutUnsavedDraft = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnAboutUnsavedDraft);
+    return () => window.removeEventListener("beforeunload", warnAboutUnsavedDraft);
+  }, [profile, profileDraftStatus]);
   useEffect(() => {
     if (!profile) return;
     setSearchCriteria((current) => ({
@@ -1638,13 +1682,34 @@ Aucune offre ne correspond à ces filtres.
                       disabled={busy}
                       onClick={() =>
                         action(
-                          () => api("/profile", "PUT", profile),
+                          async () => {
+                            profileSaveInProgressRef.current = true;
+                            if (profileDraftTimerRef.current !== null) window.clearTimeout(profileDraftTimerRef.current);
+                            profileDraftTimerRef.current = null;
+                            await profileDraftQueueRef.current.catch(() => {});
+                            try {
+                              const saved = await api<CareerProfile>("/profile", "PUT", profile);
+                              profileSnapshotRef.current = JSON.stringify(saved);
+                              setProfile(saved);
+                              setProfileDraftStatus("profileSaved");
+                              return saved;
+                            } finally {
+                              profileSaveInProgressRef.current = false;
+                            }
+                          },
                           "Profil enregistré.",
                         )
                       }
                     >
                       Enregistrer le profil
                     </button>
+                    <span className="cw-muted" role="status" aria-live="polite">
+                      {profileDraftStatus === "profileSaved" ? "Profil enregistré" :
+                        profileDraftStatus === "draftSaved" ? "Brouillon sauvegardé automatiquement" :
+                          profileDraftStatus === "pending" ? "Enregistrement du brouillon…" :
+                            profileDraftStatus === "saving" ? "Sauvegarde en cours…" :
+                              "Brouillon non sauvegardé — vérifiez la connexion locale"}
+                    </span>
                   </div>
                   <div className="cw-dashboard">
                     <section className="cw-panel">
