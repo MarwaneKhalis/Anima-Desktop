@@ -426,6 +426,8 @@ try {
   const queuedNetworkCard = window.locator(".queue-card").filter({ hasText: "Nadia Leroy" });
   await queuedNetworkCard.getByRole("button", { name: "Ouvrir le profil ↗", exact: true }).waitFor({ state: "visible" });
   assert.equal(fixtureSubmissions.length, 2, "Mettre le brouillon dans la file ne déclenche aucun envoi.");
+  await window.getByRole("button", { name: "Contacts", exact: true }).click();
+  await window.getByRole("heading", { name: "Contacts", exact: true, level: 1 }).waitFor();
   await window.getByRole("button", { name: "Colonnes", exact: true }).click();
   await window.getByRole("heading", { name: "Pipeline", exact: true, level: 1 }).waitFor();
   await window.getByRole("button", { name: "Liste", exact: true }).click();
