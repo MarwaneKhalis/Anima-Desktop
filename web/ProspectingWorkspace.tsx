@@ -1694,7 +1694,6 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                       type="button"
                       className="close"
                       aria-label="Fermer le modèle"
-                      data-dialog-initial-focus
                       onClick={() => setTemplateEdit(null)}
                     >
                       ×
