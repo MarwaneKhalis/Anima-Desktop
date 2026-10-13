@@ -1183,6 +1183,75 @@ test("saved recurring searches can edit criteria and cadence", async (t) => {
   assert.equal(value.searches[0].enabled, true);
 });
 
+test("background refresh failures stay separate and can be retried", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  let unavailable = false;
+  await page.route("**/api/career/bootstrap?demo=0", async (route) => {
+    if (unavailable) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Connexion rompue pour le test." }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).waitFor();
+  unavailable = true;
+  const refreshError = page.getByRole("status").filter({ hasText: "Connexion locale interrompue" });
+  await refreshError.waitFor({ timeout: 7_000 });
+  assert.equal(await page.getByRole("alert").filter({ hasText: "Connexion locale interrompue" }).count(), 0);
+  unavailable = false;
+  await refreshError.getByRole("button", { name: "Réessayer" }).click();
+  await refreshError.waitFor({ state: "detached" });
+});
+
+test("failed saved-search collection reports the source error and allows another attempt", async (t) => {
+  const app = await startCareerTestServer({ mockArbeitnowSearch: true });
+  t.after(() => app.close());
+  const saved = await app.json("/api/career/saved-searches?demo=0", {
+    source: "arbeitnow",
+    criteria: { keywords: "TypeScript", limit: 10 },
+    intervalHours: 24,
+    enabled: true,
+  });
+  assert.equal(saved.response.status, 201);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  let failNextCollection = true;
+  await page.route("**/api/career/saved-searches/*/run**", async (route) => {
+    if (failNextCollection) {
+      failNextCollection = false;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...saved.value,
+          lastRunAt: new Date().toISOString(),
+          lastResultCount: 0,
+          lastError: "Source momentanément indisponible; nouvelle tentative au prochain passage.",
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByRole("button", { name: "Recherches enregistrées", exact: true }).click();
+  await page.getByRole("button", { name: "Collecter maintenant" }).click();
+  await page.getByRole("status").filter({ hasText: "Collecte à reprendre : Source momentanément indisponible" }).waitFor();
+  await page.getByRole("button", { name: "Collecter maintenant" }).click();
+  await page.getByRole("status").filter({ hasText: "Collecte terminée :" }).waitFor();
+});
+
 test("offer cards explain profile fit and local discovery dates, and saved searches show their last collection", async (t) => {
   const app = await startCareerTestServer({ mockArbeitnowSearch: true });
   t.after(() => app.close());
