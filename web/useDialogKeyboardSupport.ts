@@ -15,8 +15,9 @@ export function useDialogKeyboardSupport(
     if (!open) return;
     const container = dialogRef.current;
     if (!container) return;
-    const previousFocus = returnFocusRef?.current?.isConnected
-      ? returnFocusRef.current
+    const requestedFocus = returnFocusRef?.current;
+    const previousFocus = requestedFocus?.isConnected
+      ? requestedFocus
       : document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusable = () => Array.from(container.querySelectorAll<HTMLElement>(
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
