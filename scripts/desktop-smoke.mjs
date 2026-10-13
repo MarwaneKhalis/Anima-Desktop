@@ -663,9 +663,34 @@ try {
   assert.equal(fixtureSubmissions.length, 2, "L’exploration de la démo ne doit envoyer aucun formulaire.");
   await assertNoHttpListener(expectedPort);
 
+  await restarted.close();
+  restarted = undefined;
+  application = await electron.launch(launchOptions);
+  const dpiWindow = diagnosticWindow = await application.firstWindow();
+  await dpiWindow.waitForLoadState("load");
+  const dpiSession = await dpiWindow.context().newCDPSession(dpiWindow);
+  await dpiSession.send("Emulation.setDeviceMetricsOverride", {
+    width: 912,
+    height: 512,
+    deviceScaleFactor: 1.5,
+    mobile: false,
+  });
+  await dpiWindow.getByRole("button", { name: "Offres", exact: true }).click();
+  await dpiWindow.getByLabel("Métier(s) ou mot(s)-clé(s)").waitFor({ state: "visible" });
+  const dpiOffersLayout = await dpiWindow.evaluate(() => ({
+    scale: window.devicePixelRatio,
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }));
+  assert.ok(dpiOffersLayout.scale >= 1.45,
+    `Le rendu Chromium doit conserver un facteur d’échelle de 150 % : ${JSON.stringify(dpiOffersLayout)}`);
+  assert.ok(dpiOffersLayout.content <= dpiOffersLayout.viewport + 1,
+    `La vue Offres ne doit pas déborder à 150 % d’échelle : ${JSON.stringify(dpiOffersLayout)}`);
+  await dpiWindow.screenshot({ path: "artifacts/career-ui/03-offers-dpi-150-packaged.png" });
+
   if (process.env.ANIMA_CAPTURE_DESKTOP_PREVIEW === "1") {
     await mkdir("artifacts", { recursive: true });
-    await restartedWindow.screenshot({ path: "artifacts/anima-desktop.png", timeout: 60_000 });
+    await dpiWindow.screenshot({ path: "artifacts/anima-desktop.png", timeout: 60_000 });
   }
   console.log("Installé dans un profil temporaire : brouillon de profil après navigation/rechargement, Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et campagne persistée après redémarrage vérifiés ; aucun serveur HTTP détecté.");
 } catch (error) {
