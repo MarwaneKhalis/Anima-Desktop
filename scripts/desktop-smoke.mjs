@@ -197,6 +197,12 @@ try {
     `Les offres ne doivent pas déborder horizontalement à fort zoom : ${JSON.stringify(zoomedOfferLayout)}`);
   assert.equal(await offerKeyword.isVisible(), true, "La recherche reste visible à fort zoom.");
   await window.screenshot({ path: "artifacts/career-ui/03-offers-zoom-packaged.png" });
+  await window.keyboard.press("Control+-");
+  await window.waitForFunction(
+    ({ defaultRatio, zoomedRatio }) => window.devicePixelRatio >= defaultRatio * 1.4 &&
+      window.devicePixelRatio < zoomedRatio,
+    { defaultRatio: defaultZoomRatio, zoomedRatio: zoomedOfferLayout.ratio },
+  );
   await window.keyboard.press("Control+0");
   await window.waitForFunction(
     (defaultRatio) => Math.abs(window.devicePixelRatio - defaultRatio) < 0.01,
