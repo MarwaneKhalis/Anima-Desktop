@@ -416,7 +416,7 @@ try {
   await networkDraft.waitFor({ state: "visible" });
   assert.equal(await networkDraft.inputValue(), "Bonjour Nadia, ceci est un brouillon de test à envoyer manuellement.");
   await prepareMessageSection.getByRole("button", { name: "Placer dans la file →", exact: true }).click();
-  await window.getByRole("button", { name: "Fermer la fiche contact" }).click();
+  await window.getByText("Action ajoutée à la file. Aucune invitation ou message n’a été envoyé.", { exact: true }).waitFor();
   await window.getByRole("button", { name: "Messages", exact: true }).click();
   await window.getByRole("heading", { name: "File d’actions", exact: true, level: 1 }).waitFor();
   await window.getByText("Aucun envoi automatique", { exact: true }).waitFor();
