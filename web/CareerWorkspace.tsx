@@ -612,6 +612,14 @@ export default function CareerWorkspace() {
     );
   const current = data?.applications.find((a) => a.id === detail),
     currentJob = current && data ? labelJob(data, current) : undefined;
+  const linkedApplications = data
+    ? data.applications.flatMap((application) => {
+        const job = data.jobs.find((item) => item.id === application.jobId);
+        return application.prospectId && job
+          ? [{ prospectId: application.prospectId, title: job.title, company: job.company }]
+          : [];
+      })
+    : [];
   const runnable =
     data?.applications.filter(
       (a) =>
@@ -1720,6 +1728,11 @@ Aucune offre ne correspond à ces filtres.
                             }{" "}
                             · <span title={EMPLOYER_OUTCOME_META[a.outcome].description}>Résultat employeur : {outcomes[a.outcome]}</span>
                           </small>
+                          {a.prospectId && prospects.find((p) => p.id === a.prospectId) && (
+                            <small className="cw-application-contact">
+                              Contact : {prospects.find((p) => p.id === a.prospectId)?.firstName} {prospects.find((p) => p.id === a.prospectId)?.lastName}
+                            </small>
+                          )}
                           <button onClick={() => setDetail(a.id)}>
                             Ouvrir le suivi →
                           </button>
@@ -2438,6 +2451,7 @@ Aucune offre ne correspond à ces filtres.
                   focusProspectId={focusProspectId}
                   focusProspectVersion={focusProspectVersion}
                   onProspectsChange={setProspects}
+                  associatedApplications={linkedApplications}
                   onFeedback={(kind, message) => {
                     setError(kind === "error" ? message : "");
                     setNotice(kind === "notice" ? message : "");
@@ -2710,7 +2724,7 @@ Aucune offre ne correspond à ces filtres.
                 Prospect lié
                 <select
                   value={current.prospectId || ""}
-                  disabled={busy}
+                  disabled={busy || ["running", "submitting", "submitted", "uncertain"].includes(current.state)}
                   onChange={(e) =>
                     action(
                       () =>
@@ -2729,6 +2743,27 @@ Aucune offre ne correspond à ces filtres.
                   ))}
                 </select>
               </label>
+              {["running", "submitting", "submitted", "uncertain"].includes(current.state) && (
+                <small className="cw-muted cw-association-lock-note">
+                  Le lien avec le contact est figé pendant ou après l’envoi de la candidature.
+                </small>
+              )}
+              {current.prospectId && (
+                <button
+                  type="button"
+                  className="cw-contact-link"
+                  onClick={() => {
+                    setDetail(null);
+                    setNetworkSection("contacts");
+                    setLegacyTab("prospects");
+                    setFocusProspectId(current.prospectId);
+                    setFocusProspectVersion((version) => version + 1);
+                    setTab("network");
+                  }}
+                >
+                  Ouvrir le contact →
+                </button>
+              )}
               <label>
                 Prochaine action / relance
                 <input
