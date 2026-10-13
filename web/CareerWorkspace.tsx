@@ -752,7 +752,9 @@ export default function CareerWorkspace() {
   const appliedJobIds = new Set((data?.applications || []).map((application) => application.jobId));
   const discoveredDay = (job: JobOffer) => {
     const timestamp = job.discoveredAt ? new Date(job.discoveredAt) : null;
-    return timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp.toISOString().slice(0, 10) : "";
+    if (!timestamp || Number.isNaN(timestamp.getTime())) return "";
+    timestamp.setMinutes(timestamp.getMinutes() - timestamp.getTimezoneOffset());
+    return timestamp.toISOString().slice(0, 10);
   };
   const hasJobFilters = !!(query.trim() || jobSourceFilter || jobApplicationFilter !== "all" || jobDiscoveredAfter || jobDiscoveredBefore);
   const rankedJobs = data ? sortJobOffers(rankJobsForProfile(data.jobs, data.profile), jobSort) : [];
