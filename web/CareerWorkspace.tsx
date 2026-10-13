@@ -188,6 +188,8 @@ export default function CareerWorkspace() {
   const [campaignError, setCampaignError] = useState("");
   const [focusResultsAfterSearch, setFocusResultsAfterSearch] = useState(false);
   const offerSearchAdvancedRef = useRef<HTMLDetailsElement | null>(null);
+  const offerSearchKeywordRef = useRef<HTMLInputElement | null>(null);
+  const focusOfferSearchAfterNavigationRef = useRef(false);
   const addJobDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const [query, setQuery] = useState(""),
     [source, setSource] = useState("");
@@ -334,6 +336,11 @@ export default function CareerWorkspace() {
       setFranceTravail({ configured: false });
     }
   }
+  useEffect(() => {
+    if (tab !== "jobs" || !focusOfferSearchAfterNavigationRef.current) return;
+    focusOfferSearchAfterNavigationRef.current = false;
+    offerSearchKeywordRef.current?.focus();
+  }, [tab]);
   useEffect(() => {
     localStorage.setItem("anima-desktop-application-sort", applicationSort);
   }, [applicationSort]);
@@ -781,6 +788,11 @@ export default function CareerWorkspace() {
   const jobSources = [...new Set((data?.jobs || []).map(jobSourceLabel))].sort((a, b) => a.localeCompare(b, "fr"));
   const normalizedJobQuery = normalizeOfferSearch(query.trim());
   const appliedJobIds = new Set((data?.applications || []).map((application) => application.jobId));
+  function navigateToOffers() {
+    setJobsSection("search");
+    focusOfferSearchAfterNavigationRef.current = true;
+    setTab("jobs");
+  }
   const discoveredDay = (job: JobOffer) => {
     const timestamp = job.discoveredAt ? new Date(job.discoveredAt) : null;
     if (!timestamp || Number.isNaN(timestamp.getTime())) return "";
@@ -1028,7 +1040,7 @@ export default function CareerWorkspace() {
                     </div>
                     <button
                       className="cw-primary"
-                      onClick={() => setTab("jobs")}
+                      onClick={navigateToOffers}
                     >
                       Trouver des offres <span>↗</span>
                     </button>
@@ -1163,7 +1175,7 @@ export default function CareerWorkspace() {
                       {!data.applications.length && (
                         <div className="cw-empty">
                           Votre première candidature commence avec une offre.
-                          <button onClick={() => setTab("jobs")}>
+                          <button onClick={navigateToOffers}>
                             Ajouter une offre →
                           </button>
                         </div>
@@ -1369,7 +1381,8 @@ export default function CareerWorkspace() {
                       <label className="cw-search-keywords">
                         Métier(s) ou mot(s)-clé(s)
                         <input
-                          type="text"
+                          ref={offerSearchKeywordRef}
+                          type="text"                          type="text"
                           required
                           value={searchCriteria.keywords || profile?.preferences.titles.join(", ") || ""}
                           onChange={(e) => setSearchCriteria({ ...searchCriteria, keywords: e.target.value })}
@@ -1791,7 +1804,7 @@ export default function CareerWorkspace() {
                     <div className="cw-empty">
                       <p role="status">{applicationQuery || applicationStateFilter !== "all" || applicationOutcomeFilter !== "all" ? "Aucune candidature ne correspond à ces filtres." : applicationsSection === "attention" ? "Aucune candidature ne demande d’action pour le moment." : applicationsSection === "followups" ? "Aucune relance n’est échue pour le moment." : "Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge."}</p>
                       {!applicationQuery && applicationStateFilter === "all" && applicationOutcomeFilter === "all" && applicationsSection === "all" && (
-                        <button type="button" className="cw-primary" onClick={() => setTab("jobs")}>Voir les offres →</button>
+                        <button type="button" className="cw-primary" onClick={navigateToOffers}>Voir les offres →</button>
                       )}
                     </div>
                   )}
