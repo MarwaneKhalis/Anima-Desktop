@@ -188,6 +188,7 @@ export default function CareerWorkspace() {
   const [campaignError, setCampaignError] = useState("");
   const [focusResultsAfterSearch, setFocusResultsAfterSearch] = useState(false);
   const offerSearchAdvancedRef = useRef<HTMLDetailsElement | null>(null);
+  const addJobDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const [query, setQuery] = useState(""),
     [source, setSource] = useState("");
   const [jobSort, setJobSort] = useState<JobListSort>(() => {
@@ -1470,7 +1471,7 @@ export default function CareerWorkspace() {
                         <button disabled={busy}>Importer</button>
                       </form>
                     </details>
-                    <details className="cw-details" hidden={jobsSection !== "search"}>
+                    <details ref={addJobDetailsRef} className="cw-details" hidden={jobsSection !== "search"}>
                       <summary>Ajouter une offre avec son lien</summary>
                       <form
                         onSubmit={(e) => {
@@ -1646,7 +1647,16 @@ export default function CareerWorkspace() {
                       ))}
                     </div>
                   ) : !data.jobs.length ? (
-                    <div className="cw-empty">Importez des offres ou ajoutez votre premier lien pour commencer.</div>
+                    <div className="cw-empty">
+                      <p>Importez des offres ou ajoutez votre premier lien pour commencer.</p>
+                      <button type="button" onClick={() => {
+                        const details = addJobDetailsRef.current;
+                        if (!details) return;
+                        details.open = true;
+                        details.scrollIntoView({ block: "center", behavior: "smooth" });
+                        details.querySelector("input")?.focus({ preventScroll: true });
+                      }}>Ajouter une offre</button>
+                    </div>
                   ) : hasJobFilters ? (
                     <div className="cw-empty" role="status" aria-live="polite">
                       Aucune offre ne correspond à ces filtres.
