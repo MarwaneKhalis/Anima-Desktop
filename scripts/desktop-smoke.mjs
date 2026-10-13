@@ -400,8 +400,37 @@ try {
   await visit("Paramètres", "Les comptes, sans la répétition.");
   await window.getByRole("button", { name: "Données & sauvegardes", exact: true }).click();
   await window.getByRole("heading", { name: "Données & sauvegardes", exact: true, level: 1 }).waitFor();
+  const uiBackupPassphrase = "AnimaDesktopSmokeUiBackup-2026";
+  await window.getByLabel("Phrase de sauvegarde (12 caractères minimum)").fill(uiBackupPassphrase);
+  const [uiBackupDownload] = await Promise.all([
+    window.waitForEvent("download"),
+    window.getByRole("button", { name: "Sauvegarder chiffré ↓", exact: true }).click(),
+  ]);
+  assert.match(uiBackupDownload.suggestedFilename(), /\.anima-backup$/);
+  const uiBackupPath = await uiBackupDownload.path();
+  assert.ok(uiBackupPath && (await stat(uiBackupPath)).size > 0, "L’export UI doit télécharger une sauvegarde chiffrée non vide.");
+  await window.getByLabel("Phrase de sauvegarde", { exact: true }).fill(uiBackupPassphrase);
+  const restoreDialogs = [];
+  const acceptRestoreDialog = async (dialog) => {
+    restoreDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  window.on("dialog", acceptRestoreDialog);
+  await window.locator('input[type="file"][accept*=".anima-backup"]').setInputFiles(uiBackupPath);
+  await window.getByText("Sauvegarde restaurée.", { exact: true }).waitFor();
+  window.off("dialog", acceptRestoreDialog);
+  assert.equal(restoreDialogs.length, 1, "La restauration UI doit demander sa confirmation avant de remplacer les données.");
   await window.getByRole("button", { name: "Préférences", exact: true }).click();
   await window.getByRole("heading", { name: "Préférences", exact: true, level: 1 }).waitFor();
+  const campaignDefaultLimit = window.getByLabel("Nombre maximal de candidatures", { exact: true });
+  await campaignDefaultLimit.fill("2");
+  assert.equal(await campaignDefaultLimit.inputValue(), "2", "Le plafond de campagne choisi doit rester visible comme valeur par défaut.");
+  const invitationLimit = window.locator(".limit-row input");
+  await invitationLimit.fill("9");
+  await window.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await window.getByText("Limite enregistrée.", { exact: true }).waitFor();
+  const savedSettings = parseJson(await requestJson(window, "/api/bootstrap"), 200);
+  assert.equal(savedSettings.settings.invitationLimit, 9, "La limite quotidienne doit être persistée dans les réglages locaux.");
   await window.getByRole("button", { name: "À propos", exact: true }).click();
   await window.getByRole("heading", { name: "Anima Desktop", exact: true, level: 1 }).waitFor();
   await visit("Aide", "Aide & erreurs");
