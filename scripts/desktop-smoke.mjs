@@ -432,6 +432,38 @@ try {
   await queuedAction.click();
   await restartedWindow.getByRole("heading", { name: "Campagnes actives", level: 2 }).waitFor();
   assert.equal(fixtureSubmissions.length, 2, "Ouvrir la campagne depuis Aujourd’hui ne lance aucun envoi.");
+
+  // The packaged demo must use its isolated fixtures and block actions that
+  // could affect real accounts or send applications.
+  await restartedWindow.getByRole("button", { name: /Explorer la démo/ }).click();
+  const demoBanner = restartedWindow.locator(".cw-banner");
+  await demoBanner.waitFor({ state: "visible" });
+  assert.match(await demoBanner.innerText(), /Données fictives/);
+  const demoSnapshot = parseJson(await requestJson(restartedWindow, "/api/career/bootstrap?demo=1"), 200);
+  assert.ok(demoSnapshot.jobs.some((item) => item.company === "Atelier Horizon"), "Le mode démo doit afficher ses offres fictives.");
+  assert.ok(!afterRestart.jobs.some((item) => demoSnapshot.jobs.some((demoJob) => demoJob.id === item.id)),
+    "Les offres de démonstration doivent rester séparées des offres réelles.");
+  await restartedWindow.getByRole("button", { name: "Offres", exact: true }).click();
+  assert.equal(await restartedWindow.getByRole("button", { name: /Rechercher les offres/ }).isDisabled(), true,
+    "La recherche externe doit être désactivée en mode démo.");
+  const demoCampaignAttempt = await requestJson(restartedWindow, "/api/career/campaigns?demo=1", "POST", {
+    jobIds: [demoSnapshot.jobs[0].id],
+    resumeId: demoSnapshot.resumes[0].id,
+    maxSubmissions: 1,
+  });
+  assert.equal(demoCampaignAttempt.status, 403, "L’API doit refuser la création de campagne en mode démo.");
+
+  await restartedWindow.getByRole("button", { name: /Démo · quitter/ }).click();
+  await demoBanner.waitFor({ state: "hidden" });
+  await restartedWindow.getByRole("button", { name: /Explorer la démo/ }).waitFor({ state: "visible" });
+  const realDataAfterDemo = parseJson(await requestJson(restartedWindow, "/api/career/bootstrap"), 200);
+  assert.deepEqual(realDataAfterDemo.jobs.map(({ id, title, company }) => ({ id, title, company })),
+    afterRestart.jobs.map(({ id, title, company }) => ({ id, title, company })),
+    "Quitter la démo doit préserver les offres réelles.");
+  assert.deepEqual(realDataAfterDemo.applications.map(({ id, state }) => ({ id, state })),
+    afterRestart.applications.map(({ id, state }) => ({ id, state })),
+    "Quitter la démo doit préserver les candidatures réelles.");
+  assert.equal(fixtureSubmissions.length, 2, "L’exploration de la démo ne doit envoyer aucun formulaire.");
   await assertNoHttpListener(expectedPort);
 
   if (process.env.ANIMA_CAPTURE_DESKTOP_PREVIEW === "1") {
@@ -465,4 +497,3 @@ if (smokeError) {
   throw smokeError;
 }
 if (cleanupErrors.length) throw new AggregateError(cleanupErrors, "Nettoyage du smoke test échoué.");
-
