@@ -1648,7 +1648,7 @@ export default function CareerWorkspace() {
                     </div>
                   ) : !data.jobs.length ? (
                     <div className="cw-empty">
-                      <p>Importez des offres ou ajoutez votre premier lien pour commencer.</p>
+                      <p role="status">Importez des offres ou ajoutez votre premier lien pour commencer.</p>
                       <button type="button" onClick={() => {
                         const details = addJobDetailsRef.current;
                         if (!details) return;

@@ -175,7 +175,9 @@ try {
   const addOfferDetails = window.locator("details.cw-details").filter({
     has: window.getByText("Ajouter une offre avec son lien", { exact: true }),
   });
-  await window.getByRole("button", { name: "Ajouter une offre", exact: true }).click();
+  const addOfferButton = window.getByRole("button", { name: "Ajouter une offre", exact: true });
+  await addOfferButton.focus();
+  await window.keyboard.press("Enter");
   assert.equal(await addOfferDetails.evaluate((details) => details.open), true,
     "L’action depuis l’état vide doit ouvrir le formulaire du lien.");
   const offerUrl = window.getByLabel("URL de l’offre");
