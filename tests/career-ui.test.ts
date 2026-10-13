@@ -1411,10 +1411,10 @@ test("possible duplicate imports link directly to the existing contact for revie
   await page.getByRole("button", { name: "＋ Ajouter via une recherche" }).click();
   await page.getByRole("button", { name: /Recherche R15/ }).click();
   await page.getByRole("button", { name: "＋ Ajouter un prospect manuellement à cette recherche" }).click();
-  await page.getByLabel("Prénom").fill("Amelie");
-  await page.getByLabel("Nom").fill("Levy");
-  await page.getByLabel("URL du profil").fill("https://www.linkedin.com/in/r15-amelie-import");
-  await page.getByLabel("Entreprise").fill("Etoile");
+  await page.getByLabel("Prénom", { exact: true }).fill("Amelie");
+  await page.getByLabel("Nom", { exact: true }).fill("Levy");
+  await page.getByLabel("URL du profil", { exact: true }).fill("https://www.linkedin.com/in/r15-amelie-import");
+  await page.getByLabel("Entreprise", { exact: true }).fill("Etoile");
   await page.getByRole("button", { name: "Importer les profils sélectionnés" }).click();
 
   const review = page.getByRole("region", { name: "Doublons possibles à vérifier" });
