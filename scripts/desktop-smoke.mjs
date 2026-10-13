@@ -280,7 +280,10 @@ try {
   await window.reload();
   await window.waitForLoadState("load");
   await window.getByRole("button", { name: "Offres", exact: true }).click();
-  assert.equal(await window.locator(".cw-job").count(), 3, "Les trois offres synthétiques doivent apparaître dans l’app installée.");
+  const offerCards = window.locator(".cw-job");
+  await window.getByRole("heading", { name: "Analyste données" }).waitFor();
+  await window.getByRole("heading", { name: "Remote QA Engineer" }).waitFor();
+  assert.ok(await offerCards.count() >= 3, "Les offres existantes et les offres synthétiques doivent apparaître dans l’app installée.");
   const offerQuery = window.getByLabel("Rechercher une offre");
   await offerQuery.fill("remote qa");
   assert.equal(await window.locator(".cw-job").count(), 1, "La recherche locale doit réduire la liste au résultat correspondant.");
@@ -289,11 +292,11 @@ try {
   await window.getByRole("heading", { name: "Remote QA Engineer" }).waitFor();
   await window.getByRole("button", { name: "Effacer les filtres" }).click();
   await window.getByLabel("Trier les offres").selectOption("company");
-  assert.deepEqual(await window.locator(".cw-job h2").allTextContents(), [
-    "Analyste données",
-    "Ingénieure logiciel",
-    "Remote QA Engineer",
-  ], "Le tri alphabétique doit suivre l’entreprise dans l’app installée.");
+  const companies = await offerCards.evaluateAll((cards) => cards.map((card) =>
+    card.querySelector("p")?.textContent?.split("·")[0]?.trim() ?? "",
+  ));
+  assert.deepEqual(companies, [...companies].sort((left, right) => left.localeCompare(right, "fr")),
+    "Le tri alphabétique doit suivre l’entreprise dans l’app installée.");
   const compactView = window.getByRole("button", { name: "Vue compacte" });
   await compactView.click();
   assert.equal(await window.locator(".cw-job-density").getAttribute("aria-pressed"), "true");
@@ -350,3 +353,4 @@ if (smokeError) {
   throw smokeError;
 }
 if (cleanupErrors.length) throw new AggregateError(cleanupErrors, "Nettoyage du smoke test échoué.");
+
