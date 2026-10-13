@@ -297,8 +297,13 @@ try {
   ));
   assert.deepEqual(companies, [...companies].sort((left, right) => left.localeCompare(right, "fr")),
     "Le tri alphabétique doit suivre l’entreprise dans l’app installée.");
-  const compactView = window.getByRole("button", { name: "Vue compacte" });
-  await compactView.click();
+  const comfortableView = window.getByRole("button", { name: "Vue confortable" });
+  assert.equal(await window.locator(".cw-job-density").getAttribute("aria-pressed"), "true",
+    "La densité compacte doit être activée par défaut dans l’app installée.");
+  await comfortableView.click();
+  assert.equal(await window.locator(".cw-job-density").getAttribute("aria-pressed"), "false");
+  assert.equal(await window.locator(".cw-jobs").evaluate((node) => node.classList.contains("is-compact")), false);
+  await window.getByRole("button", { name: "Vue compacte" }).click();
   assert.equal(await window.locator(".cw-job-density").getAttribute("aria-pressed"), "true");
   assert.equal(await window.locator(".cw-jobs").evaluate((node) => node.classList.contains("is-compact")), true);
   await mkdir("artifacts/career-ui", { recursive: true });
