@@ -1067,6 +1067,63 @@ test("saved recurring searches can edit criteria and cadence", async (t) => {
   assert.equal(value.searches[0].enabled, true);
 });
 
+test("offer cards explain profile fit and local discovery dates, and saved searches show their last collection", async (t) => {
+  const app = await startCareerTestServer({ mockArbeitnowSearch: true });
+  t.after(() => app.close());
+  const matchingProfile = profile();
+  matchingProfile.preferences.titles = ["Ingénieure plateforme"];
+  matchingProfile.preferences.locations = ["Paris"];
+  matchingProfile.preferences.contract = "CDI";
+  matchingProfile.skills = ["TypeScript"];
+  assert.equal((await app.json("/api/career/profile?demo=0", matchingProfile, "PUT")).response.status, 200);
+
+  const createdJob = await app.json("/api/career/jobs?demo=0", {
+    url: `${app.fixture.baseUrl}/simple`,
+    title: "Ingénieure plateforme",
+    company: "Atelier Fixture",
+    location: "Paris",
+    description: "CDI pour une ingénieure TypeScript.",
+    sourceUrl: "https://www.arbeitnow.com/",
+  });
+  assert.equal(createdJob.response.status, 201);
+  const savedSearch = await app.json("/api/career/saved-searches?demo=0", {
+    source: "arbeitnow",
+    criteria: { keywords: "TypeScript", commune: "Paris", limit: 10 },
+    intervalHours: 6,
+    enabled: true,
+  });
+  assert.equal(savedSearch.response.status, 201);
+  const collected = await app.json(`/api/career/saved-searches/${savedSearch.value.id}/run?demo=0`, {}, "POST");
+  assert.equal(collected.response.status, 200);
+  assert.ok(collected.value.lastRunAt);
+  assert.equal(collected.value.lastResultCount, 1);
+
+  const snapshot = await app.json("/api/career/bootstrap?demo=0");
+  const discoveredJob = snapshot.value.jobs.find((job: { id: string }) => job.id === createdJob.value.id);
+  assert.ok(discoveredJob?.discoveredAt);
+
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+
+  const offerCard = page.locator(".cw-job").filter({ hasText: "Ingénieure plateforme" }).first();
+  await offerCard.waitFor();
+  const fitBadge = offerCard.locator('[aria-label="Correspondance indicative de mots-clés"]');
+  const fitLabel = await fitBadge.textContent() ?? "";
+  assert.match(fitLabel, /^\d{1,3}% mots-clés$/);
+  assert.ok(Number.parseInt(fitLabel, 10) > 0 && Number.parseInt(fitLabel, 10) <= 100);
+  assert.match(await fitBadge.getAttribute("title") ?? "", /Ne tient pas compte de la requête de recherche et ne prédit pas une embauche/);
+  const expectedDiscoveryDate = new Date(discoveredJob.discoveredAt).toLocaleDateString("fr-FR", { dateStyle: "medium" });
+  assert.equal(await offerCard.locator("small.cw-muted").first().textContent(), `Repérée par Anima le ${expectedDiscoveryDate}`);
+  await page.screenshot({ path: "artifacts/career-ui/11-offer-context.png", fullPage: true });
+
+  await page.getByRole("button", { name: "Recherches enregistrées", exact: true }).click();
+  await page.getByText(/Dernière collecte : .+/).waitFor();
+});
+
 test("profile drafts recover from autosave errors, navigation, and reload", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
