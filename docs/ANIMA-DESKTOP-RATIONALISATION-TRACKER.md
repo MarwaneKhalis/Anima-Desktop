@@ -19,7 +19,7 @@ Base examinée : `78d5edf2779b110b7162aa606cf734e4f4e9` (`v0.4.11`). La release 
 | R11 | P2 | En cours | Les offres permettent la recherche dans le descriptif, le filtre par source, par période de découverte et par candidature déjà suivie, ainsi que quatre tris. Vue compacte activée par défaut. Le tri des offres, le tri des candidatures et la densité sont mémorisés localement; les termes recherchés et filtres restent temporaires. Tests UI sur fixtures; le smoke Windows empaqueté couvre aussi période, candidature, source, tri et densité et attend sa validation CI. |
 | R12 | P2 | Vérifié | La pastille de correspondance précise qu’il s’agit d’un indice local du profil, indépendant de la requête, qui ne prédit pas une embauche. La fiche affiche la date de première découverte locale (« Repérée par Anima »), tandis que les recherches enregistrées affichent la date de dernière collecte. Le test Playwright `11-offer-context.png` vérifie ces trois éléments sur des données synthétiques. Les sources ne fournissent pas de date de publication fiable. |
 | R13 | P2 | Vérifié | Le profil conserve automatiquement un brouillon après chaque modification, chiffré dans SQLite avec la clé locale. Le brouillon revient après navigation et rechargement, reste visible après une erreur d’autosauvegarde et disparaît seulement quand l’utilisateur enregistre le profil. Tests de stockage chiffré, de sauvegarde/restauration et parcours Playwright sur fixtures; capture `10-profile-draft-recovery.png`. Le smoke de l’app Windows empaquetée inclut le même parcours et une capture dédiée; CI Windows réussie sur le PR #20 (build, tests, mise à niveau depuis v0.4.9 et installation neuve). |
-| R14 | P2 | En cours | Réponses explicites et consentements préservés ; catalogue des réponses réutilisables et flux d’édition à rationaliser. |
+| R14 | P2 | En cours | La bibliothèque de réponses du profil peut être filtrée par question, triée alphabétiquement et modifiée sur place; les réponses booléennes gardent leur type, les doublons sont bloqués et l’édition peut être annulée. Tests UI sur données synthétiques; flux de profil complet et CI Windows à valider. |
 | R15 | P2 | En cours | Prospects et candidatures peuvent être associés ; actualisation, contexte de liste et dédoublonnage complet restent à contrôler. |
 | R16 | P2 | En cours | Messages d’erreur filtrés, erreurs de collecte affichées et reprise possible ; harmonisation de toutes les opérations encore incomplète. |
 | R17 | P2 | En cours | Réglages IA rangés sous Connexions ; persistance et édition chiffrée des brouillons de lettres à vérifier/compléter. |
@@ -30,6 +30,9 @@ Base examinée : `78d5edf2779b110b7162aa606cf734e4f4e9` (`v0.4.11`). La release 
 | R22 | P3 | En cours | Coquille et espace historique séparés progressivement avec ré-export de compatibilité ; aucune réécriture métier étendue. D’autres découpages doivent être justifiés par les prochaines évolutions. |
 
 ## Vérifications de cette tranche
+
+- R14 : test Playwright sur réponses booléenne et textuelle synthétiques, filtrage, édition sans perte et blocage d’un doublon; validation CI Windows à venir.
+
 
 - R11 offres : filtres inclusifs par date de découverte et candidature existante; tri et densité persistés localement, sans persistance de la recherche ni des filtres. Parcours Playwright sur offres, candidature et CV synthétiques; CI Windows empaquetée à venir.
 
