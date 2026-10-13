@@ -19,7 +19,7 @@ test("AI cover-letter drafts autosave per application, survive reload, and remai
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
-  await page.addInitScript(() => { (window as Window & { anima?: unknown }).anima = {}; });
+  await page.addInitScript(() => { (window as unknown as { anima?: unknown }).anima = {}; });
   await page.route("**/api/career/ai/config*", async (route) => route.fulfill({
     status: 200, contentType: "application/json",
     body: JSON.stringify({ configured: true, vaultUnlocked: true, settings: { baseUrl: "https://api.example.test/v1", model: "fixture-model", updatedAt: "" } }),
