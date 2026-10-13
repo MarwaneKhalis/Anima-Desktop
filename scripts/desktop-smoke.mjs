@@ -164,6 +164,14 @@ try {
   const window = diagnosticWindow = await application.firstWindow();
   await window.waitForLoadState("load");
   assert.match(await window.title(), /Anima Desktop/i);
+  const skipLink = window.getByRole("link", { name: "Passer au contenu", exact: true });
+  await window.keyboard.press("Tab");
+  assert.equal(await skipLink.evaluate((element) => element === document.activeElement), true,
+    "Le premier Tab doit proposer un accès direct au contenu principal.");
+  await window.keyboard.press("Enter");
+  const mainContent = window.locator("#career-content");
+  assert.equal(await mainContent.evaluate((element) => element === document.activeElement), true,
+    "Activer le lien d’évitement doit placer le focus sur le contenu principal.");
   await window.getByRole("button", { name: "Aujourd’hui" }).waitFor({ state: "visible" });
   await window.setViewportSize({ width: 1366, height: 768 });
   await window.getByRole("button", { name: "Offres", exact: true }).click();
