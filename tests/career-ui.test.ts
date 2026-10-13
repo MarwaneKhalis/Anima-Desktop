@@ -882,6 +882,11 @@ test("offer results support description search, date and application filters, so
   await page.getByRole("button", { name: "Offres", exact: true }).click();
   await page.getByRole("heading", { name: "Résultats de recherche" }).waitFor();
   assert.equal(await page.locator(".cw-job").count(), 3);
+  await page.getByLabel("Repérée depuis").fill("2099-01-01");
+  const noMatchingOffers = page.locator(".cw-empty[role=status]");
+  await noMatchingOffers.getByText("Aucune offre ne correspond à ces filtres.").waitFor();
+  await noMatchingOffers.getByRole("button", { name: "Afficher toutes les offres" }).click();
+  assert.equal(await page.locator(".cw-job").count(), 3, "the empty-state action restores the unfiltered list");
   assert.equal(await page.getByRole("button", { name: "Vue confortable" }).getAttribute("aria-pressed"), "true", "compact density is the default");
 
   const today = await page.evaluate(() => {
