@@ -123,17 +123,16 @@ async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_00
 
 async function findCampaignRowByJobTitle(window, title) {
   const rows = window.locator(".cw-campaign-row");
-  for (let index = 0; index < await rows.count(); index++) {
-    const row = rows.nth(index);
-    const titleInDetails = row.getByText(title, { exact: false });
-    if (await titleInDetails.count()) return rows.filter({ hasText: title });
-    await row.getByRole("button", { name: "Détails", exact: true }).click();
-    try {
-      await titleInDetails.waitFor({ state: "visible", timeout: 2_000 });
-      return rows.filter({ hasText: title });
-    } catch {
-      // Keep scanning; campaign titles only appear after expanding each row.
-    }
+  const maxExpansions = await rows.count();
+  for (let attempt = 0; attempt <= maxExpansions; attempt++) {
+    const matchingRows = rows.filter({ hasText: title });
+    if (await matchingRows.count()) return matchingRows;
+
+    const collapsedRows = rows.filter({
+      has: window.getByRole("button", { name: "Détails", exact: true }),
+    });
+    if (!(await collapsedRows.count())) break;
+    await collapsedRows.first().getByRole("button", { name: "Détails", exact: true }).click();
   }
   assert.fail(`Aucune campagne ne contient l’offre « ${title} ».`);
 }
