@@ -406,12 +406,12 @@ export default function CareerWorkspace() {
       ...(selectedResumeId ? { resumeId: selectedResumeId } : {}),
     });
   }
-  async function runBatch() {
+  async function runBatch(selection = selected) {
     setBatch(true);
     setError("");
     try {
       const latest = await api<CareerSnapshot>("/bootstrap");
-      const ids = selected.filter((id) =>
+      const ids = selection.filter((id) =>
         latest.applications.some(
           (a) =>
             a.id === id &&
@@ -629,6 +629,7 @@ export default function CareerWorkspace() {
       ? (left.nextActionAt || "9999").localeCompare(right.nextActionAt || "9999") || right.updatedAt.localeCompare(left.updatedAt)
       : right.updatedAt.localeCompare(left.updatedAt));
   const visibleRunnable = visibleApplications.filter((application) => runnable.some((item) => item.id === application.id));
+  const visibleSelected = selected.filter((id) => visibleRunnable.some((application) => application.id === id));
   const completion = data
     ? [
         !!data.profile.firstName && !!data.profile.lastName,
@@ -1605,10 +1606,10 @@ Aucune offre ne correspond à ces filtres.
                     </label>
                     <button
                       className="cw-primary"
-                      disabled={busy || batch || demo || !selected.length}
-                      onClick={runBatch}
+                      disabled={busy || batch || demo || !visibleSelected.length}
+                      onClick={() => runBatch(visibleSelected)}
                     >
-                      Lancer une campagne · {selected.length} offre(s) · plafond {maxSubmissions} ↗
+                      Lancer une campagne · {visibleSelected.length} offre(s) · plafond {maxSubmissions} ↗
                     </button>
                     {campaigns.filter((campaign) => campaign.state === "running").map((campaign) => (
                       <button key={campaign.id} disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/stop`, "POST", {}), "Campagne arrêtée.")}>Arrêter la campagne</button>
