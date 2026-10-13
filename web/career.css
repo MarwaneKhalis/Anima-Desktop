@@ -1474,7 +1474,7 @@
 
 .cw-job-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(180px, 1fr) auto;
+  grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(180px, 1fr) auto auto;
   align-items: end;
   gap: 12px;
   margin: 12px 0;
@@ -1489,7 +1489,8 @@
 .cw-job-count {
   grid-column: 1 / -1;
 }
-.cw-job-density {
+.cw-job-density,
+.cw-job-clear {
   min-height: 38px;
   white-space: nowrap;
 }

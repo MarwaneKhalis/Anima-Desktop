@@ -1420,6 +1420,7 @@ export default function CareerWorkspace() {
                         <option value="company">Entreprise A à Z</option>
                       </select>
                     </label>
+                    {(query.trim() || jobSourceFilter) && <button type="button" className="cw-job-clear" onClick={() => { setQuery(""); setJobSourceFilter(""); }}>Effacer les filtres</button>}
                     <button type="button" className="cw-job-density" aria-pressed={compactJobs} onClick={() => setCompactJobs((value) => !value)}>
                       {compactJobs ? "Vue confortable" : "Vue compacte"}
                     </button>
@@ -1499,8 +1500,7 @@ export default function CareerWorkspace() {
                     <div className="cw-empty">Importez des offres ou ajoutez votre premier lien pour commencer.</div>
                   ) : query || jobSourceFilter ? (
                     <div className="cw-empty">
-                      Aucune offre ne correspond à ces filtres.
-                      <button type="button" onClick={() => { setQuery(""); setJobSourceFilter(""); }}>Effacer les filtres</button>
+Aucune offre ne correspond à ces filtres.
                     </div>
                   ) : (
                     <div className="cw-empty">Aucune offre à afficher.</div>
