@@ -121,18 +121,13 @@ async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_00
   assert.fail(`Campagne ${id} attendue en état ${expectedState}, état reçu : ${JSON.stringify(last?.campaign?.state)}`);
 }
 
-async function findCampaignRowByJobTitle(window, title) {
-  const rows = window.locator(".cw-campaign-row");
-  const maxExpansions = await rows.count();
-  for (let attempt = 0; attempt <= maxExpansions; attempt++) {
-    const matchingRows = rows.filter({ hasText: title });
-    if (await matchingRows.count()) return matchingRows;
-
-    const detailButtons = window.getByRole("button", { name: "Détails", exact: true });
-    if (!(await detailButtons.count())) break;
-    await detailButtons.first().click();
-  }
-  assert.fail(`Aucune campagne ne contient l’offre « ${title} ».`);
+async function findCampaignRowById(window, id) {
+  const list = parseJson(await requestJson(window, "/api/career/campaigns?limit=10&offset=0"), 200);
+  const index = list.campaigns.findIndex((campaign) => campaign.id === id);
+  assert.notEqual(index, -1, `La campagne ${id} doit apparaître dans la liste renvoyée par l’API.`);
+  const row = window.locator(".cw-campaign-row").nth(index);
+  await row.waitFor({ state: "visible" });
+  return row;
 }
 
 async function getFreePort() {
@@ -506,12 +501,9 @@ try {
   assert.equal(skipCampaign.campaign.state, "queued");
   assert.equal(fixtureSubmissions.length, 2, "La préparation des campagnes de contrôle ne doit rien envoyer.");
 
-  await window.reload();
-  await window.waitForLoadState("load");
-
   await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByRole("button", { name: "Campagnes", exact: true }).click();
-  const pauseRow = await findCampaignRowByJobTitle(window, "Campagne pause smoke");
+  const pauseRow = await findCampaignRowById(window, pauseCampaign.campaign.id);
   await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).click();
   await waitForCampaignState(window, pauseCampaign.campaign.id, "running");
   const pauseRequestDeadline = Date.now() + 10_000;
@@ -543,12 +535,12 @@ try {
     "La reprise traite la seule offre restante après la pause.");
   assert.equal(fixtureSubmissions.length, 6, "La reprise envoie uniquement la dernière candidature synthétique locale.");
 
-  const stopRow = await findCampaignRowByJobTitle(window, "Campagne arrêt smoke");
+  const stopRow = await findCampaignRowById(window, stopCampaign.campaign.id);
   await stopRow.getByRole("button", { name: "Arrêter", exact: true }).click();
   const stoppedControl = await waitForCampaignState(window, stopCampaign.campaign.id, "stopped");
   assert.equal(stoppedControl.items.filter((item) => item.state === "pending").length, 1,
     "Arrêter conserve l’offre en attente pour l’audit sans la lancer.");
-  const skipRow = await findCampaignRowByJobTitle(window, "Campagne offre passée smoke");
+  const skipRow = await findCampaignRowById(window, skipCampaign.campaign.id);
   await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).click();
   const skippedControl = await waitForCampaignState(window, skipCampaign.campaign.id, "completed");
   assert.equal(skippedControl.campaign.counts.skipped, 1, "Passer une offre la marque comme ignorée et termine la campagne.");
