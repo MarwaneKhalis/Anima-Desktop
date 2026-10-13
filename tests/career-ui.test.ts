@@ -902,7 +902,7 @@ test("keyboard tab focus has a visible outline in the active section accent", as
   assert.equal(focus.tag, "A", "the first keyboard stop is the app brand link");
   assert.equal(focus.outlineStyle, "solid");
   assert.equal(focus.outlineWidth, "3px");
-  assert.equal(focus.outlineColor, "rgb(128, 97, 31)", "the focus ring follows the Xenogears home accent");
+  assert.equal(focus.outlineColor, "rgb(105, 100, 135)", "the focus ring follows the Xenogears home accent");
 });
 
 test("form controls keep a visible keyboard focus ring, including forced colors", async (t) => {
@@ -921,7 +921,7 @@ test("form controls keep a visible keyboard focus ring, including forced colors"
   });
   assert.equal(normalFocus.outlineStyle, "solid");
   assert.equal(normalFocus.outlineWidth, "3px");
-  assert.equal(normalFocus.outlineColor, "rgb(57, 117, 122)", "the search focus ring follows the Weltall-2 offers accent");
+  assert.equal(normalFocus.outlineColor, "rgb(93, 119, 107)", "the search focus ring follows the Weltall-2 offers accent");
 
   await page.emulateMedia({ forcedColors: "active" });
   const forcedFocus = await search.evaluate((element) => {
