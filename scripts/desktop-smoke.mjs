@@ -286,6 +286,13 @@ try {
   await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByLabel("CV pour les candidatures").selectOption(selectedResume.id);
   await window.getByRole("button", { name: "Offres", exact: true }).click();
+  const offerListSearch = window.getByLabel("Rechercher une offre");
+  await offerListSearch.fill("Aucune correspondance smoke R03");
+  await window.getByText("Aucune offre ne correspond à ces filtres.", { exact: true }).waitFor();
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await window.screenshot({ path: "artifacts/career-ui/03-offers-empty-packaged.png" });
+  await window.getByRole("button", { name: "Afficher toutes les offres", exact: true }).click();
+  assert.equal(await window.locator(".cw-job").count(), 1, "L’action de l’état vide doit rétablir l’offre filtrée.");
   await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
   await window.getByText("Collecte programmée et candidature", { exact: true }).click();
   const launchReviewButton = window.getByRole("button", { name: "Rechercher et préparer un lancement" });
