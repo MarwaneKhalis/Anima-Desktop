@@ -778,6 +778,13 @@ export default function CareerWorkspace() {
     return timestamp.toISOString().slice(0, 10);
   };
   const hasJobFilters = !!(query.trim() || jobSourceFilter || jobApplicationFilter !== "all" || jobDiscoveredAfter || jobDiscoveredBefore);
+  const resetJobFilters = () => {
+    setQuery("");
+    setJobSourceFilter("");
+    setJobApplicationFilter("all");
+    setJobDiscoveredAfter("");
+    setJobDiscoveredBefore("");
+  };
   const rankedJobs = data ? sortJobOffers(rankJobsForProfile(data.jobs, data.profile), jobSort) : [];
   const jobsForDisplay = rankedJobs
     .filter((job) => !jobSourceFilter || jobSourceLabel(job) === jobSourceFilter)
@@ -1553,13 +1560,7 @@ export default function CareerWorkspace() {
                         <option value="company">Entreprise A à Z</option>
                       </select>
                     </label>
-                    {hasJobFilters && <button type="button" className="cw-job-clear" onClick={() => {
-                      setQuery("");
-                      setJobSourceFilter("");
-                      setJobApplicationFilter("all");
-                      setJobDiscoveredAfter("");
-                      setJobDiscoveredBefore("");
-                    }}>Effacer les filtres</button>}
+                    {hasJobFilters && <button type="button" className="cw-job-clear" onClick={resetJobFilters}>Effacer les filtres</button>}
                     <button type="button" className="cw-job-density" aria-pressed={compactJobs} onClick={() => setCompactJobs((value) => !value)}>
                       {compactJobs ? "Vue confortable" : "Vue compacte"}
                     </button>
@@ -1637,9 +1638,10 @@ export default function CareerWorkspace() {
                     </div>
                   ) : !data.jobs.length ? (
                     <div className="cw-empty">Importez des offres ou ajoutez votre premier lien pour commencer.</div>
-                  ) : query || jobSourceFilter ? (
-                    <div className="cw-empty">
-Aucune offre ne correspond à ces filtres.
+                  ) : hasJobFilters ? (
+                    <div className="cw-empty" role="status" aria-live="polite">
+                      Aucune offre ne correspond à ces filtres.
+                      <button type="button" onClick={resetJobFilters}>Afficher toutes les offres</button>
                     </div>
                   ) : (
                     <div className="cw-empty">Aucune offre à afficher.</div>
