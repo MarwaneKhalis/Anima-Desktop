@@ -192,7 +192,7 @@ try {
   await window.keyboard.press("Enter");
   const offerKeyword = window.getByLabel("Métier(s) ou mot(s)-clé(s)");
   await offerKeyword.waitFor({ state: "visible" });
-  assert.equal(await offerKeyword.locator("input").evaluate((input) => input === document.activeElement), true,
+  assert.equal(await offerKeyword.evaluate((input) => input === document.activeElement), true,
     "Depuis Candidatures vide, Entrée doit ouvrir Offres et placer le focus dans la recherche.");
   await window.getByText("Importez des offres ou ajoutez votre premier lien pour commencer.", { exact: true }).waitFor();
   const addOfferDetails = window.locator("details.cw-details").filter({
