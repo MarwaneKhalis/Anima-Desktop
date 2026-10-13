@@ -39,3 +39,23 @@ export function rankJobsForProfile(jobs: readonly JobOffer[], profile: CareerPro
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || a.index - b.index)
     .map(item => item.job);
 }
+
+export type JobListSort = "relevance" | "newest" | "title" | "company";
+
+/** Sort the already-ranked result list deterministically without changing its contents. */
+export function sortJobOffers(jobs: readonly JobOffer[], sort: JobListSort): JobOffer[] {
+  const collator = new Intl.Collator("fr", { sensitivity: "base", numeric: true });
+  return jobs.map((job, index) => ({ job, index })).sort((a, b) => {
+    let result = 0;
+    if (sort === "newest") {
+      const dateA = Date.parse(a.job.discoveredAt) || Date.parse(a.job.updatedAt) || 0;
+      const dateB = Date.parse(b.job.discoveredAt) || Date.parse(b.job.updatedAt) || 0;
+      result = dateB - dateA;
+    } else if (sort === "title") {
+      result = collator.compare(a.job.title, b.job.title) || collator.compare(a.job.company, b.job.company);
+    } else if (sort === "company") {
+      result = collator.compare(a.job.company, b.job.company) || collator.compare(a.job.title, b.job.title);
+    }
+    return result || a.index - b.index;
+  }).map(({ job: item }) => item);
+}

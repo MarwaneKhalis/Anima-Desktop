@@ -14,7 +14,7 @@ import type {
   RunMode,
 } from "../src/shared/career.ts";
 import type { Prospect } from "../src/shared/types.ts";
-import { profileFitScore, rankJobsForProfile } from "../src/shared/career-ranking.ts";
+import { profileFitScore, rankJobsForProfile, sortJobOffers, type JobListSort } from "../src/shared/career-ranking.ts";
 import { dueFollowups, dueProspectFollowups, prioritizeAttention, summarizeDailyActions } from "../src/shared/career-dashboard.ts";
 import {
   APPLICATION_STATE_LABELS as states,
@@ -61,6 +61,7 @@ function localDateInputValue(): string {
   today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
   return today.toISOString().slice(0, 10);
 }
+const normalizeOfferSearch = (value: string) => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr");
 const split = (s: string) =>
   s
     .split(/[,;\n]/)
@@ -172,8 +173,11 @@ export default function CareerWorkspace() {
   const [focusResultsAfterSearch, setFocusResultsAfterSearch] = useState(false);
   const offerSearchAdvancedRef = useRef<HTMLDetailsElement | null>(null);
   const [query, setQuery] = useState(""),
-    [source, setSource] = useState(""),
-    [franceTravail, setFranceTravail] = useState<FranceTravailStatus>({ configured: false }),
+    [source, setSource] = useState("");
+  const [jobSort, setJobSort] = useState<JobListSort>("relevance");
+  const [jobSourceFilter, setJobSourceFilter] = useState("");
+  const [compactJobs, setCompactJobs] = useState(false);
+  const [franceTravail, setFranceTravail] = useState<FranceTravailStatus>({ configured: false }),
     [searchSource, setSearchSource] = useState<"all" | "arbeitnow" | "france-travail" | "jobicy" | "remoteok" | "himalayas" | "remotive">("all"),
     [franceCredentials, setFranceCredentials] = useState({ clientId: "", clientSecret: "", scope: "" }),
     [searchCriteria, setSearchCriteria] = useState({ keywords: "", department: "", commune: "", contractType: "", limit: 50 }),
@@ -671,6 +675,12 @@ export default function CareerWorkspace() {
       <small>Les réponses requises que le profil ne contient pas sont mises en attente pendant que les autres offres continuent. Un CAPTCHA, une MFA ou un site non pris en charge met la campagne en pause. Une candidature dont l’envoi est incertain n’est jamais relancée automatiquement.</small>
     </section>
   ) : <div className="cw-empty">Aucune campagne pour le moment. Les campagnes créées depuis vos sélections apparaîtront ici.</div>;
+  const jobSources = [...new Set((data?.jobs || []).map(jobSourceLabel))].sort((a, b) => a.localeCompare(b, "fr"));
+  const normalizedJobQuery = normalizeOfferSearch(query.trim());
+  const rankedJobs = data ? sortJobOffers(rankJobsForProfile(data.jobs, data.profile), jobSort) : [];
+  const jobsForDisplay = rankedJobs
+    .filter((job) => !jobSourceFilter || jobSourceLabel(job) === jobSourceFilter)
+    .filter((job) => !normalizedJobQuery || normalizeOfferSearch(`${job.title} ${job.company} ${job.location} ${job.description}`).includes(normalizedJobQuery));
   const identityTone = tab === "home" ? "xenogears"
     : tab === "jobs" ? "weltall-ii"
       : tab === "applications" && applicationsSection === "campaigns" ? "weltall-id"
@@ -1385,22 +1395,39 @@ export default function CareerWorkspace() {
                   <div hidden={jobsSection === "searches"}>
                   <div className="cw-section-head">
                     <h2 id="job-results">{jobsSection === "saved" ? "Offres enregistrées" : "Résultats de recherche"}</h2>
-                    <input
-                      className="cw-search"
-                      aria-label="Rechercher une offre"
-                      placeholder="Poste, entreprise, lieu…"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                    />
                   </div>
-                  <div className="cw-jobs">
-                    {rankJobsForProfile(data.jobs, data.profile)
-                      .filter((j) =>
-                        `${j.title} ${j.company} ${j.location}`
-                          .toLowerCase()
-                          .includes(query.toLowerCase()),
-                      )
-                      .map((j) => (
+                  <div className="cw-job-toolbar" role="group" aria-label="Filtres et affichage des offres">
+                    <label className="cw-job-query">Rechercher
+                      <input
+                        className="cw-search"
+                        aria-label="Rechercher une offre"
+                        placeholder="Métier, entreprise, lieu, compétence…"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                      />
+                    </label>
+                    <label>Source
+                      <select aria-label="Filtrer par source" value={jobSourceFilter} onChange={(e) => setJobSourceFilter(e.target.value)}>
+                        <option value="">Toutes les sources</option>
+                        {jobSources.map((item) => <option key={item} value={item}>{item}</option>)}
+                      </select>
+                    </label>
+                    <label>Trier
+                      <select aria-label="Trier les offres" value={jobSort} onChange={(e) => setJobSort(e.target.value as JobListSort)}>
+                        <option value="relevance">Pertinence du profil</option>
+                        <option value="newest">Plus récentes</option>
+                        <option value="title">Intitulé A à Z</option>
+                        <option value="company">Entreprise A à Z</option>
+                      </select>
+                    </label>
+                    <button type="button" className="cw-job-density" aria-pressed={compactJobs} onClick={() => setCompactJobs((value) => !value)}>
+                      {compactJobs ? "Vue confortable" : "Vue compacte"}
+                    </button>
+                    <span className="cw-muted cw-job-count" role="status" aria-live="polite">{jobsForDisplay.length} offre(s) affichée(s) sur {data.jobs.length}</span>
+                  </div>
+                  {jobsForDisplay.length ? (
+                    <div className={`cw-jobs ${compactJobs ? "is-compact" : ""}`}>
+                    {jobsForDisplay.map((j) => (
                         <article className="cw-panel cw-job" key={j.id}>
                           <div className="cw-section-head">
                             <span className="cw-company">
@@ -1467,12 +1494,16 @@ export default function CareerWorkspace() {
                           </div>
                         </article>
                       ))}
-                  </div>
-                  {!data.jobs.length && (
-                    <div className="cw-empty">
-                      Importez des offres ou ajoutez votre premier lien pour
-                      commencer.
                     </div>
+                  ) : !data.jobs.length ? (
+                    <div className="cw-empty">Importez des offres ou ajoutez votre premier lien pour commencer.</div>
+                  ) : query || jobSourceFilter ? (
+                    <div className="cw-empty">
+                      Aucune offre ne correspond à ces filtres.
+                      <button type="button" onClick={() => { setQuery(""); setJobSourceFilter(""); }}>Effacer les filtres</button>
+                    </div>
+                  ) : (
+                    <div className="cw-empty">Aucune offre à afficher.</div>
                   )}
                   </div>
                 </>
