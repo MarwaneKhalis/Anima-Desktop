@@ -392,8 +392,9 @@ try {
   assert.equal(afterRestart.profileDraft, null, "Un brouillon enregistré ne doit pas réapparaître après redémarrage.");
   assert.equal(afterRestart.resumes.length, 2);
   const campaignsAfterRestart = parseJson(await requestJson(restartedWindow, "/api/career/campaigns"), 200);
-  assert.equal(campaignsAfterRestart.campaigns[0]?.state, "completed", "La campagne terminée doit rester persistée après redémarrage.");
-  assert.equal(campaignsAfterRestart.campaigns[0]?.counts.submitted, 1);
+  const completedCampaignAfterRestart = campaignsAfterRestart.campaigns.find((item) => item.id === campaign.id);
+  assert.equal(completedCampaignAfterRestart?.state, "completed", "La campagne terminée doit rester persistée après redémarrage.");
+  assert.equal(completedCampaignAfterRestart?.counts.submitted, 1);
   const restoredQueue = campaignsAfterRestart.campaigns.find((item) => item.id === queuedCampaign.campaign.id);
   assert.equal(restoredQueue?.state, "queued", "La campagne non lancée doit rester en attente après redémarrage.");
   await restartedWindow.getByRole("button", { name: "Aujourd’hui", exact: true }).click();
