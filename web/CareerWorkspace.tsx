@@ -16,6 +16,20 @@ import type {
 import type { Prospect } from "../src/shared/types.ts";
 import { profileFitScore, rankJobsForProfile } from "../src/shared/career-ranking.ts";
 import { dueFollowups, dueProspectFollowups, prioritizeAttention, summarizeDailyActions } from "../src/shared/career-dashboard.ts";
+import {
+  APPLICATION_STATE_LABELS as states,
+  APPLICATION_STATE_META,
+  CAMPAIGN_ITEM_STATE_LABELS as campaignItemStates,
+  CAMPAIGN_ITEM_STATE_META,
+  CAMPAIGN_STATE_LABELS as campaignStates,
+  CAMPAIGN_STATE_META,
+  EMPLOYER_OUTCOME_LABELS as outcomes,
+  EMPLOYER_OUTCOME_META,
+  EMPLOYER_RESPONSE_CHANNEL_LABELS as employerResponseChannels,
+  EMPLOYER_RESPONSE_TYPE_LABELS as employerResponseTypes,
+  type CampaignItemState,
+  type CampaignState,
+} from "../src/shared/career-labels.ts";
 
 type Tab = "home" | "jobs" | "applications" | "network" | "profile" | "settings" | "help";
 function jobSourceLabel(job: JobOffer): string {
@@ -34,38 +48,6 @@ const navigation: [Tab, string, string][] = [
   ["network", "↗", "Réseau"],
   ["profile", "◉", "Profil & CV"],
 ];
-const states: Record<string, string> = {
-  draft: "À préparer",
-  running: "En cours",
-  ready: "Prête",
-  needs_input: "Réponse requise",
-  blocked: "Action requise",
-  submitting: "Envoi en cours",
-  submitted: "Envoyée",
-  uncertain: "Envoi à vérifier",
-  failed: "À reprendre",
-};
-const outcomes: Record<string, string> = {
-  active: "En attente",
-  interview: "Entretien",
-  offer: "Offre reçue",
-  rejected: "Refus",
-  withdrawn: "Retirée",
-};
-const employerResponseTypes: Record<CareerEmployerResponse["type"], string> = {
-  interview: "Entretien proposé",
-  offer: "Offre reçue",
-  rejection: "Refus reçu",
-  request: "Demande ou question",
-  other: "Autre retour",
-};
-const employerResponseChannels: Record<CareerEmployerResponse["channel"], string> = {
-  email: "E-mail",
-  phone: "Téléphone",
-  portal: "Portail carrière",
-  linkedin: "LinkedIn",
-  other: "Autre canal",
-};
 function parseEmployerResponse(detail: string): CareerEmployerResponse | null {
   try {
     const value = JSON.parse(detail) as Partial<CareerEmployerResponse>;
@@ -107,24 +89,12 @@ type CampaignSummary = {
   resumeId: string;
   credentialId: string | null;
   maxSubmissions: number;
-  state: "queued" | "running" | "paused" | "stopped" | "completed" | "limit_reached";
+  state: CampaignState;
   counts: { total: number; pending: number; running: number; submitted: number; needsInput: number; uncertain: number; failed: number; skipped: number };
   createdAt: string;
 };
-type CampaignItemSummary = { id: string; applicationId: string; jobId: string; state: string; error: string };
+type CampaignItemSummary = { id: string; applicationId: string; jobId: string; state: CampaignItemState; error: string };
 type CampaignDetail = { campaign: CampaignSummary; items: CampaignItemSummary[]; resumeDeferred?: boolean };
-const campaignItemStates: Record<string, string> = {
-  pending: "En attente", running: "En cours", submitted: "Envoyée", needs_input: "Réponse requise",
-  uncertain: "Envoi à vérifier", failed: "Échec avant envoi", skipped: "Passée",
-};
-const campaignStates: Record<CampaignSummary["state"], string> = {
-  queued: "En attente",
-  running: "En cours",
-  paused: "En pause",
-  stopped: "Arrêtée",
-  completed: "Terminée",
-  limit_reached: "Plafond atteint",
-};
 
 function useDialogKeyboardSupport(
   open: boolean,
@@ -664,7 +634,7 @@ export default function CareerWorkspace() {
         {campaignPageItems.map((campaign) => (
           <article className="cw-campaign-row" key={campaign.id}>
             <div className="cw-campaign-main">
-              <strong>{campaignStates[campaign.state]}</strong>
+              <strong title={CAMPAIGN_STATE_META[campaign.state].description}>{campaignStates[campaign.state]}</strong>
               <small>{date(campaign.createdAt)} · {campaign.counts?.submitted || 0} envoyée(s) · {campaign.counts?.running || 0} en cours · {campaign.counts?.needsInput || 0} à compléter · {campaign.counts?.uncertain || 0} à vérifier · plafond {campaign.maxSubmissions}</small>
               <small>Compte : {campaign.credentialId ? data?.credentials.find((credential) => credential.id === campaign.credentialId)?.label || "sélectionné, à vérifier" : "détection automatique (un seul compte par site)"}</small>
             </div>
@@ -679,7 +649,7 @@ export default function CareerWorkspace() {
               {campaignDetails[campaign.id].items.map((item) => {
                 const job = data?.jobs.find((entry) => entry.id === item.jobId);
                 return <div className="cw-campaign-item" key={item.id}>
-                <span><strong>{job ? `${job.title} · ${job.company}` : "Offre"}</strong><small>{campaignItemStates[item.state] || item.state}</small>{item.error && <small>{item.error}</small>}</span>
+                <span><strong>{job ? `${job.title} · ${job.company}` : "Offre"}</strong><small title={CAMPAIGN_ITEM_STATE_META[item.state]?.description}>{campaignItemStates[item.state] || item.state}</small>{item.error && <small>{item.error}</small>}</span>
                 <div>
                   <button onClick={() => { setTab("applications"); setApplicationsSection("all"); setDetail(item.applicationId); }}>Voir la candidature</button>
                   {["pending", "needs_input", "failed"].includes(item.state) && <button disabled={busy || demo} onClick={() => void action(async () => {
@@ -1038,7 +1008,7 @@ export default function CareerWorkspace() {
                               {labelJob(data, a)?.location}
                             </small>
                           </span>
-                          <span className={`cw-status ${a.state}`}>
+                          <span className={`cw-status ${a.state}`} title={APPLICATION_STATE_META[a.state].description}>
                             {states[a.state]}
                           </span>
                         </button>
@@ -1065,7 +1035,7 @@ export default function CareerWorkspace() {
                           onClick={() => void openCampaign(campaign.id)}
                         >
                           <span>
-                            <strong>Campagne · {campaignStates[campaign.state]}</strong>
+                            <strong title={CAMPAIGN_STATE_META[campaign.state].description}>Campagne · {campaignStates[campaign.state]}</strong>
                             <small>{campaign.counts.submitted}/{campaign.counts.total} envoyée(s) · {campaign.counts.running} en cours · {campaign.counts.needsInput} à compléter · {campaign.counts.uncertain} à vérifier</small>
                           </span>
                           <span>↗</span>
@@ -1590,7 +1560,7 @@ export default function CareerWorkspace() {
                               </small>
                             </span>
                           </label>
-                          <span className={`cw-status ${a.state}`}>
+                          <span className={`cw-status ${a.state}`} title={APPLICATION_STATE_META[a.state].description}>
                             {states[a.state]}
                           </span>
                         </div>
@@ -1600,7 +1570,7 @@ export default function CareerWorkspace() {
                               data.resumes.find((r) => r.id === a.resumeId)
                                 ?.name
                             }{" "}
-                            · {outcomes[a.outcome]}
+                            · <span title={EMPLOYER_OUTCOME_META[a.outcome].description}>Résultat employeur : {outcomes[a.outcome]}</span>
                           </small>
                           <button onClick={() => setDetail(a.id)}>
                             Ouvrir le suivi →
@@ -2258,7 +2228,7 @@ export default function CareerWorkspace() {
         <div className="cw-overlay" onClick={() => setDetail(null)}>
           <aside className="cw-drawer" onClick={(e) => e.stopPropagation()}>
             <div className="cw-section-head">
-              <span className={`cw-status ${current.state}`}>
+              <span className={`cw-status ${current.state}`} title={APPLICATION_STATE_META[current.state].description}>
                 {states[current.state]}
               </span>
               <button

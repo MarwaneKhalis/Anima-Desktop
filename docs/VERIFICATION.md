@@ -2,6 +2,10 @@
 
 ## Résultats locaux — 13 octobre 2026
 
+### R10 — Taxonomie des états
+
+La PR #18 centralise les libellés et descriptions typés pour les états de candidature, résultats employeur, campagnes, éléments de campagne, file réseau, messages et retours employeur. Les écrans réutilisent cette taxonomie; le résultat employeur reste distinct de l’état de l’automatisation. La CI Windows **38324741287** a passé **234 tests**, `pnpm build`, la génération NSIS, la mise à niveau depuis la version publiée précédente et le smoke test d’installation neuve. Les tests unitaires vérifient l’exhaustivité des états et les descriptions des cas incertains, soumis et manuels. L’installation empaquetée a été démarrée et son scénario smoke validé; les tests de parcours UI vérifient le rendu des états concernés sur fixtures.
+
 La suite locale passe **231 tests sur 231**, `pnpm build` et `pnpm desktop:compile`. `pnpm desktop:dist` génère l’installateur NSIS x64. `pnpm desktop:smoke` vérifie le lancement du package dans un profil temporaire Windows, l’embarquement de Chromium, la création de la clé locale, la préparation sans envoi, un seul POST vers le serveur de fixture, le reçu et la persistance de la campagne après redémarrage. Le smoke confirme aussi qu’aucun serveur HTTP n’écoute dans l’application empaquetée. Aucune candidature n’a été envoyée à un employeur.
 
 La recherche publique agrège Arbeitnow, Jobicy, Remote OK, Himalayas et Remotive, garde les sources des annonces et déduplique les résultats. Remotive garde son flux localement, l’actualise au plus une fois par 24 heures, filtre les mots-clés sur l’appareil et conserve uniquement les annonces explicitement ouvertes à la France, à l’Europe/EMEA ou partout. Cette source ne fournit pas la ville. Sa réponse live n’a pas été vérifiée dans ce smoke; les filtres, limites, cache et erreurs sont testés avec des réponses synthétiques.
