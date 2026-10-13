@@ -231,6 +231,15 @@ test('AI API requires explicit actions, keeps the key private, and never submits
     assert.equal(providerCalls, 1);
     const drafted = await call('/ai/cover-letter', { applicationId: ctx.application.id });
     assert.equal(drafted.status, 200);
+    assert.equal((await drafted.json() as { draft: string }).draft, 'Brouillon de lettre à vérifier.');
+    const draftPath = `/applications/${ctx.application.id}/cover-letter-draft`;
+    const loadedDraft = await call(draftPath);
+    assert.equal((await loadedDraft.json() as { draft: { draft: string } }).draft.draft, 'Brouillon de lettre à vérifier.');
+    const edited = await call(draftPath, { draft: 'Version personnelle modifiée.', model: 'model' }, 'PUT');
+    assert.equal(edited.status, 200);
+    assert.equal((await call(draftPath).then((response) => response.json()) as { draft: { draft: string } }).draft.draft, 'Version personnelle modifiée.');
+    assert.equal((await call(draftPath, { draft: 'Écriture sans CSRF.' }, 'PUT', false)).status, 403);
+    assert.equal((await call(draftPath, { draft: 'x'.repeat(12001) }, 'PUT')).status, 400);
     assert.equal(providerCalls, 2);
     assert.equal(runnerCalls, 0);
     assert.equal(ctx.store.getApplication(ctx.application.id).state, 'draft');
@@ -239,3 +248,4 @@ test('AI API requires explicit actions, keeps the key private, and never submits
     ctx.db.close();
   }
 });
+

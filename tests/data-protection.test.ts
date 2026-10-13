@@ -183,6 +183,7 @@ test("sauvegarde AES-GCM portable restaure les données et les re-chiffre avec u
   const phrase = "une phrase secrète longue de sauvegarde";
   let copy: DatabaseSync | undefined;
   let restored: DatabaseSync | undefined;
+  let oldBackup: DatabaseSync | undefined;
   try {
     const store = new Store(":memory:", sourceKey);
     const career = new CareerStore(store.db, { dataProtectionKey: sourceKey });
@@ -190,9 +191,20 @@ test("sauvegarde AES-GCM portable restaure les données et les re-chiffre avec u
     new CareerCampaignStore(store.db, sourceKey);
     career.saveProfile({ firstName: "Léa", email: "lea.backup@example.test", summary: "Profil de restauration" });
     career.saveProfileDraft({ firstName: "Léa", email: "lea.draft@example.test", summary: "Brouillon à restaurer" });
+    const letterJob = career.saveJob({ url: "https://jobs.example.test/role/1", title: "Ingénieure", company: "Exemple" });
+    const letterResume = career.saveResume({ name: "CV", filename: "cv.pdf", mime: "application/pdf", bytes: Buffer.from("%PDF-1.4\\n%%EOF") });
+    const letterApplication = career.createApplication({ jobId: letterJob.id, resumeId: letterResume.id });
+    career.saveCoverLetterDraft(letterApplication.id, "Lettre confidentielle sauvegardée.", "test-model");
     const savedSearch = career.saveSavedSearch({ source: "all", criteria: { keywords: "TypeScript", commune: "Paris" }, intervalHours: 24 });
     const snapshot = serializeDatabase(store.db);
     store.close();
+    const legacyShape = new DatabaseSync(":memory:");
+    oldBackup = legacyShape;
+    deserializeDatabase(legacyShape, snapshot);
+    legacyShape.exec("DROP TABLE career_cover_letter_drafts");
+    assert.doesNotThrow(() => validatePortableDatabase(legacyShape));
+    legacyShape.close();
+    oldBackup = undefined;
     copy = new DatabaseSync(":memory:");
     deserializeDatabase(copy, snapshot);
     unprotectAllScopes(copy, sourceKey);
@@ -212,6 +224,7 @@ test("sauvegarde AES-GCM portable restaure les données et les re-chiffre avec u
     const restoredCareer = new CareerStore(restored, { dataProtectionKey: targetKey });
     assert.equal(restoredCareer.getProfile().email, "lea.backup@example.test");
     assert.equal(restoredCareer.getProfileDraft()?.email, "lea.draft@example.test");
+    assert.equal(restoredCareer.getCoverLetterDraft(letterApplication.id)?.draft, "Lettre confidentielle sauvegardée.");
     assert.deepEqual(restoredCareer.getSavedSearch(savedSearch.id).criteria, { keywords: "TypeScript", commune: "Paris" });
     const protectedCriteria = String((restored.prepare("SELECT criteria FROM career_saved_searches WHERE id=?").get(savedSearch.id) as { criteria: string }).criteria);
     assert.ok(isProtectedText(protectedCriteria));
@@ -223,6 +236,7 @@ test("sauvegarde AES-GCM portable restaure les données et les re-chiffre avec u
     assert.ok(!rawDraft.includes("lea.draft@example.test"));
   } finally {
     copy?.close();
+    oldBackup?.close();
     restored?.close();
   }
 });
@@ -294,3 +308,4 @@ test("les sauvegardes SQLite historiques ne sont acceptées que par le chemin ex
     db.close();
   }
 });
+

@@ -15,6 +15,7 @@ export interface AiAssistantProps {
 interface AiSettings { baseUrl: string; model: string; updatedAt: string; }
 interface AiConfigResponse { configured: boolean; settings: AiSettings | null; vaultUnlocked: boolean; }
 interface AiDraftResponse { draft: string; model: string; }
+interface SavedAiDraft { draft: string; model: string; updatedAt: string; }
 
 function errorText(error: unknown): string { return error instanceof Error ? error.message : 'Action IA impossible.'; }
 
@@ -24,6 +25,10 @@ export default function AiAssistant({ request, selectedApplication, view = "appl
   requestRef.current = request;
   const selectedApplicationIdRef = useRef(selectedApplication?.id);
   selectedApplicationIdRef.current = selectedApplication?.id;
+  const draftWritesRef = useRef(new Map<string, Promise<void>>());
+  const dirtyDraftRef = useRef<{ applicationId: string; draft: string } | null>(null);
+  const draftRevisionRef = useRef(0);
+  const draftModelRef = useRef('');
   const [settings, setSettings] = useState<AiSettings | null>(null);
   const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1');
   const [model, setModel] = useState('');
@@ -31,6 +36,8 @@ export default function AiAssistant({ request, selectedApplication, view = "appl
   const [includeAnswers, setIncludeAnswers] = useState(false);
   const [draft, setDraft] = useState('');
   const [draftModel, setDraftModel] = useState('');
+  const [dirtyDraft, setDirtyDraft] = useState<{ applicationId: string; draft: string } | null>(null);
+  const [draftStatus, setDraftStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -57,7 +64,52 @@ export default function AiAssistant({ request, selectedApplication, view = "appl
     setIncludeAnswers(false);
     setDraft('');
     setDraftModel('');
+    draftModelRef.current = '';
+    dirtyDraftRef.current = null;
+    setDirtyDraft(null);
+    setDraftStatus(selectedApplication?.id ? 'Chargement du brouillon…' : '');
+    const applicationId = selectedApplication?.id;
+    if (!applicationId) return;
+    let active = true;
+    requestRef.current(`/applications/${encodeURIComponent(applicationId)}/cover-letter-draft`).then((result) => {
+      if (!active || selectedApplicationIdRef.current !== applicationId) return;
+      const saved = (result as { draft: SavedAiDraft | null }).draft;
+      setDraft(saved?.draft || '');
+      setDraftModel(saved?.model || '');
+      draftModelRef.current = saved?.model || '';
+      setDraftStatus(saved ? `Enregistré · ${new Date(saved.updatedAt).toLocaleString('fr-FR')}` : 'Aucun brouillon enregistré.');
+    }).catch((reason: unknown) => {
+      if (active && selectedApplicationIdRef.current === applicationId) { setDraftStatus(''); setError(errorText(reason)); }
+    });
+    return () => {
+      active = false;
+      const pending = dirtyDraftRef.current;
+      if (pending?.applicationId === applicationId) void persistDraft(pending.applicationId, pending.draft, draftModelRef.current);
+    };
   }, [selectedApplication?.id]);
+
+  function persistDraft(applicationId: string, value: string, valueModel: string): Promise<void> {
+    const previous = draftWritesRef.current.get(applicationId) || Promise.resolve();
+    const next = previous.catch(() => undefined).then(async () => {
+      await requestRef.current(`/applications/${encodeURIComponent(applicationId)}/cover-letter-draft`, 'PUT', { draft: value, model: valueModel });
+    });
+    draftWritesRef.current.set(applicationId, next);
+    void next.finally(() => { if (draftWritesRef.current.get(applicationId) === next) draftWritesRef.current.delete(applicationId); }).catch(() => undefined);
+    return next.then(() => {
+      if (selectedApplicationIdRef.current === applicationId && dirtyDraftRef.current?.draft === value) {
+        dirtyDraftRef.current = null; setDirtyDraft(null); setDraftStatus('Enregistré.');
+      }
+    }).catch((reason: unknown) => {
+      if (selectedApplicationIdRef.current === applicationId) { setDraftStatus('Modifications non enregistrées.'); setError(errorText(reason)); }
+    });
+  }
+
+  useEffect(() => {
+    if (!dirtyDraft || dirtyDraft.applicationId !== selectedApplication?.id) return;
+    setDraftStatus('Enregistrement…');
+    const timer = window.setTimeout(() => { void persistDraft(dirtyDraft.applicationId, dirtyDraft.draft, draftModelRef.current); }, 650);
+    return () => window.clearTimeout(timer);
+  }, [dirtyDraft, selectedApplication?.id]);
 
   async function refreshState() {
     setBusy(true); setError('');
@@ -95,13 +147,19 @@ export default function AiAssistant({ request, selectedApplication, view = "appl
   async function generateDraft() {
     if (!selectedApplication) return;
     const requestedApplicationId = selectedApplication.id;
-    setBusy(true); setError(''); setNotice(''); setDraft('');
+    const revision = draftRevisionRef.current;
+    setBusy(true); setError(''); setNotice('');
     try {
+      const pending = dirtyDraftRef.current;
+      if (pending?.applicationId === requestedApplicationId) await persistDraft(requestedApplicationId, pending.draft, draftModelRef.current);
       const result = await requestRef.current('/ai/cover-letter', 'POST', { applicationId: requestedApplicationId, includeAnswers }) as AiDraftResponse;
       if (selectedApplicationIdRef.current !== requestedApplicationId) return;
-      setDraft(result.draft); setDraftModel(result.model);
+      draftModelRef.current = result.model;
+      setDraftModel(result.model);
+      if (draftRevisionRef.current === revision) { setDraft(result.draft); dirtyDraftRef.current = null; setDirtyDraft(null); setDraftStatus('Brouillon généré et enregistré.'); }
+      else { const latest = dirtyDraftRef.current; if (latest?.applicationId === requestedApplicationId) { setDirtyDraft(latest); void persistDraft(requestedApplicationId, latest.draft, result.model); } }
       setNotice('Brouillon généré. Relisez et corrigez les faits avant toute utilisation.');
-    } catch (reason) { setError(errorText(reason)); }
+    } catch (reason) { if (selectedApplicationIdRef.current === requestedApplicationId) setError(errorText(reason)); }
     finally { setBusy(false); }
   }
 
@@ -109,7 +167,7 @@ export default function AiAssistant({ request, selectedApplication, view = "appl
     setBusy(true); setError(''); setNotice('');
     try {
       await requestRef.current('/ai/config', 'DELETE');
-      setSettings(null); setModel(''); setDraft('');
+      setSettings(null); setModel('');
       setNotice('Configuration IA supprimée du coffre.');
     } catch (reason) { setError(errorText(reason)); }
     finally { setBusy(false); }
@@ -166,8 +224,15 @@ export default function AiAssistant({ request, selectedApplication, view = "appl
         {busy ? 'Traitement…' : 'Générer le brouillon'}
       </button>
       {!selectedApplication && <small>Sélectionnez d’abord une candidature pour activer la génération.</small>}
-      {draft && <label>Brouillon généré · {draftModel}
-        <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={10} />
+      {draftStatus && <small role="status">{draftStatus}</small>}
+      {selectedApplication && <label>{draft ? `Brouillon modifiable · ${draftModel}` : 'Brouillon de lettre'}
+        <textarea value={draft} maxLength={12000} onChange={(event) => {
+          const next = event.target.value;
+          draftRevisionRef.current += 1;
+          setDraft(next);
+          const pending = { applicationId: selectedApplication.id, draft: next };
+          dirtyDraftRef.current = pending; setDirtyDraft(pending);
+        }} onBlur={() => { const pending = dirtyDraftRef.current; if (pending?.applicationId === selectedApplication.id) void persistDraft(pending.applicationId, pending.draft, draftModelRef.current); }} rows={10} placeholder="Générez ou rédigez votre brouillon ici…" />
       </label>}
     </div>}
 
@@ -175,3 +240,4 @@ export default function AiAssistant({ request, selectedApplication, view = "appl
     {error && <p className="ai-assistant__error" role="alert">{error}</p>}
   </section>;
 }
+
