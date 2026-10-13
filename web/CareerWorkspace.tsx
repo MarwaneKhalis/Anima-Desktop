@@ -156,7 +156,7 @@ export default function CareerWorkspace() {
   const [applicationQuery, setApplicationQuery] = useState("");
   const [applicationStateFilter, setApplicationStateFilter] = useState<"all" | Application["state"]>("all");
   const [applicationOutcomeFilter, setApplicationOutcomeFilter] = useState<"all" | Application["outcome"]>("all");
-  const [applicationSort, setApplicationSort] = useState<"updated" | "action">("updated");
+  const [applicationSort, setApplicationSort] = useState<"updated" | "action">(() => localStorage.getItem("anima-desktop-application-sort") === "action" ? "action" : "updated");
   const [campaignPage, setCampaignPage] = useState(0), [campaignTotal, setCampaignTotal] = useState(0);
   const [campaignsActiveOnly, setCampaignsActiveOnly] = useState(false);
   const [activeCampaigns, setActiveCampaigns] = useState<CampaignSummary[]>([]), [activeCampaignTotal, setActiveCampaignTotal] = useState(0);
@@ -184,9 +184,15 @@ export default function CareerWorkspace() {
   const offerSearchAdvancedRef = useRef<HTMLDetailsElement | null>(null);
   const [query, setQuery] = useState(""),
     [source, setSource] = useState("");
-  const [jobSort, setJobSort] = useState<JobListSort>("relevance");
+  const [jobSort, setJobSort] = useState<JobListSort>(() => {
+    const saved = localStorage.getItem("anima-desktop-offer-sort");
+    return ["relevance", "newest", "title", "company"].includes(saved || "") ? saved as JobListSort : "relevance";
+  });
   const [jobSourceFilter, setJobSourceFilter] = useState("");
-  const [compactJobs, setCompactJobs] = useState(false);
+  const [jobApplicationFilter, setJobApplicationFilter] = useState<"all" | "applied" | "unapplied">("all");
+  const [jobDiscoveredAfter, setJobDiscoveredAfter] = useState("");
+  const [jobDiscoveredBefore, setJobDiscoveredBefore] = useState("");
+  const [compactJobs, setCompactJobs] = useState(() => localStorage.getItem("anima-desktop-compact-jobs") !== "0");
   const [franceTravail, setFranceTravail] = useState<FranceTravailStatus>({ configured: false }),
     [searchSource, setSearchSource] = useState<"all" | "arbeitnow" | "france-travail" | "jobicy" | "remoteok" | "himalayas" | "remotive">("all"),
     [franceCredentials, setFranceCredentials] = useState({ clientId: "", clientSecret: "", scope: "" }),
@@ -312,6 +318,15 @@ export default function CareerWorkspace() {
       setFranceTravail({ configured: false });
     }
   }
+  useEffect(() => {
+    localStorage.setItem("anima-desktop-application-sort", applicationSort);
+  }, [applicationSort]);
+  useEffect(() => {
+    localStorage.setItem("anima-desktop-offer-sort", jobSort);
+  }, [jobSort]);
+  useEffect(() => {
+    localStorage.setItem("anima-desktop-compact-jobs", compactJobs ? "1" : "0");
+  }, [compactJobs]);
   useEffect(() => {
     setData(null);
     setProfile(null);
@@ -734,9 +749,18 @@ export default function CareerWorkspace() {
   ) : <div className="cw-empty">Aucune campagne pour le moment. Les campagnes créées depuis vos sélections apparaîtront ici.</div>;
   const jobSources = [...new Set((data?.jobs || []).map(jobSourceLabel))].sort((a, b) => a.localeCompare(b, "fr"));
   const normalizedJobQuery = normalizeOfferSearch(query.trim());
+  const appliedJobIds = new Set((data?.applications || []).map((application) => application.jobId));
+  const discoveredDay = (job: JobOffer) => {
+    const timestamp = job.discoveredAt ? new Date(job.discoveredAt) : null;
+    return timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp.toISOString().slice(0, 10) : "";
+  };
+  const hasJobFilters = !!(query.trim() || jobSourceFilter || jobApplicationFilter !== "all" || jobDiscoveredAfter || jobDiscoveredBefore);
   const rankedJobs = data ? sortJobOffers(rankJobsForProfile(data.jobs, data.profile), jobSort) : [];
   const jobsForDisplay = rankedJobs
     .filter((job) => !jobSourceFilter || jobSourceLabel(job) === jobSourceFilter)
+    .filter((job) => jobApplicationFilter === "all" || (jobApplicationFilter === "applied" ? appliedJobIds.has(job.id) : !appliedJobIds.has(job.id)))
+    .filter((job) => !jobDiscoveredAfter || (discoveredDay(job) && discoveredDay(job) >= jobDiscoveredAfter))
+    .filter((job) => !jobDiscoveredBefore || (discoveredDay(job) && discoveredDay(job) <= jobDiscoveredBefore))
     .filter((job) => !normalizedJobQuery || normalizeOfferSearch(`${job.title} ${job.company} ${job.location} ${job.description}`).includes(normalizedJobQuery));
   const identityTone = tab === "home" ? "xenogears"
     : tab === "jobs" ? "weltall-ii"
@@ -1469,6 +1493,19 @@ export default function CareerWorkspace() {
                         {jobSources.map((item) => <option key={item} value={item}>{item}</option>)}
                       </select>
                     </label>
+                    <label>Candidature
+                      <select aria-label="Filtrer par candidature" value={jobApplicationFilter} onChange={(e) => setJobApplicationFilter(e.target.value as "all" | "applied" | "unapplied")}>
+                        <option value="all">Toutes</option>
+                        <option value="applied">Déjà suivies</option>
+                        <option value="unapplied">Non suivies</option>
+                      </select>
+                    </label>
+                    <label>Repérée depuis
+                      <input type="date" aria-label="Repérée depuis" value={jobDiscoveredAfter} onChange={(e) => setJobDiscoveredAfter(e.target.value)} />
+                    </label>
+                    <label>Repérée jusqu’au
+                      <input type="date" aria-label="Repérée jusqu’au" value={jobDiscoveredBefore} onChange={(e) => setJobDiscoveredBefore(e.target.value)} />
+                    </label>
                     <label>Trier
                       <select aria-label="Trier les offres" value={jobSort} onChange={(e) => setJobSort(e.target.value as JobListSort)}>
                         <option value="relevance">Pertinence du profil</option>
@@ -1477,7 +1514,13 @@ export default function CareerWorkspace() {
                         <option value="company">Entreprise A à Z</option>
                       </select>
                     </label>
-                    {(query.trim() || jobSourceFilter) && <button type="button" className="cw-job-clear" onClick={() => { setQuery(""); setJobSourceFilter(""); }}>Effacer les filtres</button>}
+                    {hasJobFilters && <button type="button" className="cw-job-clear" onClick={() => {
+                      setQuery("");
+                      setJobSourceFilter("");
+                      setJobApplicationFilter("all");
+                      setJobDiscoveredAfter("");
+                      setJobDiscoveredBefore("");
+                    }}>Effacer les filtres</button>}
                     <button type="button" className="cw-job-density" aria-pressed={compactJobs} onClick={() => setCompactJobs((value) => !value)}>
                       {compactJobs ? "Vue confortable" : "Vue compacte"}
                     </button>
