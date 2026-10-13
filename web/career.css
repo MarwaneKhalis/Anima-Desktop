@@ -1540,3 +1540,20 @@
     width: 100%;
   }
 }
+
+.cw-skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 10000;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--section-accent);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  transform: translateY(calc(-100% - 16px));
+}
+.cw-skip-link:focus {
+  transform: translateY(0);
+}
