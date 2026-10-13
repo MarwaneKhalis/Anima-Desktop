@@ -848,6 +848,44 @@ test("today puts active campaigns first and combines blocked, application, and c
   assert.deepEqual(await app.fixture.submissions, []);
 });
 
+test("offer results support description search, source filtering, sorting, and compact density", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const fixtures = [
+    { url: "https://jobs.alpha.test/data", title: "Data Engineer", company: "Alpha", location: "Paris", description: "Données PostgreSQL et GraphQL" },
+    { url: "https://jobs.beta.test/design", title: "UX Designer", company: "Beta", location: "Lyon", description: "Design system accessible" },
+    { url: "https://jobs.gamma.test/ops", title: "DevOps", company: "Gamma", location: "Remote", description: "Kubernetes et TypeScript" },
+  ];
+  for (const job of fixtures) {
+    const created = await app.json("/api/career/jobs", job);
+    assert.equal(created.response.status, 201);
+  }
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByRole("heading", { name: "Résultats de recherche" }).waitFor();
+  assert.equal(await page.locator(".cw-job").count(), 3);
+  await page.getByLabel("Trier les offres").selectOption("title");
+  assert.deepEqual((await page.locator(".cw-job h2").allTextContents()).map((value) => value.trim()), ["Data Engineer", "DevOps", "UX Designer"]);
+
+  await page.getByLabel("Rechercher une offre").fill("donnees");
+  assert.equal(await page.locator(".cw-job").count(), 1, "search includes descriptions and ignores accents");
+  assert.equal((await page.locator(".cw-job h2").innerText()).trim(), "Data Engineer");
+  await page.screenshot({ path: "artifacts/career-ui/09-offer-filters.png", fullPage: true });
+
+  await page.getByRole("button", { name: "Effacer les filtres" }).click();
+  await page.getByLabel("Filtrer par source").selectOption("jobs.alpha.test");
+  assert.equal(await page.locator(".cw-job").count(), 1);
+  assert.equal((await page.locator(".cw-job h2").innerText()).trim(), "Data Engineer");
+  const compact = page.getByRole("button", { name: "Vue compacte" });
+  await compact.click();
+  assert.equal(await page.getByRole("button", { name: "Vue confortable" }).getAttribute("aria-pressed"), "true");
+  assert.match(await page.locator(".cw-jobs").getAttribute("class") || "", /is-compact/);
+});
+
 test("keyboard tab focus has a visible outline in the active section accent", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());

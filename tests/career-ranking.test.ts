@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CareerProfile, JobOffer } from "../src/shared/career.ts";
-import { profileFitScore, rankJobsForProfile } from "../src/shared/career-ranking.ts";
+import { profileFitScore, rankJobsForProfile, sortJobOffers } from "../src/shared/career-ranking.ts";
 
 const profile: CareerProfile = {
   firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", phone: "", city: "Lyon", country: "France", address: "", postalCode: "",
@@ -30,4 +30,16 @@ test("profile ranking stays unavailable when the profile contains no matching si
 test("short programming language names remain usable ranking signals", () => {
   const cppProfile = { ...profile, skills: ["C++"], preferences: { ...profile.preferences, titles: [], locations: [] }, city: "" };
   assert.equal(profileFitScore(job("cpp", "Systems Developer", "Remote", "C++ experience required"), cppProfile), 100);
+});
+
+test("offer list sorting preserves relevance and orders dates and names deterministically", () => {
+  const offers = [
+    { ...job("late", "Équipe développeuse", "Lyon"), discoveredAt: "2026-10-10T10:00:00Z" },
+    { ...job("alpha", "Analyste", "Paris"), company: "Zulu", discoveredAt: "2026-10-12T10:00:00Z" },
+    { ...job("beta", "Développeuse", "Lille"), company: "Alpha", discoveredAt: "2026-10-12T10:00:00Z" },
+  ];
+  assert.deepEqual(sortJobOffers(offers, "relevance").map(({ id }) => id), ["late", "alpha", "beta"]);
+  assert.deepEqual(sortJobOffers(offers, "newest").map(({ id }) => id), ["alpha", "beta", "late"]);
+  assert.deepEqual(sortJobOffers(offers, "title").map(({ id }) => id), ["alpha", "beta", "late"]);
+  assert.deepEqual(sortJobOffers(offers, "company").map(({ id }) => id), ["beta", "late", "alpha"]);
 });

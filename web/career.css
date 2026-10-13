@@ -1471,3 +1471,51 @@
     font-size: 9px;
   }
 }
+
+.cw-job-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(180px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+  margin: 12px 0;
+}
+.cw-job-toolbar label {
+  min-width: 0;
+  margin: 0;
+}
+.cw-job-toolbar .cw-job-query input {
+  max-width: none;
+}
+.cw-job-count {
+  grid-column: 1 / -1;
+}
+.cw-job-density,
+.cw-job-clear {
+  min-height: 38px;
+  white-space: nowrap;
+}
+.cw-jobs.is-compact {
+  gap: 10px;
+}
+.cw-jobs.is-compact .cw-job {
+  padding: 15px;
+}
+.cw-jobs.is-compact .cw-job h2 {
+  margin-top: 12px;
+}
+.cw-jobs.is-compact .cw-job-description {
+  max-height: 64px;
+  margin: 10px 0 14px;
+}
+@media (max-width: 720px) {
+  .cw-job-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cw-job-toolbar .cw-job-query,
+  .cw-job-count {
+    grid-column: 1 / -1;
+  }
+  .cw-job-density {
+    width: 100%;
+  }
+}
