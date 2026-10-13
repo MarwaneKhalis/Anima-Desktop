@@ -187,9 +187,13 @@ try {
   assert.equal(firstOffers.jobs.length, 0, "Le smoke doit commencer avec une liste d’offres vierge.");
   await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByText("Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge.", { exact: true }).waitFor();
-  await window.getByRole("button", { name: /Voir les offres/ }).click();
+  const viewOffersButton = window.getByRole("button", { name: /Voir les offres/ });
+  await viewOffersButton.focus();
+  await window.keyboard.press("Enter");
   const offerKeyword = window.getByLabel("Métier(s) ou mot(s)-clé(s)");
   await offerKeyword.waitFor({ state: "visible" });
+  assert.equal(await offerKeyword.locator("input").evaluate((input) => input === document.activeElement), true,
+    "Depuis Candidatures vide, Entrée doit ouvrir Offres et placer le focus dans la recherche.");
   await window.getByText("Importez des offres ou ajoutez votre premier lien pour commencer.", { exact: true }).waitFor();
   const addOfferDetails = window.locator("details.cw-details").filter({
     has: window.getByText("Ajouter une offre avec son lien", { exact: true }),
