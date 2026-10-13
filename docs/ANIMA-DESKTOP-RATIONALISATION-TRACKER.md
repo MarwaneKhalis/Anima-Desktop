@@ -1,6 +1,6 @@
 # Anima Desktop — suivi de rationalisation
 
-Base examinée : `78d5edf2779b110b7162aa606cf734e4f4e9c7d9` (`v0.4.11`). Les lots jusqu’à R13 sont intégrés et la release Windows `v0.4.11` est publiée ; cette tranche ajoute les filtres de candidatures (R11).
+Base examinée : `78d5edf2779b110b7162aa606cf734e4f4e9` (`v0.4.11`). La release Windows `v0.4.11` publie les filtres de candidatures (R11) ; cette tranche affine la palette R20 pour préparer la v0.4.12. Les captures de cette palette restent à contrôler.
 
 `Vérifié` signifie que le critère d’acceptation complet a été exercé. Les contrôles d’une tranche ou les tests sur fixtures ne suffisent pas à l’affirmer.
 
