@@ -1035,6 +1035,38 @@ test("dashboard shortcuts reset the destination to its primary view", async (t) 
   await page.getByRole("heading", { name: "Trouver une offre" }).waitFor();
 });
 
+test("application list can search and filter by automation state and employer outcome", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const resume = await app.json("/api/career/resumes", { name: "CV listes", filename: "cv-listes.pdf", mime: "application/pdf", base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64") });
+  const jobOne = await app.json("/api/career/jobs", { url: `${app.fixture.baseUrl}/simple?list=one`, title: "Analyste données", company: "Alpha Studio", location: "Lyon" });
+  const jobTwo = await app.json("/api/career/jobs", { url: `${app.fixture.baseUrl}/simple?list=two`, title: "Analyste QA", company: "Zeta Studio", location: "Paris" });
+  await app.json("/api/career/applications", { jobId: jobOne.value.id, resumeId: resume.value.id });
+  await app.json("/api/career/applications", { jobId: jobTwo.value.id, resumeId: resume.value.id });
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  assert.equal(await page.locator(".cw-application").count(), 2);
+  await page.getByRole("searchbox", { name: "Rechercher une candidature" }).fill("zeta");
+  assert.equal(await page.locator(".cw-application").count(), 1);
+  await page.getByText("Analyste QA", { exact: true }).waitFor();
+  await page.getByLabel("Filtrer par état de candidature").selectOption("draft");
+  await page.getByLabel("Filtrer par retour employeur").selectOption("active");
+  await page.getByLabel("Trier les candidatures").selectOption("action");
+  assert.equal(await page.locator(".cw-application").count(), 1);
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await page.screenshot({ path: "artifacts/career-ui/13-application-filters.png", fullPage: true });
+  await page.getByRole("searchbox", { name: "Rechercher une candidature" }).fill("aucun résultat");
+  await page.getByText("Aucune candidature ne correspond à ces filtres.").waitFor();
+  await page.getByRole("button", { name: "Effacer les filtres" }).click();
+  assert.equal(await page.locator(".cw-application").count(), 2);
+  await page.getByRole("button", { name: "À traiter", exact: true }).click();
+  assert.equal(await page.locator(".cw-application").count(), 0);
+  await page.getByText("Aucune candidature ne demande d’action pour le moment.").waitFor();
+});
+
 test("saved recurring searches can edit criteria and cadence", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());

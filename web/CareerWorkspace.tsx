@@ -153,6 +153,10 @@ export default function CareerWorkspace() {
     [legacyTab, setLegacyTab] = useState<LegacyTab>("prospects");
   const [settingsSection, setSettingsSection] = useState<"connections" | "data" | "preferences" | "about">("connections");
   const [applicationsSection, setApplicationsSection] = useState<"all" | "attention" | "followups" | "campaigns">("all");
+  const [applicationQuery, setApplicationQuery] = useState("");
+  const [applicationStateFilter, setApplicationStateFilter] = useState<"all" | Application["state"]>("all");
+  const [applicationOutcomeFilter, setApplicationOutcomeFilter] = useState<"all" | Application["outcome"]>("all");
+  const [applicationSort, setApplicationSort] = useState<"updated" | "action">("updated");
   const [campaignPage, setCampaignPage] = useState(0), [campaignTotal, setCampaignTotal] = useState(0);
   const [campaignsActiveOnly, setCampaignsActiveOnly] = useState(false);
   const [activeCampaigns, setActiveCampaigns] = useState<CampaignSummary[]>([]), [activeCampaignTotal, setActiveCampaignTotal] = useState(0);
@@ -612,11 +616,19 @@ export default function CareerWorkspace() {
     ? [campaignDetails[focusedCampaignId].campaign]
     : [];
   const campaignPageItems = [...pinnedCampaign, ...campaigns];
-  const visibleApplications = applicationsSection === "attention"
-    ? attention
-    : applicationsSection === "followups"
-      ? dueFollowupList
-      : data?.applications || [];
+  const sectionApplications = applicationsSection === "attention" ? attention : applicationsSection === "followups" ? dueFollowupList : data?.applications || [];
+  const normalizedApplicationQuery = normalizeOfferSearch(applicationQuery.trim());
+  const visibleApplications = sectionApplications
+    .filter((application) => applicationStateFilter === "all" || application.state === applicationStateFilter)
+    .filter((application) => applicationOutcomeFilter === "all" || application.outcome === applicationOutcomeFilter)
+    .filter((application) => {
+      if (!normalizedApplicationQuery || !data) return true;
+      const job = labelJob(data, application);
+      return normalizeOfferSearch([job?.title, job?.company, job?.location, states[application.state], outcomes[application.outcome], application.nextActionAt && date(application.nextActionAt)].filter(Boolean).join(" ")).includes(normalizedApplicationQuery);
+    }).slice().sort((left, right) => applicationSort === "action"
+      ? (left.nextActionAt || "9999").localeCompare(right.nextActionAt || "9999") || right.updatedAt.localeCompare(left.updatedAt)
+      : right.updatedAt.localeCompare(left.updatedAt));
+  const visibleRunnable = visibleApplications.filter((application) => runnable.some((item) => item.id === application.id));
   const completion = data
     ? [
         !!data.profile.firstName && !!data.profile.lastName,
@@ -1580,12 +1592,12 @@ Aucune offre ne correspond à ces filtres.
                       <input
                         type="checkbox"
                         checked={
-                          !!runnable.length &&
-                          runnable.every((a) => selected.includes(a.id))
+                          !!visibleRunnable.length &&
+                          visibleRunnable.every((a) => selected.includes(a.id))
                         }
                         onChange={(e) =>
                           setSelected(
-                            e.target.checked ? runnable.map((a) => a.id) : [],
+                            e.target.checked ? [...new Set([...selected, ...visibleRunnable.map((a) => a.id)])] : selected.filter((id) => !visibleRunnable.some((a) => a.id === id)),
                           )
                         }
                       />
@@ -1602,6 +1614,14 @@ Aucune offre ne correspond à ces filtres.
                       <button key={campaign.id} disabled={busy || demo} onClick={() => action(() => api(`/campaigns/${campaign.id}/stop`, "POST", {}), "Campagne arrêtée.")}>Arrêter la campagne</button>
                     ))}
                   </div>}
+                  <div className="cw-application-toolbar" role="group" aria-label="Filtres et tri des candidatures">
+                    <label>Rechercher une candidature<input type="search" aria-label="Rechercher une candidature" placeholder="Poste, entreprise, état, retour…" value={applicationQuery} onChange={(event) => setApplicationQuery(event.target.value)} /></label>
+                    <label>État<select aria-label="Filtrer par état de candidature" value={applicationStateFilter} onChange={(event) => setApplicationStateFilter(event.target.value as typeof applicationStateFilter)}><option value="all">Tous les états</option>{Object.entries(states).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                    <label>Retour employeur<select aria-label="Filtrer par retour employeur" value={applicationOutcomeFilter} onChange={(event) => setApplicationOutcomeFilter(event.target.value as typeof applicationOutcomeFilter)}><option value="all">Tous les retours</option>{Object.entries(outcomes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                    <label>Trier<select aria-label="Trier les candidatures" value={applicationSort} onChange={(event) => setApplicationSort(event.target.value as typeof applicationSort)}><option value="updated">Modifiées récemment</option><option value="action">Prochaine action</option></select></label>
+                    {(applicationQuery || applicationStateFilter !== "all" || applicationOutcomeFilter !== "all") && <button type="button" className="cw-application-clear" onClick={() => { setApplicationQuery(""); setApplicationStateFilter("all"); setApplicationOutcomeFilter("all"); }}>Effacer les filtres</button>}
+                    <span className="cw-muted cw-application-count" role="status" aria-live="polite">{visibleApplications.length} candidature(s) affichée(s) sur {sectionApplications.length}</span>
+                  </div>
                   <div className="cw-applications">
                     {visibleApplications.map((a) => (
                       <article key={a.id} className="cw-panel cw-application">
@@ -1659,7 +1679,7 @@ Aucune offre ne correspond à ces filtres.
                   </div>
                   {!visibleApplications.length && (
                     <div className="cw-empty">
-                      {applicationsSection === "attention" ? "Aucune candidature ne demande d’action pour le moment." : applicationsSection === "followups" ? "Aucune relance n’est échue pour le moment." : "Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge."}
+                      {applicationQuery || applicationStateFilter !== "all" || applicationOutcomeFilter !== "all" ? "Aucune candidature ne correspond à ces filtres." : applicationsSection === "attention" ? "Aucune candidature ne demande d’action pour le moment." : applicationsSection === "followups" ? "Aucune relance n’est échue pour le moment." : "Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge."}
                     </div>
                   )}
                     </>
