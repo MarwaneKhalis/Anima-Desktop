@@ -400,7 +400,7 @@ try {
   await window.getByRole("button", { name: /Ajouter un prospect manuellement à cette recherche/ }).click();
   const manualCandidate = window.locator(".candidate").first();
   await manualCandidate.getByLabel("Prénom").fill("Nadia");
-  await manualCandidate.getByLabel("Nom").fill("Leroy");
+  await manualCandidate.getByLabel("Nom", { exact: true }).fill("Leroy");
   await manualCandidate.getByLabel("URL du profil").fill("https://www.linkedin.com/in/anima-desktop-smoke-r18-nadia/");
   await manualCandidate.getByLabel("Poste").fill("Responsable recrutement");
   await manualCandidate.getByLabel("Entreprise").fill("Atelier Horizon");
