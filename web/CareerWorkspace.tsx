@@ -699,7 +699,7 @@ export default function CareerWorkspace() {
       </div>
       <div className="cw-campaign-list">
         {campaignPageItems.map((campaign) => (
-          <article className="cw-campaign-row" data-campaign-id={campaign.id} key={campaign.id}>
+          <article className="cw-campaign-row" key={campaign.id}>
             <div className="cw-campaign-main">
               <strong title={CAMPAIGN_STATE_META[campaign.state].description}>{campaignStates[campaign.state]}</strong>
               <small>{date(campaign.createdAt)} · {campaign.counts?.submitted || 0} envoyée(s) · {campaign.counts?.running || 0} en cours · {campaign.counts?.needsInput || 0} à compléter · {campaign.counts?.uncertain || 0} à vérifier · plafond {campaign.maxSubmissions}</small>
