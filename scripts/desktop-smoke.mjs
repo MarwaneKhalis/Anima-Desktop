@@ -607,6 +607,9 @@ try {
     "Le smoke prépare un état incertain local sans ouvrir LinkedIn ni envoyer de message.");
   await window.reload();
   await window.waitForLoadState("load");
+  await visit("Réseau", "Contacts");
+  await window.getByRole("button", { name: "Messages", exact: true }).click();
+  await window.getByRole("heading", { name: "File d’actions", exact: true, level: 1 }).waitFor();
   const queuedNetworkCard = window.locator(".queue-card").filter({ hasText: "Nadia Leroy" });
   const confirmNetworkAction = queuedNetworkCard.getByRole("button", { name: "Vérifié : envoyé", exact: true });
   await confirmNetworkAction.waitFor({ state: "visible" });
