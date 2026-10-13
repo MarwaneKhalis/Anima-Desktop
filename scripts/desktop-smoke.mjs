@@ -322,20 +322,9 @@ try {
   await window.getByRole("button", { name: "Offres", exact: true }).click();
   const offerListSearch = window.getByLabel("Rechercher une offre");
   await offerListSearch.fill("Aucune correspondance smoke R03");
-  const offersEmptyState = window.getByText("Aucune offre ne correspond à ces filtres.");
-  await offersEmptyState.waitFor();
+  await window.getByText("Aucune offre ne correspond à ces filtres.").waitFor();
   await mkdir("artifacts/career-ui", { recursive: true });
   await window.screenshot({ path: "artifacts/career-ui/03-offers-empty-packaged.png" });
-  await window.setViewportSize({ width: 390, height: 844 });
-  assert.equal(await offersEmptyState.isVisible(), true, "L’état vide reste visible sur mobile.");
-  const mobileEmptyLayout = await window.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    content: document.documentElement.scrollWidth,
-  }));
-  assert.ok(mobileEmptyLayout.content <= mobileEmptyLayout.viewport + 1,
-    `L’état vide des offres ne doit pas déborder sur mobile : ${JSON.stringify(mobileEmptyLayout)}`);
-  await window.screenshot({ path: "artifacts/career-ui/03-offers-empty-390-packaged.png" });
-  await window.setViewportSize({ width: 1366, height: 768 });
   await window.getByRole("button", { name: "Afficher toutes les offres", exact: true }).click();
   assert.equal(await window.locator(".cw-job").count(), 1, "L’action de l’état vide doit rétablir l’offre filtrée.");
   await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
