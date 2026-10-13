@@ -178,15 +178,28 @@ try {
 
   const bootstrap = parseJson(await requestJson(window, "/api/career/bootstrap"), 200);
   assert.deepEqual(bootstrap.jobs, []);
-  const profile = {
-    firstName: "Camille",
-    lastName: "Martin",
-    email: "camille.martin@example.test",
-    country: "France",
-    answers: {},
-    preferences: { remote: false },
-  };
-  parseJson(await requestJson(window, "/api/career/profile", "PUT", profile), 200);
+  await window.getByRole("button", { name: "Profil & CV" }).click();
+  await window.getByLabel("Prénom").fill("Camille");
+  await window.getByLabel("Nom", { exact: true }).fill("Martin");
+  await window.getByLabel("Email").fill("camille.martin@example.test");
+  await window.getByLabel("Ville").fill("Paris");
+  await window.getByLabel("Pays").fill("France");
+  await window.getByText("Brouillon sauvegardé automatiquement", { exact: true }).waitFor({ timeout: 10_000 });
+  await window.getByRole("button", { name: "Offres", exact: true }).click();
+  await window.getByRole("button", { name: "Profil & CV" }).click();
+  assert.equal(await window.getByLabel("Email").inputValue(), "camille.martin@example.test");
+  await window.reload();
+  await window.waitForLoadState("load");
+  await window.getByRole("button", { name: "Profil & CV" }).click();
+  assert.equal(await window.getByLabel("Prénom").inputValue(), "Camille");
+  assert.equal(await window.getByLabel("Ville").inputValue(), "Paris");
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await window.screenshot({ path: "artifacts/career-ui/10-profile-draft-recovery-packaged.png" });
+  await window.getByRole("button", { name: "Enregistrer le profil" }).click();
+  await window.getByText("Profil enregistré", { exact: true }).waitFor({ timeout: 10_000 });
+  const profileAfterSave = parseJson(await requestJson(window, "/api/career/bootstrap"), 200);
+  assert.equal(profileAfterSave.profile.email, "camille.martin@example.test");
+  assert.equal(profileAfterSave.profileDraft, null, "L’enregistrement explicite doit effacer le brouillon restauré.");
 
   const firstResumeBytes = Buffer.from("%PDF-1.7\nCV non sélectionné\n%%EOF\n");
   const selectedResumeBytes = Buffer.from("%PDF-1.7\nANIMA-DESKTOP-SMOKE-SELECTED-CV\n%%EOF\n");
@@ -258,6 +271,8 @@ try {
   await restartedWindow.waitForLoadState("load");
   const afterRestart = parseJson(await requestJson(restartedWindow, "/api/career/bootstrap"), 200);
   assert.equal(afterRestart.applications.find((item) => item.id === created.id)?.state, "submitted");
+  assert.equal(afterRestart.profile.firstName, "Camille", "Le profil enregistré doit être conservé après redémarrage.");
+  assert.equal(afterRestart.profileDraft, null, "Un brouillon enregistré ne doit pas réapparaître après redémarrage.");
   assert.equal(afterRestart.resumes.length, 2);
   const campaignsAfterRestart = parseJson(await requestJson(restartedWindow, "/api/career/campaigns"), 200);
   assert.equal(campaignsAfterRestart.campaigns[0]?.state, "completed", "La campagne terminée doit rester persistée après redémarrage.");
@@ -268,7 +283,7 @@ try {
     await mkdir("artifacts", { recursive: true });
     await restartedWindow.screenshot({ path: "artifacts/anima-desktop.png", timeout: 60_000 });
   }
-  console.log("Installé dans un profil temporaire : Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et campagne persistée après redémarrage vérifiés ; aucun serveur HTTP détecté.");
+  console.log("Installé dans un profil temporaire : brouillon de profil après navigation/rechargement, Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et campagne persistée après redémarrage vérifiés ; aucun serveur HTTP détecté.");
 } catch (error) {
   smokeError = error;
   if (diagnosticWindow) {
