@@ -665,13 +665,16 @@ try {
 
   await restarted.close();
   restarted = undefined;
-  application = await electron.launch({
-    ...launchOptions,
-    args: [...launchArgs, "--force-device-scale-factor=1.5"],
-  });
+  application = await electron.launch(launchOptions);
   const dpiWindow = diagnosticWindow = await application.firstWindow();
   await dpiWindow.waitForLoadState("load");
-  await dpiWindow.setViewportSize({ width: 912, height: 512 });
+  const dpiSession = await dpiWindow.context().newCDPSession(dpiWindow);
+  await dpiSession.send("Emulation.setDeviceMetricsOverride", {
+    width: 912,
+    height: 512,
+    deviceScaleFactor: 1.5,
+    mobile: false,
+  });
   await dpiWindow.getByRole("button", { name: "Offres", exact: true }).click();
   await dpiWindow.getByLabel("Métier(s) ou mot(s)-clé(s)").waitFor({ state: "visible" });
   const dpiOffersLayout = await dpiWindow.evaluate(() => ({
@@ -680,7 +683,7 @@ try {
     content: document.documentElement.scrollWidth,
   }));
   assert.ok(dpiOffersLayout.scale >= 1.45,
-    `Le rendu doit conserver un facteur d’échelle Windows de 150 % : ${JSON.stringify(dpiOffersLayout)}`);
+    `Le rendu Chromium doit conserver un facteur d’échelle de 150 % : ${JSON.stringify(dpiOffersLayout)}`);
   assert.ok(dpiOffersLayout.content <= dpiOffersLayout.viewport + 1,
     `La vue Offres ne doit pas déborder à 150 % d’échelle : ${JSON.stringify(dpiOffersLayout)}`);
   await dpiWindow.screenshot({ path: "artifacts/career-ui/03-offers-dpi-150-packaged.png" });
