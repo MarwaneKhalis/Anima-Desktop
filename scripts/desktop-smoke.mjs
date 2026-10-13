@@ -14,8 +14,13 @@ if (process.env.CI === "true" && process.env.ANIMA_SMOKE_NO_SANDBOX === "1") {
   throw new Error("Le smoke test CI doit conserver le sandbox Chromium activé.");
 }
 const fixtureSubmissions = [];
+let pauseFixtureRequests = 0;
 const fixture = createServer(async (req, res) => {
-  if (req.method === "GET" && ["/apply", "/apply-campaign"].includes(req.url)) {
+  if (req.method === "GET" && ["/apply", "/apply-campaign", "/apply-pause?hold=1"].includes(req.url)) {
+    if (req.url === "/apply-pause?hold=1") {
+      pauseFixtureRequests++;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 5_000));
+    }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><html lang="fr"><body>
       <h1>Poste de test</h1>
@@ -93,6 +98,17 @@ async function waitForCampaign(window, timeoutMs = 60_000) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
   }
   assert.fail(`Campagne attendue terminée, état reçu : ${JSON.stringify(last)}`);
+}
+
+async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = parseJson(await requestJson(window, `/api/career/campaigns/${id}`), 200);
+    if (last.campaign.state === expectedState) return last;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  assert.fail(`Campagne ${id} attendue en état ${expectedState}, état reçu : ${JSON.stringify(last?.campaign?.state)}`);
 }
 
 async function getFreePort() {
@@ -429,6 +445,72 @@ try {
   }), 201);
   assert.equal(queuedCampaign.campaign.state, "queued", "La campagne reste en attente de confirmation humaine.");
   assert.equal(fixtureSubmissions.length, 2, "La mise en file d’attente ne doit déclencher aucun envoi.");
+
+  const pauseJobs = [];
+  for (const [title, url] of [
+    ["Campagne pause smoke", `${fixtureOrigin}/apply-pause?hold=1`],
+    ["Campagne reprise smoke", `${fixtureOrigin}/apply-campaign`],
+  ]) {
+    pauseJobs.push(parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+      url, sourceUrl: url, title, company: "Fixture Anima Desktop", location: "Paris",
+    }), 201));
+  }
+  const pauseCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
+    jobIds: pauseJobs.map((item) => item.id), resumeId: selectedResume.id, maxSubmissions: 2,
+    idempotencyKey: "anima-desktop-smoke-pause-resume",
+  }), 201);
+  const stopJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: `${fixtureOrigin}/apply`, title: "Campagne arrêt smoke", company: "Fixture Anima Desktop", location: "Paris",
+  }), 201);
+  const stopCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
+    jobIds: [stopJob.id], resumeId: selectedResume.id, maxSubmissions: 1,
+    idempotencyKey: "anima-desktop-smoke-stop",
+  }), 201);
+  const skipJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: `${fixtureOrigin}/apply`, title: "Campagne offre passée smoke", company: "Fixture Anima Desktop", location: "Paris",
+  }), 201);
+  const skipCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
+    jobIds: [skipJob.id], resumeId: selectedResume.id, maxSubmissions: 1,
+    idempotencyKey: "anima-desktop-smoke-skip",
+  }), 201);
+  assert.equal(pauseCampaign.campaign.state, "queued");
+  assert.equal(stopCampaign.campaign.state, "queued");
+  assert.equal(skipCampaign.campaign.state, "queued");
+  assert.equal(fixtureSubmissions.length, 2, "La préparation des campagnes de contrôle ne doit rien envoyer.");
+
+  await window.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await window.getByRole("button", { name: "Campagnes", exact: true }).click();
+  const pauseRow = window.locator(".cw-campaign-row").filter({ hasText: "Campagne pause smoke" });
+  await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).click();
+  await waitForCampaignState(window, pauseCampaign.campaign.id, "running");
+  const pauseRequestDeadline = Date.now() + 10_000;
+  while (pauseFixtureRequests === 0 && Date.now() < pauseRequestDeadline) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+  assert.ok(pauseFixtureRequests > 0, "La campagne doit être entrée dans la page fixture suspendue avant sa pause.");
+  await pauseRow.getByRole("button", { name: "Pause", exact: true }).click();
+  const pausedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "paused");
+  assert.equal(pausedCampaign.items.filter((item) => item.state === "pending").length, 1,
+    "Mettre en pause conserve la seconde offre de la file.");
+  assert.equal(fixtureSubmissions.length, 2, "La pause d’une page fixture ne doit déclencher aucun envoi.");
+  await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).waitFor({ state: "visible" });
+  await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).click();
+  const resumedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "completed");
+  assert.equal(resumedCampaign.items.filter((item) => item.state === "submitted").length, 1,
+    "La reprise traite l’offre restante.");
+  assert.equal(fixtureSubmissions.length, 3, "La reprise envoie uniquement la seconde candidature synthétique.");
+
+  const stopRow = window.locator(".cw-campaign-row").filter({ hasText: "Campagne arrêt smoke" });
+  await stopRow.getByRole("button", { name: "Arrêter", exact: true }).click();
+  const stoppedControl = await waitForCampaignState(window, stopCampaign.campaign.id, "stopped");
+  assert.equal(stoppedControl.items.filter((item) => item.state === "pending").length, 1,
+    "Arrêter conserve l’offre en attente pour l’audit sans la lancer.");
+  const skipRow = window.locator(".cw-campaign-row").filter({ hasText: "Campagne offre passée smoke" });
+  await skipRow.getByRole("button", { name: "Détails", exact: true }).click();
+  await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).click();
+  const skippedControl = await waitForCampaignState(window, skipCampaign.campaign.id, "completed");
+  assert.equal(skippedControl.campaign.counts.skipped, 1, "Passer une offre la marque comme ignorée et termine la campagne.");
+  assert.equal(fixtureSubmissions.length, 3, "Arrêter et passer une offre ne déclenchent aucun envoi.");
 
   const backupPassphrase = "AnimaDesktopSmokeRestore-2026";
   const portableBackup = await window.evaluate(async (passphrase) => window.anima.request({
