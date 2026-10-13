@@ -179,6 +179,9 @@ export default function CareerWorkspace() {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const [refreshError, setRefreshError] = useState("");
+  const backgroundRefreshInFlight = useRef(false);
+  const initializedRef = useRef(false);
   const [campaignError, setCampaignError] = useState("");
   const [focusResultsAfterSearch, setFocusResultsAfterSearch] = useState(false);
   const offerSearchAdvancedRef = useRef<HTMLDetailsElement | null>(null);
@@ -256,6 +259,8 @@ export default function CareerWorkspace() {
     const currentMode = demo;
     const value = await api<CareerSnapshot>("/bootstrap");
     if (currentMode !== modeRef.current) return;
+    initializedRef.current = true;
+    setRefreshError("");
     setData(value);
     if (resetProfile) {
       const restoredProfile = structuredClone(value.profileDraft ?? value.profile);
@@ -274,6 +279,7 @@ export default function CareerWorkspace() {
       const value = await api<{ campaigns: CampaignSummary[]; total?: number }>("/campaigns?active=1&limit=10&offset=0");
       setActiveCampaigns(value.campaigns || []);
       setActiveCampaignTotal(value.total ?? value.campaigns?.length ?? 0);
+      setCampaignError("");
     } catch (error) {
       setCampaignError(error instanceof Error ? error.message : String(error));
     }
@@ -332,6 +338,8 @@ export default function CareerWorkspace() {
   useEffect(() => {
     setData(null);
     setProfile(null);
+    initializedRef.current = false;
+    setRefreshError("");
     profileSnapshotRef.current = "";
     setDetail(null);
     setSelected([]);
@@ -381,10 +389,17 @@ export default function CareerWorkspace() {
     }));
   }, [profile]);
   useEffect(() => {
-    const timer = setInterval(
-      () => load().catch((e) => setError(e.message)),
-      2500,
-    );
+    const timer = setInterval(() => {
+      if (backgroundRefreshInFlight.current) return;
+      backgroundRefreshInFlight.current = true;
+      void load().catch((e) => {
+        const message = e instanceof Error ? e.message : String(e);
+        if (initializedRef.current) setRefreshError(message);
+        else setError(message);
+      }).finally(() => {
+        backgroundRefreshInFlight.current = false;
+      });
+    }, 2500);
     return () => clearInterval(timer);
   }, [demo]);
   useEffect(() => {
@@ -899,6 +914,14 @@ export default function CareerWorkspace() {
               externes désactivés.
             </div>
           )}
+          {refreshError && (
+            <div className="cw-alert" role="status">
+              Connexion locale interrompue : {refreshError}
+              <button disabled={busy} onClick={() => {
+                void load().catch((e) => setRefreshError(e instanceof Error ? e.message : String(e)));
+              }}>Réessayer</button>
+            </div>
+          )}
           {error && (
             <div className="cw-alert" role="alert">
               {error}
@@ -1383,9 +1406,10 @@ export default function CareerWorkspace() {
                       <div className="cw-section-head"><h3>Recherches enregistrées</h3><span className="cw-pill">{data.savedSearches.length}</span></div>
                       {data.savedSearches.length ? data.savedSearches.map((search) => <div key={search.id}>
                         <div className="cw-section-head">
-                          <div><strong>{search.criteria.keywords}</strong><small>{search.source} · {search.intervalHours < 24 ? `toutes les ${search.intervalHours} h` : search.intervalHours === 24 ? "quotidienne" : "hebdomadaire"} · {search.lastResultCount} offre(s) au dernier passage</small>{search.lastRunAt && <small>Dernière collecte : {date(search.lastRunAt)}</small>}{search.lastError && <small role="status">{search.lastError}</small>}{search.enabled && search.nextRunAt && <small>Prochaine collecte : {date(search.nextRunAt)}</small>}</div>
+                          <div><strong>{search.criteria.keywords}</strong><small>{search.source} · {search.intervalHours < 24 ? `toutes les ${search.intervalHours} h` : search.intervalHours === 24 ? "quotidienne" : "hebdomadaire"} · {search.lastResultCount} offre(s) au dernier passage</small>{search.lastRunAt && <small>Dernière collecte : {date(search.lastRunAt)}</small>}{search.lastError && <small role="alert">Échec de la dernière collecte : {search.lastError}</small>}{search.enabled && search.nextRunAt && <small>Prochaine collecte : {date(search.nextRunAt)}</small>}</div>
                           <div>
-                            {search.enabled && <button disabled={busy || demo} onClick={() => action(async () => { const result = await api<CareerSavedSearch>(`/saved-searches/${search.id}/run`, "POST", {}); return `Collecte terminée : ${result.lastResultCount} offre(s) trouvée(s).`; }, "Collecte terminée.")}>Collecter maintenant</button>}
+                            {search.enabled && <button disabled={busy || demo} onClick={() => action(async () => { const result = await api<CareerSavedSearch>(`/saved-searches/${search.id}/run`, "POST", {}); return result.lastError ? `Collecte à reprendre : ${result.lastError}` : `Collecte terminée : ${result.lastResultCount} offre(s) trouvée(s).`; }, "Collecte terminée.")}>{search.lastError ? "Réessayer la collecte" : "Collecter maintenant"}</button>}
+                             {!search.enabled && search.lastError && <button disabled={busy || demo} onClick={() => action(async () => { await updateRecurringSearch(search, { enabled: true }); const result = await api<CareerSavedSearch>(`/saved-searches/${search.id}/run`, "POST", {}); return result.lastError ? `Collecte à reprendre : ${result.lastError}` : `Collecte terminée : ${result.lastResultCount} offre(s) trouvée(s).`; })}>Réactiver et réessayer</button>}
                             <button disabled={busy || demo} onClick={() => beginSavedSearchEdit(search)} aria-expanded={editingSavedSearchId === search.id}>Modifier</button>
                             <button disabled={busy || demo} onClick={() => action(() => updateRecurringSearch(search, { enabled: !search.enabled }), search.enabled ? "Collecte mise en pause." : "Collecte réactivée.")}>{search.enabled ? "Suspendre" : "Réactiver"}</button>
                             <button disabled={busy || demo} onClick={() => action(async () => { await api(`/saved-searches/${search.id}`, "DELETE", {}); return "Recherche supprimée."; })}>Supprimer</button>
