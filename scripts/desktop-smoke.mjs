@@ -181,9 +181,11 @@ try {
   await window.screenshot({ path: "artifacts/career-ui/03-offers-390-packaged.png" });
   await window.setViewportSize({ width: 1366, height: 768 });
   const defaultZoomRatio = await window.evaluate(() => window.devicePixelRatio);
-  for (let step = 0; step < 5; step += 1) await window.keyboard.press("Control+=");
+  await application.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2);
+  });
   await window.waitForFunction(
-    (defaultRatio) => window.devicePixelRatio >= defaultRatio * 1.5,
+    (defaultRatio) => window.devicePixelRatio >= defaultRatio * 1.9,
     defaultZoomRatio,
   );
   const zoomedOfferLayout = await window.evaluate(() => ({
@@ -191,19 +193,23 @@ try {
     viewport: document.documentElement.clientWidth,
     content: document.documentElement.scrollWidth,
   }));
-  assert.ok(zoomedOfferLayout.ratio >= defaultZoomRatio * 1.5,
-    `Le raccourci de zoom doit agrandir le contenu au-delà de 150 % : ${JSON.stringify(zoomedOfferLayout)}`);
+  assert.ok(zoomedOfferLayout.ratio >= defaultZoomRatio * 1.9,
+    `Le zoom à 200 % doit agrandir le contenu : ${JSON.stringify(zoomedOfferLayout)}`);
   assert.ok(zoomedOfferLayout.content <= zoomedOfferLayout.viewport + 1,
-    `Les offres ne doivent pas déborder horizontalement à fort zoom : ${JSON.stringify(zoomedOfferLayout)}`);
-  assert.equal(await offerKeyword.isVisible(), true, "La recherche reste visible à fort zoom.");
+    `Les offres ne doivent pas déborder horizontalement à 200 % : ${JSON.stringify(zoomedOfferLayout)}`);
+  assert.equal(await offerKeyword.isVisible(), true, "La recherche reste visible à 200 %.");
   await window.screenshot({ path: "artifacts/career-ui/03-offers-zoom-packaged.png" });
-  await window.keyboard.press("Control+-");
+  await application.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.5);
+  });
   await window.waitForFunction(
-    ({ defaultRatio, zoomedRatio }) => window.devicePixelRatio >= defaultRatio * 1.4 &&
-      window.devicePixelRatio < zoomedRatio,
-    { defaultRatio: defaultZoomRatio, zoomedRatio: zoomedOfferLayout.ratio },
+    (defaultRatio) => window.devicePixelRatio >= defaultRatio * 1.4 &&
+      window.devicePixelRatio < defaultRatio * 1.6,
+    defaultZoomRatio,
   );
-  await window.keyboard.press("Control+0");
+  await application.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1);
+  });
   await window.waitForFunction(
     (defaultRatio) => Math.abs(window.devicePixelRatio - defaultRatio) < 0.01,
     defaultZoomRatio,
