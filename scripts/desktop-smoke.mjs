@@ -185,6 +185,9 @@ try {
     "Entrée doit ouvrir Offres et signaler la destination active.");
   const firstOffers = parseJson(await requestJson(window, "/api/career/bootstrap"), 200);
   assert.equal(firstOffers.jobs.length, 0, "Le smoke doit commencer avec une liste d’offres vierge.");
+  await window.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await window.getByText("Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge.", { exact: true }).waitFor();
+  await window.getByRole("button", { name: /Voir les offres/ }).click();
   const offerKeyword = window.getByLabel("Métier(s) ou mot(s)-clé(s)");
   await offerKeyword.waitFor({ state: "visible" });
   await window.getByText("Importez des offres ou ajoutez votre premier lien pour commencer.", { exact: true }).waitFor();
