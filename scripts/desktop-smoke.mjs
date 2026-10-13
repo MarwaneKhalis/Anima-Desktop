@@ -175,6 +175,13 @@ try {
   const todayNavigation = window.getByRole("button", { name: "Aujourd’hui", exact: true });
   await todayNavigation.waitFor({ state: "visible" });
   await window.setViewportSize({ width: 1366, height: 768 });
+  const homeOffersButton = window.getByRole("button", { name: /Trouver des offres/ });
+  await homeOffersButton.focus();
+  await window.keyboard.press("Enter");
+  const offerKeyword = window.getByLabel("Métier(s) ou mot(s)-clé(s)");
+  await offerKeyword.waitFor({ state: "visible" });
+  assert.equal(await offerKeyword.evaluate((input) => input === document.activeElement), true,
+    "Depuis Aujourd’hui, Entrée doit ouvrir Offres et placer le focus dans la recherche.");
   await todayNavigation.focus();
   await window.keyboard.press("Tab");
   const offersNavigation = window.getByRole("button", { name: "Offres", exact: true });
@@ -185,12 +192,21 @@ try {
     "Entrée doit ouvrir Offres et signaler la destination active.");
   const firstOffers = parseJson(await requestJson(window, "/api/career/bootstrap"), 200);
   assert.equal(firstOffers.jobs.length, 0, "Le smoke doit commencer avec une liste d’offres vierge.");
+  assert.equal(firstOffers.resumes.length, 0, "Le smoke doit couvrir le parcours sans CV.");
+  const addResumeButton = window.getByRole("button", { name: "Ajouter un CV →", exact: true });
+  await addResumeButton.focus();
+  await window.keyboard.press("Enter");
+  const profileHeading = window.getByRole("heading", { name: "Votre profil. Vos possibilités.", exact: true });
+  await profileHeading.waitFor({ state: "visible" });
+  const resumeUpload = window.getByLabel("Ajouter un CV");
+  assert.equal(await resumeUpload.evaluate((input) => input === document.activeElement), true,
+    "Depuis Offres sans CV, Entrée doit ouvrir le profil et placer le focus sur l’ajout de CV.");
+  await offersNavigation.click();
   await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByText("Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge.", { exact: true }).waitFor();
   const viewOffersButton = window.getByRole("button", { name: /Voir les offres/ });
   await viewOffersButton.focus();
   await window.keyboard.press("Enter");
-  const offerKeyword = window.getByLabel("Métier(s) ou mot(s)-clé(s)");
   await offerKeyword.waitFor({ state: "visible" });
   assert.equal(await offerKeyword.evaluate((input) => input === document.activeElement), true,
     "Depuis Candidatures vide, Entrée doit ouvrir Offres et placer le focus dans la recherche.");
