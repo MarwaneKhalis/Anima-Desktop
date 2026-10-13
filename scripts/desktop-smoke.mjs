@@ -15,11 +15,13 @@ if (process.env.CI === "true" && process.env.ANIMA_SMOKE_NO_SANDBOX === "1") {
 }
 const fixtureSubmissions = [];
 let pauseFixtureRequests = 0;
+let releasePauseFixture = null;
 const fixture = createServer(async (req, res) => {
-  if (req.method === "GET" && ["/apply", "/apply-campaign", "/apply-pause?hold=1"].includes(req.url)) {
-    if (req.url === "/apply-pause?hold=1") {
+  const requestPath = new URL(req.url || "/", "http://127.0.0.1").pathname;
+  if (req.method === "GET" && ["/apply", "/apply-campaign", "/apply-pause"].includes(requestPath)) {
+    if (requestPath === "/apply-pause") {
       pauseFixtureRequests++;
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 5_000));
+      await new Promise((resolvePause) => { releasePauseFixture = resolvePause; });
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><html lang="fr"><body>
@@ -467,10 +469,10 @@ try {
 
   const pauseJobs = [];
   for (const [title, url] of [
-    ["Campagne initiale smoke", `${fixtureOrigin}/apply-campaign`],
-    ["Campagne secondaire smoke", `${fixtureOrigin}/apply-campaign`],
+    ["Campagne initiale smoke", `${fixtureOrigin}/apply-campaign?step=1`],
+    ["Campagne secondaire smoke", `${fixtureOrigin}/apply-campaign?step=2`],
     ["Campagne pause smoke", `${fixtureOrigin}/apply-pause?hold=1`],
-    ["Campagne reprise smoke", `${fixtureOrigin}/apply-campaign`],
+    ["Campagne reprise smoke", `${fixtureOrigin}/apply-campaign?step=4`],
   ]) {
     pauseJobs.push(parseJson(await requestJson(window, "/api/career/jobs", "POST", {
       url, sourceUrl: url, title, company: "Fixture Anima Desktop", location: "Paris",
@@ -510,6 +512,8 @@ try {
   }
   assert.ok(pauseFixtureRequests > 0, "La campagne doit être entrée dans la page fixture suspendue avant sa pause.");
   await pauseRow.getByRole("button", { name: "Pause", exact: true }).click();
+  releasePauseFixture?.();
+  releasePauseFixture = null;
   const pausedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "paused");
   const pauseDrainDeadline = Date.now() + 15_000;
   let pausedAndDrained = pausedCampaign;
@@ -931,6 +935,7 @@ try {
 
 const cleanupErrors = [];
 for (const cleanup of [
+  () => { releasePauseFixture?.(); releasePauseFixture = null; },
   () => application?.close(),
   () => restarted?.close(),
   () => fixture.listening ? new Promise((resolveClose, reject) => fixture.close((error) => error ? reject(error) : resolveClose())) : undefined,
