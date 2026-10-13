@@ -322,9 +322,20 @@ try {
   await window.getByRole("button", { name: "Offres", exact: true }).click();
   const offerListSearch = window.getByLabel("Rechercher une offre");
   await offerListSearch.fill("Aucune correspondance smoke R03");
-  await window.getByText("Aucune offre ne correspond à ces filtres.").waitFor();
+  const offersEmptyState = window.getByText("Aucune offre ne correspond à ces filtres.");
+  await offersEmptyState.waitFor();
   await mkdir("artifacts/career-ui", { recursive: true });
   await window.screenshot({ path: "artifacts/career-ui/03-offers-empty-packaged.png" });
+  await window.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await offersEmptyState.isVisible(), true, "L’état vide reste visible sur mobile.");
+  const mobileEmptyLayout = await window.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }));
+  assert.ok(mobileEmptyLayout.content <= mobileEmptyLayout.viewport + 1,
+    `L’état vide des offres ne doit pas déborder sur mobile : ${JSON.stringify(mobileEmptyLayout)}`);
+  await window.screenshot({ path: "artifacts/career-ui/03-offers-empty-390-packaged.png" });
+  await window.setViewportSize({ width: 1366, height: 768 });
   await window.getByRole("button", { name: "Afficher toutes les offres", exact: true }).click();
   assert.equal(await window.locator(".cw-job").count(), 1, "L’action de l’état vide doit rétablir l’offre filtrée.");
   await window.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
@@ -663,9 +674,31 @@ try {
   assert.equal(fixtureSubmissions.length, 2, "L’exploration de la démo ne doit envoyer aucun formulaire.");
   await assertNoHttpListener(expectedPort);
 
+  await restarted.close();
+  restarted = undefined;
+  application = await electron.launch({
+    ...launchOptions,
+    args: [...launchArgs, "--force-device-scale-factor=1.5"],
+  });
+  const dpiWindow = diagnosticWindow = await application.firstWindow();
+  await dpiWindow.waitForLoadState("load");
+  await dpiWindow.setViewportSize({ width: 912, height: 512 });
+  await dpiWindow.getByRole("button", { name: "Offres", exact: true }).click();
+  await dpiWindow.getByLabel("Métier(s) ou mot(s)-clé(s)").waitFor({ state: "visible" });
+  const dpiOffersLayout = await dpiWindow.evaluate(() => ({
+    scale: window.devicePixelRatio,
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }));
+  assert.ok(dpiOffersLayout.scale >= 1.45,
+    `Le rendu doit conserver un facteur d’échelle Windows de 150 % : ${JSON.stringify(dpiOffersLayout)}`);
+  assert.ok(dpiOffersLayout.content <= dpiOffersLayout.viewport + 1,
+    `La vue Offres ne doit pas déborder à 150 % d’échelle : ${JSON.stringify(dpiOffersLayout)}`);
+  await dpiWindow.screenshot({ path: "artifacts/career-ui/03-offers-dpi-150-packaged.png" });
+
   if (process.env.ANIMA_CAPTURE_DESKTOP_PREVIEW === "1") {
     await mkdir("artifacts", { recursive: true });
-    await restartedWindow.screenshot({ path: "artifacts/anima-desktop.png", timeout: 60_000 });
+    await dpiWindow.screenshot({ path: "artifacts/anima-desktop.png", timeout: 60_000 });
   }
   console.log("Installé dans un profil temporaire : brouillon de profil après navigation/rechargement, Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et campagne persistée après redémarrage vérifiés ; aucun serveur HTTP détecté.");
 } catch (error) {
