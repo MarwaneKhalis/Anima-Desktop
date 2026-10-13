@@ -190,6 +190,8 @@ export default function CareerWorkspace() {
   const offerSearchAdvancedRef = useRef<HTMLDetailsElement | null>(null);
   const offerSearchKeywordRef = useRef<HTMLInputElement | null>(null);
   const focusOfferSearchAfterNavigationRef = useRef(false);
+  const resumeUploadRef = useRef<HTMLInputElement | null>(null);
+  const focusResumeUploadAfterNavigationRef = useRef(false);
   const addJobDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const [query, setQuery] = useState(""),
     [source, setSource] = useState("");
@@ -340,6 +342,11 @@ export default function CareerWorkspace() {
     if (tab !== "jobs" || !focusOfferSearchAfterNavigationRef.current) return;
     focusOfferSearchAfterNavigationRef.current = false;
     offerSearchKeywordRef.current?.focus();
+  }, [tab]);
+  useEffect(() => {
+    if (tab !== "profile" || !focusResumeUploadAfterNavigationRef.current) return;
+    focusResumeUploadAfterNavigationRef.current = false;
+    resumeUploadRef.current?.focus();
   }, [tab]);
   useEffect(() => {
     localStorage.setItem("anima-desktop-application-sort", applicationSort);
@@ -792,6 +799,10 @@ export default function CareerWorkspace() {
     setJobsSection("search");
     focusOfferSearchAfterNavigationRef.current = true;
     setTab("jobs");
+  }
+  function navigateToResumeUpload() {
+    focusResumeUploadAfterNavigationRef.current = true;
+    setTab("profile");
   }
   const discoveredDay = (job: JobOffer) => {
     const timestamp = job.discoveredAt ? new Date(job.discoveredAt) : null;
@@ -1428,7 +1439,12 @@ export default function CareerWorkspace() {
                         </small>
                       </details>
                       {demo && <small>Quittez le mode démo pour utiliser les services externes.</small>}
-                      {!resumeId && <small>Ajoutez d’abord un CV dans l’onglet Profil & CV pour activer les candidatures.</small>}
+                      {!resumeId && (
+                        <div className="cw-section-head">
+                          <small role="status">Ajoutez d’abord un CV dans l’onglet Profil &amp; CV pour activer les candidatures.</small>
+                          <button type="button" onClick={navigateToResumeUpload}>Ajouter un CV →</button>
+                        </div>
+                      )}
                     </form>
                     </div>
                     <section className="cw-panel" aria-label="Recherches récurrentes" hidden={jobsSection !== "searches"}>
@@ -1882,7 +1898,7 @@ export default function CareerWorkspace() {
                       <label className="cw-upload">
                         + Ajouter un CV
                         <input
-                          aria-label="Ajouter un CV"
+                          ref={resumeUploadRef}                          aria-label="Ajouter un CV"
                           type="file"
                           accept=".pdf,.docx"
                           disabled={busy}
