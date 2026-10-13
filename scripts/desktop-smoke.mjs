@@ -292,6 +292,14 @@ try {
   await launchReviewButton.click();
   const campaignReviewHeading = window.getByRole("heading", { name: "Récapitulatif de campagne" });
   await campaignReviewHeading.waitFor({ state: "visible" });
+  const campaignReviewDialog = window.getByRole("dialog", { name: "Récapitulatif de campagne" });
+  const dialogCloseButton = campaignReviewDialog.getByRole("button", { name: "Fermer le récapitulatif" });
+  assert.equal(await dialogCloseButton.evaluate((element) => element === document.activeElement), true, "L’ouverture doit placer le focus dans le récapitulatif.");
+  await window.keyboard.press("Shift+Tab");
+  const lastDialogButton = campaignReviewDialog.getByRole("button", { name: "Créer la campagne sans envoi" });
+  assert.equal(await lastDialogButton.evaluate((element) => element === document.activeElement), true, "Maj+Tab depuis le premier contrôle doit rester dans le dialogue.");
+  await window.keyboard.press("Tab");
+  assert.equal(await dialogCloseButton.evaluate((element) => element === document.activeElement), true, "Tab depuis le dernier contrôle doit revenir au premier.");
   await window.keyboard.press("Escape");
   await campaignReviewHeading.waitFor({ state: "hidden" });
   const restoredFocus = await launchReviewButton.evaluate((element) => ({
