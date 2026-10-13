@@ -165,6 +165,21 @@ try {
   await window.waitForLoadState("load");
   assert.match(await window.title(), /Anima Desktop/i);
   await window.getByRole("button", { name: "Aujourd’hui" }).waitFor({ state: "visible" });
+  await window.setViewportSize({ width: 1366, height: 768 });
+  await window.getByRole("button", { name: "Offres", exact: true }).click();
+  const offerKeyword = window.getByLabel("Métier(s) ou mot(s)-clé(s)");
+  await offerKeyword.waitFor({ state: "visible" });
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await window.screenshot({ path: "artifacts/career-ui/03-offers-1366-packaged.png" });
+  await window.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await offerKeyword.isVisible(), true, "La recherche reste visible sur un écran de 390 px.");
+  const mobileLayout = await window.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }));
+  assert.ok(mobileLayout.content <= mobileLayout.viewport + 1, `La vue mobile ne doit pas déborder horizontalement : ${JSON.stringify(mobileLayout)}`);
+  await window.screenshot({ path: "artifacts/career-ui/03-offers-390-packaged.png" });
+  await window.setViewportSize({ width: 1366, height: 768 });
   await window.keyboard.press("Tab");
   const keyboardFocus = await window.evaluate(() => {
     const active = document.activeElement;
