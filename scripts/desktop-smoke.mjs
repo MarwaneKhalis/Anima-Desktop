@@ -284,6 +284,19 @@ try {
   await window.getByRole("heading", { name: "Analyste données" }).waitFor();
   await window.getByRole("heading", { name: "Remote QA Engineer" }).waitFor();
   assert.ok(await offerCards.count() >= 3, "Les offres existantes et les offres synthétiques doivent apparaître dans l’app installée.");
+  const today = await window.evaluate(() => {
+    const date = new Date();
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 10);
+  });
+  await window.getByLabel("Repérée depuis").fill(today);
+  await window.getByLabel("Repérée jusqu’au").fill(today);
+  assert.ok(await offerCards.count() >= 3, "La période locale doit conserver les offres découvertes aujourd’hui.");
+  await window.getByLabel("Filtrer par candidature").selectOption("applied");
+  assert.ok(await offerCards.count() >= 1, "Le filtre candidature doit retrouver une offre suivie.");
+  await window.getByLabel("Filtrer par candidature").selectOption("unapplied");
+  await window.getByRole("heading", { name: "Remote QA Engineer" }).waitFor();
+  await window.getByRole("button", { name: "Effacer les filtres" }).click();
   const offerQuery = window.getByLabel("Rechercher une offre");
   await offerQuery.fill("remote qa");
   assert.equal(await window.locator(".cw-job").count(), 1, "La recherche locale doit réduire la liste au résultat correspondant.");
