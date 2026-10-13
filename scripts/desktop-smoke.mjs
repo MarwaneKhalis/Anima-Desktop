@@ -261,6 +261,46 @@ try {
   assert.ok(fixtureSubmissions[1].includes(selectedResumeBytes), "La campagne doit reprendre le CV choisi.");
   await window.getByText("Terminée", { exact: true }).waitFor();
 
+  // Exercise the offer toolbar in the installed Windows renderer using local
+  // rows only; none of these external-looking links are opened during the smoke.
+  parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: "https://jobicy.com/jobs/anima-desktop-smoke-analyst",
+    title: "Analyste données",
+    company: "Alpha Data",
+    location: "Lyon",
+    description: "Offre synthétique pour vérifier la recherche locale.",
+  }), 201);
+  parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: "https://remoteok.com/remote-jobs/anima-desktop-smoke-qa",
+    title: "Remote QA Engineer",
+    company: "Zeta Studio",
+    location: "France",
+    description: "Offre synthétique, aucun formulaire externe ne sera ouvert.",
+  }), 201);
+  await window.reload();
+  await window.waitForLoadState("load");
+  await window.getByRole("button", { name: "Offres", exact: true }).click();
+  assert.equal(await window.locator(".cw-job").count(), 3, "Les trois offres synthétiques doivent apparaître dans l’app installée.");
+  const offerQuery = window.getByLabel("Rechercher une offre");
+  await offerQuery.fill("remote qa");
+  assert.equal(await window.locator(".cw-job").count(), 1, "La recherche locale doit réduire la liste au résultat correspondant.");
+  await window.getByLabel("Filtrer par source").selectOption({ label: "Remote OK" });
+  assert.equal(await window.locator(".cw-job").count(), 1, "Le filtre par source doit s’appliquer au résultat.");
+  await window.getByRole("heading", { name: "Remote QA Engineer" }).waitFor();
+  await window.getByRole("button", { name: "Effacer les filtres" }).click();
+  await window.getByLabel("Trier les offres").selectOption("company");
+  assert.deepEqual(await window.locator(".cw-job h2").allTextContents(), [
+    "Analyste données",
+    "Ingénieure logiciel",
+    "Remote QA Engineer",
+  ], "Le tri alphabétique doit suivre l’entreprise dans l’app installée.");
+  const compactView = window.getByRole("button", { name: "Vue compacte" });
+  await compactView.click();
+  assert.equal(await window.locator(".cw-job-density").getAttribute("aria-pressed"), "true");
+  assert.equal(await window.locator(".cw-jobs").evaluate((node) => node.classList.contains("is-compact")), true);
+  await mkdir("artifacts/career-ui", { recursive: true });
+  await window.screenshot({ path: "artifacts/career-ui/09-offer-filters-packaged.png" });
+
   const userDatabase = join(userDataDir, "data", "anima-connect.sqlite");
   assert.ok((await stat(userDatabase)).isFile(), "La base doit être écrite dans le profil utilisateur temporaire.");
   await application.close();
