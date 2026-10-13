@@ -1049,8 +1049,14 @@ test("application list can search and filter by automation state and employer ou
   await page.goto(app.baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Candidatures", exact: true }).click();
   assert.equal(await page.locator(".cw-application").count(), 2);
+  await page.getByLabel("Sélectionner Analyste données").check();
   await page.getByRole("searchbox", { name: "Rechercher une candidature" }).fill("zeta");
   assert.equal(await page.locator(".cw-application").count(), 1);
+  const batchButton = page.getByRole("button", { name: /Lancer une campagne/ });
+  assert.equal(await batchButton.isDisabled(), true, "Une candidature masquée par le filtre ne doit pas être incluse dans la campagne visible.");
+  await page.getByLabel("Sélectionner Analyste QA").check();
+  assert.equal(await batchButton.isDisabled(), false);
+  await page.getByText("Lancer une campagne · 1 offre(s)").waitFor();
   await page.getByText("Analyste QA", { exact: true }).waitFor();
   await page.getByLabel("Filtrer par état de candidature").selectOption("draft");
   await page.getByLabel("Filtrer par retour employeur").selectOption("active");
