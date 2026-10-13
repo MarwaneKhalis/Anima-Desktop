@@ -15,7 +15,7 @@ import {
 import { extname, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { DatabaseSync } from "node:sqlite";
+import { backup as backupDatabase, DatabaseSync } from "node:sqlite";
 import { decryptPortableBackup, deserializeDatabase, encryptPortableBackup, ensureAllProtectedScopes, serializeDatabase, unprotectAllScopes, validatePortableDatabase } from "./data-protection.ts";
 import { LocalBrowser } from "./browser.ts";
 import { Store } from "./db.ts";
@@ -223,6 +223,9 @@ function download(
     "X-Content-Type-Options": "nosniff",
   });
   res.end(content);
+}
+function removeSqliteFiles(path: string) {
+  for (const suffix of ["", "-wal", "-shm"]) rmSync(path + suffix, { force: true });
 }
 function staticFile(pathname: string, res: ServerResponse) {
   const dist = join(root, "dist");
@@ -597,9 +600,12 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     }
     if (method === "POST" && path === "/api/backup") {
       const input = await json(req);
-      const scratch = new DatabaseSync(":memory:");
+      const scratchPath = join(dataDir, `backup-${randomUUID()}.sqlite`);
+      let scratch: DatabaseSync | undefined;
       try {
-        deserializeDatabase(scratch, serializeDatabase(store.db));
+        await backupDatabase(store.db, scratchPath);
+        scratch = new DatabaseSync(scratchPath);
+        scratch.exec("PRAGMA journal_mode=DELETE;");
         unprotectAllScopes(scratch, dataProtectionKey);
         const portable = encryptPortableBackup(serializeDatabase(scratch), String(input.passphrase ?? ""));
         if (portable.length > 75 * 1024 * 1024)
@@ -611,7 +617,8 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           "application/vnd.anima.backup",
         );
       } finally {
-        scratch.close();
+        try { scratch?.close(); }
+        finally { removeSqliteFiles(scratchPath); }
       }
       return;
     }
@@ -681,6 +688,8 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       } finally {
         scratch.close();
         rmSync(temp, { force: true });
+        rmSync(`${temp}-wal`, { force: true });
+        rmSync(`${temp}-shm`, { force: true });
       }
       return;
     }
