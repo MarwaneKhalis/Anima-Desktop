@@ -1,8 +1,8 @@
 .cw-shell {
   --ink: #25313b;
-  --section-accent: #8b4f52;
-  --section-accent-strong: #66383d;
-  --accent-soft: #f3e9e7;
+  --section-accent: #526b80;
+  --section-accent-strong: #3f586c;
+  --accent-soft: #e8eef1;
   --line: #e1e2dd;
   --muted: #747f86;
   --paper: #f4f3ef;
@@ -27,19 +27,19 @@
   font-size: 14px;
 }
 .cw-shell[data-identity="weltall-ii"] {
-  --section-accent: #39757a;
-  --section-accent-strong: #27565a;
-  --accent-soft: #e7f0ef;
+  --section-accent: #5d776b;
+  --section-accent-strong: #435d52;
+  --accent-soft: #ebf0eb;
 }
 .cw-shell[data-identity="weltall-id"] {
-  --section-accent: #704b76;
-  --section-accent-strong: #503654;
-  --accent-soft: #f0eaf2;
+  --section-accent: #8a3d4e;
+  --section-accent-strong: #642b38;
+  --accent-soft: #f4e9ec;
 }
 .cw-shell[data-identity="xenogears"] {
-  --section-accent: #80611f;
-  --section-accent-strong: #5c4619;
-  --accent-soft: #f4eedc;
+  --section-accent: #696487;
+  --section-accent-strong: #4d496a;
+  --accent-soft: #ecebf3;
 }
 .cw-shell button {
   padding: 10px 15px;

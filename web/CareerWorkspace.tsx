@@ -740,7 +740,7 @@ export default function CareerWorkspace() {
     .filter((job) => !normalizedJobQuery || normalizeOfferSearch(`${job.title} ${job.company} ${job.location} ${job.description}`).includes(normalizedJobQuery));
   const identityTone = tab === "home" ? "xenogears"
     : tab === "jobs" ? "weltall-ii"
-      : tab === "applications" && applicationsSection === "campaigns" ? "weltall-id"
+      : tab === "applications" ? "weltall-id"
         : "weltall";
   return (
     <div className="cw-shell" data-identity={identityTone}>
