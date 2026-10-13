@@ -167,8 +167,21 @@ try {
   await window.getByRole("button", { name: "Aujourd’hui" }).waitFor({ state: "visible" });
   await window.setViewportSize({ width: 1366, height: 768 });
   await window.getByRole("button", { name: "Offres", exact: true }).click();
+  const firstOffers = parseJson(await requestJson(window, "/api/career/bootstrap"), 200);
+  assert.equal(firstOffers.jobs.length, 0, "Le smoke doit commencer avec une liste d’offres vierge.");
   const offerKeyword = window.getByLabel("Métier(s) ou mot(s)-clé(s)");
   await offerKeyword.waitFor({ state: "visible" });
+  await window.getByText("Importez des offres ou ajoutez votre premier lien pour commencer.", { exact: true }).waitFor();
+  const addOfferDetails = window.locator("details.cw-details").filter({
+    has: window.getByText("Ajouter une offre avec son lien", { exact: true }),
+  });
+  await window.getByRole("button", { name: "Ajouter une offre", exact: true }).click();
+  assert.equal(await addOfferDetails.evaluate((details) => details.open), true,
+    "L’action depuis l’état vide doit ouvrir le formulaire du lien.");
+  const offerUrl = window.getByLabel("URL de l’offre");
+  assert.equal(await offerUrl.evaluate((input) => input === document.activeElement), true,
+    "L’action depuis l’état vide doit placer le curseur dans le champ URL.");
+  await addOfferDetails.locator("summary").click();
   await mkdir("artifacts/career-ui", { recursive: true });
   await window.screenshot({ path: "artifacts/career-ui/03-offers-1366-packaged.png" });
   await window.setViewportSize({ width: 390, height: 844 });
