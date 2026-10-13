@@ -12,6 +12,8 @@ if (!process.argv.some((argument) => argument.startsWith("--user-data-dir="))) {
 }
 app.setName("Anima Desktop");
 
+const { handleZoomShortcut } = require("./zoom.cjs");
+
 const MAX_JSON_BODY_BYTES = 15 * 1024 * 1024;
 const MAX_BINARY_BODY_BYTES = 100 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
@@ -206,6 +208,7 @@ if (gotSingleInstanceLock) app.whenReady().then(async () => {
     contents.on("will-navigate", (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
     contents.on("will-redirect", (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
     contents.on("will-attach-webview", (event) => event.preventDefault());
+    contents.on("before-input-event", (event, input) => handleZoomShortcut(event, input, contents));
   });
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
