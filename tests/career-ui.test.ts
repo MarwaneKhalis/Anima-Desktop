@@ -868,7 +868,7 @@ test("offer results support description search, date and application filters, so
     name: "CV filtres offres",
     filename: "cv-filtres.pdf",
     mime: "application/pdf",
-    base64: Buffer.from("%PDF-1.7\\n%%EOF\\n").toString("base64"),
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
   });
   assert.equal(resume.response.status, 201);
   const application = await app.json("/api/career/applications", { jobId: jobs[0].id, resumeId: resume.value.id });
@@ -1322,4 +1322,103 @@ test("Gear section accents follow the identity map and keep readable contrast", 
     assert.ok(contrast.strongOnSoft >= 4.5, `${section.identity} soft text contrast: ${contrast.strongOnSoft}`);
     await page.screenshot({ path: `artifacts/career-ui/14-gear-${section.identity}.png`, fullPage: true });
   }
+});
+
+
+test("linked contacts and applications expose their shared context in both lists", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const initialized = await app.json("/api/career/vault/initialize", { passphrase: "r15-association-fixture-passphrase" });
+  assert.equal(initialized.response.status, 201);
+  assert.equal((await app.json("/api/career/profile", profile(), "PUT")).response.status, 200);
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV R15",
+    filename: "cv-r15.pdf",
+    mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
+  const job = await app.json("/api/career/jobs", {
+    url: "https://jobs.fixture.test/r15",
+    title: "Data Engineer",
+    company: "Fixture Labs",
+    location: "Paris",
+  });
+  assert.equal(job.response.status, 201);
+  const imported = await app.json("/api/prospects/import", {
+    prospects: [{
+      linkedinUrl: "https://www.linkedin.com/in/r15-ada",
+      firstName: "Ada",
+      lastName: "Martin",
+      title: "Data Engineer",
+      company: "Fixture Labs",
+      location: "Paris",
+    }],
+  });
+  assert.ok([200, 201].includes(imported.response.status));
+  const prospectId = imported.value[0].prospect.id;
+  const application = await app.json("/api/career/applications", {
+    jobId: job.value.id,
+    resumeId: resume.value.id,
+  });
+  assert.equal(application.response.status, 201);
+
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByRole("button", { name: /Ouvrir le suivi/ }).click();
+  await page.getByLabel("Prospect lié").selectOption(prospectId);
+  await page.getByRole("button", { name: "Ouvrir le contact →" }).click();
+  await page.getByRole("heading", { name: "Contacts", exact: true }).waitFor();
+  const contactRow = page.locator("tr").filter({ hasText: "Ada Martin" });
+  await contactRow.waitFor();
+  assert.match(await contactRow.innerText(), /Candidature liée · Data Engineer · Fixture Labs/);
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  const applicationCard = page.locator(".cw-application").filter({ hasText: "Data Engineer" });
+  await applicationCard.waitFor();
+  assert.match(await applicationCard.innerText(), /Contact : Ada Martin/);
+});
+
+test("possible duplicate imports link directly to the existing contact for review", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const search = await app.json("/api/searches", {
+    name: "Recherche R15",
+    filters: { titles: [], keywords: [], locations: [], schools: [], companies: [], industries: [] },
+    linkedinUrl: "",
+    notes: "",
+  });
+  assert.ok([200, 201].includes(search.response.status));
+  const existing = await app.json("/api/prospects/import", {
+    searchId: search.value.id,
+    prospects: [{
+      linkedinUrl: "https://www.linkedin.com/in/r15-amelie",
+      firstName: "Amélie",
+      lastName: "Lévy",
+      company: "Étoile",
+    }],
+  });
+  assert.ok([200, 201].includes(existing.response.status));
+
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Réseau", exact: true }).click();
+  await page.getByRole("button", { name: "Recherches", exact: true }).click();
+  await page.getByRole("button", { name: /Recherche R15/ }).click();
+  await page.getByRole("button", { name: "＋ Ajouter un prospect manuellement à cette recherche" }).click();
+  await page.getByLabel("Prénom").fill("Amelie");
+  await page.getByLabel("Nom").fill("Levy");
+  await page.getByLabel("URL du profil").fill("https://www.linkedin.com/in/r15-amelie-import");
+  await page.getByLabel("Entreprise").fill("Etoile");
+  await page.getByRole("button", { name: "Importer les profils sélectionnés" }).click();
+
+  const review = page.getByRole("region", { name: "Doublons possibles à vérifier" });
+  await review.waitFor();
+  assert.match(await review.innerText(), /Amélie Lévy/);
+  await review.getByRole("button", { name: "Ouvrir la fiche" }).click();
+  await page.getByRole("heading", { name: "Amélie Lévy" }).waitFor();
 });
