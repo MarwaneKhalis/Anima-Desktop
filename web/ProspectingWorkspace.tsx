@@ -146,7 +146,7 @@ const filterText = (f: SearchFilters) => ({
   industries: fmtList(f.industries),
 });
 
-export default function ProspectingWorkspace({ initialTab = "accueil", demoMode, embedded = false, settingsSection, onFeedback, onProspectsChange, focusProspectId, focusProspectVersion }: {initialTab?: Tab; demoMode?: boolean; embedded?: boolean; settingsSection?: "connections" | "data" | "preferences" | "about"; onFeedback?: (kind: "error" | "notice", message: string) => void; onProspectsChange?: (prospects: Prospect[]) => void; focusProspectId?: string | null; focusProspectVersion?: number} = {}) {
+export default function ProspectingWorkspace({ initialTab = "accueil", demoMode, embedded = false, settingsSection, onFeedback, onProspectsChange, focusProspectId, focusProspectVersion, associatedApplications = [] }: {initialTab?: Tab; demoMode?: boolean; embedded?: boolean; settingsSection?: "connections" | "data" | "preferences" | "about"; onFeedback?: (kind: "error" | "notice", message: string) => void; onProspectsChange?: (prospects: Prospect[]) => void; focusProspectId?: string | null; focusProspectVersion?: number; associatedApplications?: Array<{ prospectId: string; title: string; company: string }>} = {}) {
   const [tab, setTab] = useState<Tab>(initialTab);
   useEffect(() => setTab(initialTab), [initialTab]);
   useEffect(() => {
@@ -168,6 +168,7 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
     filterText(EMPTY_FILTERS),
   );
   const [candidateList, setCandidateList] = useState<Candidate[] | null>(null);
+  const [duplicateReviews, setDuplicateReviews] = useState<Array<{ imported: Prospect; matches: Prospect[] }>>([]);
   const [candidateNote, setCandidateNote] = useState("");
   const [detail, setDetail] = useState<Prospect | null>(null);
   const [edit, setEdit] = useState<Prospect | null>(null);
@@ -407,6 +408,7 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
       });
       const created = result.filter((r) => r.created).length;
       const warnings = result.filter((r) => r.possibleDuplicates.length).length;
+      setDuplicateReviews(result.filter((r) => r.possibleDuplicates.length).map((r) => ({ imported: r.prospect, matches: r.possibleDuplicates })));
       setCandidateList(null);
       setTab("prospects");
       reportNotice(
@@ -1170,6 +1172,28 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                   ＋ Ajouter via une recherche
                 </button>
               </div>
+              {duplicateReviews.length > 0 && (
+                <section className="panel duplicate-review-panel" aria-labelledby="duplicate-review-title">
+                  <div className="section-head">
+                    <div>
+                      <h2 id="duplicate-review-title">Doublons possibles à vérifier</h2>
+                      <p>Comparez les fiches avant de décider. Aucun contact n’a été fusionné.</p>
+                    </div>
+                    <button type="button" onClick={() => setDuplicateReviews([])}>Masquer</button>
+                  </div>
+                  <ul>
+                    {duplicateReviews.flatMap((review) => review.matches.map((match) => (
+                      <li key={match.id}>
+                        <span>
+                          <strong>{fullName(match)}</strong>
+                          <small>{match.company || "Entreprise non renseignée"} · profil déjà présent</small>
+                        </span>
+                        <button type="button" onClick={() => void openProspect(match.id)}>Ouvrir la fiche</button>
+                      </li>
+                    )))}
+                  </ul>
+                </section>
+              )}
               <section className="panel list-panel">
                 <div className="filters">
                   <input
@@ -1258,6 +1282,17 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                               <small className="cell-sub">
                                 {p.company || "Entreprise non renseignée"}
                               </small>
+                              {(() => {
+                                const applications = associatedApplications.filter((item) => item.prospectId === p.id);
+                                if (!applications.length) return null;
+                                const labels = applications.slice(0, 2).map((item) => item.title + " · " + item.company);
+                                return (
+                                  <small className="cell-sub" aria-label="Candidatures liées">
+                                    {applications.length === 1 ? "Candidature liée · " : applications.length + " candidatures liées · "}
+                                    {labels.join(", ")}{applications.length > labels.length ? " +" + (applications.length - labels.length) : ""}
+                                  </small>
+                                );
+                              })()}
                             </td>
                             <td>{p.location || "—"}</td>
                             <td>
@@ -1976,7 +2011,7 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                   </small>
                 </span>
               </div>
-              <button className="close" onClick={() => setDetail(null)}>
+              <button className="close" aria-label="Fermer la fiche contact" onClick={() => setDetail(null)}>
                 ×
               </button>
             </div>
