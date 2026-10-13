@@ -594,8 +594,26 @@ try {
     .find((item) => item.prospectId === networkContact.id);
   assert.equal(queuedNetworkAction?.state, "pending", "Le brouillon reste en attente d’une action humaine.");
   const queuedNetworkCard = window.locator(".queue-card").filter({ hasText: "Nadia Leroy" });
-  await queuedNetworkCard.getByRole("button", { name: "Ouvrir le profil ↗", exact: true }).waitFor({ state: "visible" });
-  assert.equal(fixtureSubmissions.length, 2, "Mettre le brouillon dans la file ne déclenche aucun envoi.");
+  const openNetworkProfile = queuedNetworkCard.getByRole("button", { name: "Ouvrir le profil ↗", exact: true });
+  await openNetworkProfile.waitFor({ state: "visible" });
+  await openNetworkProfile.click();
+  const confirmNetworkAction = queuedNetworkCard.getByRole("button", { name: "J’ai effectué l’envoi", exact: true });
+  await confirmNetworkAction.waitFor({ state: "visible" });
+  await confirmNetworkAction.focus();
+  await window.keyboard.press("Enter");
+  const confirmDialog = window.getByRole("dialog", { name: "Confirmer l’envoi effectué", exact: true });
+  await confirmDialog.waitFor({ state: "visible" });
+  const closeConfirmation = window.getByRole("button", { name: "Fermer la confirmation", exact: true });
+  assert.equal(await closeConfirmation.evaluate((element) => element === document.activeElement), true,
+    "La confirmation doit avoir un nom accessible et un focus initial visible.");
+  await window.keyboard.press("Shift+Tab");
+  assert.equal(await confirmDialog.evaluate((dialog) => dialog.contains(document.activeElement)), true,
+    "Le focus doit rester dans la confirmation quand on recule depuis son premier contrôle.");
+  await window.keyboard.press("Escape");
+  await confirmDialog.waitFor({ state: "hidden" });
+  assert.equal(await confirmNetworkAction.evaluate((element) => element === document.activeElement), true,
+    "Échap doit fermer la confirmation et rendre le focus à son déclencheur.");
+  assert.equal(fixtureSubmissions.length, 2, "Fermer la confirmation ne doit envoyer aucun formulaire.");
   await window.getByRole("button", { name: "Contacts", exact: true }).click();
   await window.getByRole("heading", { name: "Contacts", exact: true, level: 1 }).waitFor();
   await window.getByRole("button", { name: "Colonnes", exact: true }).click();
@@ -608,6 +626,18 @@ try {
   await window.getByRole("heading", { name: "File d’actions", exact: true, level: 1 }).waitFor();
   await window.getByRole("button", { name: "Modèles", exact: true }).click();
   await window.getByRole("heading", { name: "Modèles de messages", exact: true, level: 1 }).waitFor();
+  const newTemplateButton = window.getByRole("button", { name: /Nouveau modèle/ });
+  await newTemplateButton.focus();
+  await window.keyboard.press("Enter");
+  const templateDialog = window.getByRole("dialog", { name: "Nouveau modèle", exact: true });
+  await templateDialog.waitFor({ state: "visible" });
+  const templateName = window.getByLabel("Nom", { exact: true });
+  assert.equal(await templateName.evaluate((input) => input === document.activeElement), true,
+    "L’éditeur de modèle doit annoncer son rôle et placer le focus dans son premier champ.");
+  await window.keyboard.press("Escape");
+  await templateDialog.waitFor({ state: "hidden" });
+  assert.equal(await newTemplateButton.evaluate((element) => element === document.activeElement), true,
+    "Échap doit fermer l’éditeur sans enregistrer et rendre le focus à son déclencheur.");
   await window.getByRole("button", { name: "Historique", exact: true }).click();
   await window.getByRole("heading", { name: "Activité", exact: true, level: 1 }).waitFor();
   await visit("Paramètres", "Les comptes, sans la répétition.");
