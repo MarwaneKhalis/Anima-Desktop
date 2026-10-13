@@ -402,13 +402,13 @@ try {
   await window.getByRole("heading", { name: "Données & sauvegardes", exact: true, level: 1 }).waitFor();
   const uiBackupPassphrase = "AnimaDesktopSmokeUiBackup-2026";
   await window.getByLabel("Phrase de sauvegarde (12 caractères minimum)").fill(uiBackupPassphrase);
-  const [uiBackupDownload] = await Promise.all([
-    window.waitForEvent("download"),
+  const [uiBackupResponse] = await Promise.all([
+    window.waitForResponse((response) => response.url().includes("/api/backup?demo=0") && response.status() === 200),
     window.getByRole("button", { name: "Sauvegarder chiffré ↓", exact: true }).click(),
   ]);
-  assert.match(uiBackupDownload.suggestedFilename(), /\.anima-backup$/);
-  const uiBackupPath = await uiBackupDownload.path();
-  assert.ok(uiBackupPath && (await stat(uiBackupPath)).size > 0, "L’export UI doit télécharger une sauvegarde chiffrée non vide.");
+  const uiBackupBytes = await uiBackupResponse.body();
+  assert.ok(uiBackupBytes.length > 0, "L’export UI doit produire une sauvegarde chiffrée non vide.");
+  await window.getByText("Sauvegarde chiffrée téléchargée.", { exact: true }).waitFor();
   await window.getByLabel("Phrase de sauvegarde", { exact: true }).fill(uiBackupPassphrase);
   const restoreDialogs = [];
   const acceptRestoreDialog = async (dialog) => {
@@ -416,7 +416,11 @@ try {
     await dialog.accept();
   };
   window.on("dialog", acceptRestoreDialog);
-  await window.locator('input[type="file"][accept*=".anima-backup"]').setInputFiles(uiBackupPath);
+  await window.locator('input[type="file"][accept*=".anima-backup"]').setInputFiles({
+    name: "anima-desktop-smoke.anima-backup",
+    mimeType: "application/vnd.anima.backup",
+    buffer: uiBackupBytes,
+  });
   await window.getByText("Sauvegarde restaurée.", { exact: true }).waitFor();
   window.off("dialog", acceptRestoreDialog);
   assert.equal(restoreDialogs.length, 1, "La restauration UI doit demander sa confirmation avant de remplacer les données.");
