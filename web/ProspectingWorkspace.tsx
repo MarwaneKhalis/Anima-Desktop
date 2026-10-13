@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, downloadResponse } from "./api.ts";
 import {
   EMPTY_FILTERS,
@@ -74,6 +74,56 @@ const initial: Snapshot = {
   },
   demo: false,
 };
+function useDialogKeyboardSupport(
+  open: boolean,
+  dialogRef: { current: HTMLDivElement | null },
+  onClose: () => void,
+) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden");
+    const firstFocus = dialog.querySelector<HTMLElement>("[data-dialog-initial-focus]") || focusable()[0] || dialog;
+    firstFocus.focus();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    dialog.addEventListener("keydown", handleKeyDown);
+    return () => {
+      dialog.removeEventListener("keydown", handleKeyDown);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [open, dialogRef]);
+}
+
 const blankSearch = (): SavedSearch => ({
   id: "",
   name: "",
@@ -190,6 +240,10 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
   const [dateFilter, setDateFilter] = useState("");
   const [sort, setSort] = useState("recent");
   const [templateEdit, setTemplateEdit] = useState<Template | null>(null);
+  const templateDialogRef = useRef<HTMLDivElement | null>(null);
+  const confirmDialogRef = useRef<HTMLDivElement | null>(null);
+  useDialogKeyboardSupport(!!templateEdit, templateDialogRef, () => setTemplateEdit(null));
+  useDialogKeyboardSupport(!!confirmItem, confirmDialogRef, () => setConfirmItem(null));
   const [limit, setLimit] = useState(10);
   const [backupPassphrase, setBackupPassphrase] = useState("");
   const [restorePassphrase, setRestorePassphrase] = useState("");
@@ -1634,14 +1688,17 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
               </div>
               {templateEdit && (
                 <div className="modal-backdrop">
-                  <div className="modal">
+                  <div ref={templateDialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="template-editor-title" tabIndex={-1}>
                     <button
+                      type="button"
                       className="close"
+                      aria-label="Fermer le modèle"
+                      data-dialog-initial-focus
                       onClick={() => setTemplateEdit(null)}
                     >
                       ×
                     </button>
-                    <h2>
+                    <h2 id="template-editor-title">
                       {templateEdit.id
                         ? "Modifier le modèle"
                         : "Nouveau modèle"}
@@ -1649,6 +1706,7 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
                     <label>
                       Nom
                       <input
+                        data-dialog-initial-focus
                         value={templateEdit.name}
                         onChange={(e) =>
                           setTemplateEdit({
@@ -2277,12 +2335,12 @@ export default function ProspectingWorkspace({ initialTab = "accueil", demoMode,
       )}
       {confirmItem && (
         <div className="modal-backdrop">
-          <div className="modal confirm-modal">
-            <button className="close" onClick={() => setConfirmItem(null)}>
+          <div ref={confirmDialogRef} className="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-item-title" tabIndex={-1}>
+            <button type="button" className="close" aria-label="Fermer la confirmation" data-dialog-initial-focus onClick={() => setConfirmItem(null)}>
               ×
             </button>
             <div className="eyebrow">CONFIRMATION EXPLICITE</div>
-            <h2>Confirmer l’envoi effectué</h2>
+            <h2 id="confirm-item-title">Confirmer l’envoi effectué</h2>
             <p>
               Vérifiez la cible et le texte exact ci-dessous. Cette confirmation
               inscrira un envoi définitif dans l’historique.
