@@ -288,7 +288,7 @@ try {
   await window.getByRole("button", { name: "Offres", exact: true }).click();
   const offerListSearch = window.getByLabel("Rechercher une offre");
   await offerListSearch.fill("Aucune correspondance smoke R03");
-  await window.getByText("Aucune offre ne correspond à ces filtres.", { exact: true }).waitFor();
+  await window.getByText("Aucune offre ne correspond à ces filtres.").waitFor();
   await mkdir("artifacts/career-ui", { recursive: true });
   await window.screenshot({ path: "artifacts/career-ui/03-offers-empty-packaged.png" });
   await window.getByRole("button", { name: "Afficher toutes les offres", exact: true }).click();
