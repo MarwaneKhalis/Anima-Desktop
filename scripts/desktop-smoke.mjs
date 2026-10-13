@@ -111,6 +111,25 @@ async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_00
   assert.fail(`Campagne ${id} attendue en état ${expectedState}, état reçu : ${JSON.stringify(last?.campaign?.state)}`);
 }
 
+async function findCampaignRowByJobTitle(window, title) {
+  const rows = window.locator(".cw-campaign-row");
+  for (let index = 0; index < await rows.count(); index++) {
+    const row = rows.nth(index);
+    const titleInDetails = row.getByText(title, { exact: false });
+    if (await titleInDetails.count()) return row;
+    await row.getByRole("button", { name: "Détails", exact: true }).click();
+    try {
+      await titleInDetails.waitFor({ state: "visible", timeout: 2_000 });
+      return row;
+    } catch {
+      // Keep scanning; campaign titles only appear after expanding each row.
+    }
+  }
+  assert.fail(`Aucune campagne ne contient l’offre « ${title} ».`);
+}
+
+
+
 async function getFreePort() {
   const server = createNetServer();
   const address = await listen(server);
@@ -480,7 +499,7 @@ try {
 
   await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByRole("button", { name: "Campagnes", exact: true }).click();
-  const pauseRow = window.locator(".cw-campaign-row").filter({ hasText: "Campagne pause smoke" });
+  const pauseRow = await findCampaignRowByJobTitle(window, "Campagne pause smoke");
   await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).click();
   await waitForCampaignState(window, pauseCampaign.campaign.id, "running");
   const pauseRequestDeadline = Date.now() + 10_000;
@@ -500,13 +519,12 @@ try {
     "La reprise traite l’offre restante.");
   assert.equal(fixtureSubmissions.length, 3, "La reprise envoie uniquement la seconde candidature synthétique.");
 
-  const stopRow = window.locator(".cw-campaign-row").filter({ hasText: "Campagne arrêt smoke" });
+  const stopRow = await findCampaignRowByJobTitle(window, "Campagne arrêt smoke");
   await stopRow.getByRole("button", { name: "Arrêter", exact: true }).click();
   const stoppedControl = await waitForCampaignState(window, stopCampaign.campaign.id, "stopped");
   assert.equal(stoppedControl.items.filter((item) => item.state === "pending").length, 1,
     "Arrêter conserve l’offre en attente pour l’audit sans la lancer.");
-  const skipRow = window.locator(".cw-campaign-row").filter({ hasText: "Campagne offre passée smoke" });
-  await skipRow.getByRole("button", { name: "Détails", exact: true }).click();
+  const skipRow = await findCampaignRowByJobTitle(window, "Campagne offre passée smoke");
   await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).click();
   const skippedControl = await waitForCampaignState(window, skipCampaign.campaign.id, "completed");
   assert.equal(skippedControl.campaign.counts.skipped, 1, "Passer une offre la marque comme ignorée et termine la campagne.");
