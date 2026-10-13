@@ -15,13 +15,21 @@ if (process.env.CI === "true" && process.env.ANIMA_SMOKE_NO_SANDBOX === "1") {
 }
 const fixtureSubmissions = [];
 let pauseFixtureRequests = 0;
-let releasePauseFixture = null;
+let pauseGateOpen = false;
+const pauseFixtureReleases = [];
+function releasePauseFixtures() {
+  pauseGateOpen = true;
+  for (const release of pauseFixtureReleases.splice(0)) release();
+}
 const fixture = createServer(async (req, res) => {
   const requestPath = new URL(req.url || "/", "http://127.0.0.1").pathname;
   if (req.method === "GET" && ["/apply", "/apply-campaign", "/apply-pause"].includes(requestPath)) {
     if (requestPath === "/apply-pause") {
       pauseFixtureRequests++;
-      await new Promise((resolvePause) => { releasePauseFixture = resolvePause; });
+      await new Promise((resolvePause) => {
+        if (pauseGateOpen) resolvePause();
+        else pauseFixtureReleases.push(resolvePause);
+      });
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><html lang="fr"><body>
@@ -118,11 +126,11 @@ async function findCampaignRowByJobTitle(window, title) {
   for (let index = 0; index < await rows.count(); index++) {
     const row = rows.nth(index);
     const titleInDetails = row.getByText(title, { exact: false });
-    if (await titleInDetails.count()) return row;
+    if (await titleInDetails.count()) return rows.filter({ hasText: title });
     await row.getByRole("button", { name: "Détails", exact: true }).click();
     try {
       await titleInDetails.waitFor({ state: "visible", timeout: 2_000 });
-      return row;
+      return rows.filter({ hasText: title });
     } catch {
       // Keep scanning; campaign titles only appear after expanding each row.
     }
@@ -169,6 +177,7 @@ async function assertSingleInstance(exe, env, userData) {
 let application;
 let restarted;
 let diagnosticWindow;
+let activeSmokeCampaignId;
 let userDataDir;
 let smokeError;
 try {
@@ -482,6 +491,7 @@ try {
     jobIds: pauseJobs.map((item) => item.id), resumeId: selectedResume.id, maxSubmissions: 4,
     idempotencyKey: "anima-desktop-smoke-pause-resume",
   }), 201);
+  activeSmokeCampaignId = pauseCampaign.campaign.id;
   const stopJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
     url: `${fixtureOrigin}/apply`, title: "Campagne arrêt smoke", company: "Fixture Anima Desktop", location: "Paris",
   }), 201);
@@ -512,8 +522,7 @@ try {
   }
   assert.ok(pauseFixtureRequests > 0, "La campagne doit être entrée dans la page fixture suspendue avant sa pause.");
   await pauseRow.getByRole("button", { name: "Pause", exact: true }).click();
-  releasePauseFixture?.();
-  releasePauseFixture = null;
+  releasePauseFixtures();
   const pausedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "paused");
   const pauseDrainDeadline = Date.now() + 15_000;
   let pausedAndDrained = pausedCampaign;
@@ -531,6 +540,7 @@ try {
   await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).waitFor({ state: "visible" });
   await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).click();
   const resumedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "completed");
+  activeSmokeCampaignId = null;
   assert.equal(resumedCampaign.items.filter((item) => item.state === "submitted").length, 4,
     "La reprise traite la seule offre restante après la pause.");
   assert.equal(fixtureSubmissions.length, 6, "La reprise envoie uniquement la dernière candidature synthétique locale.");
@@ -923,6 +933,7 @@ try {
   console.log("Installé dans un profil temporaire : brouillon de profil après navigation/rechargement, Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et campagne persistée après redémarrage vérifiés ; aucun serveur HTTP détecté.");
 } catch (error) {
   smokeError = error;
+  console.error("Smoke test failure:", error);
   if (diagnosticWindow) {
     try {
       await mkdir("artifacts", { recursive: true });
@@ -935,7 +946,19 @@ try {
 
 const cleanupErrors = [];
 for (const cleanup of [
-  () => { releasePauseFixture?.(); releasePauseFixture = null; },
+  async () => {
+    releasePauseFixtures();
+    if (!application || !diagnosticWindow || !activeSmokeCampaignId) return;
+    let timer;
+    try {
+      await Promise.race([
+        requestJson(diagnosticWindow, `/api/career/campaigns/${activeSmokeCampaignId}/stop`, "POST", {}),
+        new Promise((resolveStop) => { timer = setTimeout(resolveStop, 5_000); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  },
   () => application?.close(),
   () => restarted?.close(),
   () => fixture.listening ? new Promise((resolveClose, reject) => fixture.close((error) => error ? reject(error) : resolveClose())) : undefined,
