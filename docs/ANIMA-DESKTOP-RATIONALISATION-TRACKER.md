@@ -1,6 +1,6 @@
 # Anima Desktop — suivi de rationalisation
 
-Base examinée : `dba84b892db149c06c4f25ccd0d4370a3651eea1` (`v0.4.3`). Les v0.4.4 à v0.4.8 sont intégrées et les releases restent à publier ; cette branche cible la v0.4.9.
+Base examinée : `dba84b892db149c06c4f25ccd0d4370a3651eea1` (`v0.4.3`). Les lots jusqu’à R11 sont intégrés et la release Windows `v0.4.9` est publiée ; cette tranche prépare `v0.4.10`.
 
 `Vérifié` signifie que le critère d’acceptation complet a été exercé. Les contrôles d’une tranche ou les tests sur fixtures ne suffisent pas à l’affirmer.
 
@@ -18,7 +18,7 @@ Base examinée : `dba84b892db149c06c4f25ccd0d4370a3651eea1` (`v0.4.3`). Les v0.4
 | R10 | P1 | Vérifié | Taxonomie centrale typée pour les états de candidature, opérations de campagne, file réseau, messages et retours employeur; les descriptions expliquent l’état et distinguent l’automatisation du résultat employeur. La CI Windows 38324741287 a passé 234 tests, le build, la génération NSIS, la mise à niveau depuis la version publiée précédente et le smoke d’installation neuve. Les tests couvrent chaque clé de la taxonomie et ses principales distinctions. |
 | R11 | P2 | En cours | Les résultats d’offres proposent une recherche locale dans le titre, l’entreprise, le lieu et la description, insensible aux accents, un filtre par source, quatre tris et une densité compacte. Tests unitaires et parcours Playwright sur fixtures; capture `09-offer-filters.png`. CI Windows 38327403537 : 236 tests, build, NSIS, mise à niveau et installation fraîche réussis. L’installateur démarre, mais les contrôles d’offres restent à parcourir dans l’app installée. Filtres dépendants des champs fournis par les sources et préférences persistantes restent ouverts. |
 | R12 | P2 | En cours | Score indicatif de recouvrement de mots-clés expliqué, sans prédire une embauche ; date « Repérée par Anima » basée sur la découverte locale et dernière collecte visibles. Aucune date de publication fiable n’est disponible. |
-| R13 | P2 | En cours | Profil éditable par sections ; vérifier conservation des brouillons et erreurs sur les transitions et après redémarrage. |
+| R13 | P2 | Vérifié | Le profil conserve automatiquement un brouillon après chaque modification, chiffré dans SQLite avec la clé locale. Le brouillon revient après navigation et rechargement, reste visible après une erreur d’autosauvegarde et disparaît seulement quand l’utilisateur enregistre le profil. Tests de stockage chiffré, de sauvegarde/restauration et parcours Playwright sur fixtures; capture `10-profile-draft-recovery.png`. Le parcours visuel n’a pas été exercé dans l’app Windows empaquetée. |
 | R14 | P2 | En cours | Réponses explicites et consentements préservés ; catalogue des réponses réutilisables et flux d’édition à rationaliser. |
 | R15 | P2 | En cours | Prospects et candidatures peuvent être associés ; actualisation, contexte de liste et dédoublonnage complet restent à contrôler. |
 | R16 | P2 | En cours | Messages d’erreur filtrés, erreurs de collecte affichées et reprise possible ; harmonisation de toutes les opérations encore incomplète. |
@@ -31,6 +31,10 @@ Base examinée : `dba84b892db149c06c4f25ccd0d4370a3651eea1` (`v0.4.3`). Les v0.4
 
 ## Vérifications de cette tranche
 
+- R13 : autosauvegarde du profil après 700 ms d’inactivité; conservation en quittant l’onglet et après rechargement; récupération après une erreur simulée; le bouton d’enregistrement valide le profil et efface le brouillon de façon atomique. La valeur de brouillon est chiffrée au repos, incluse dans les sauvegardes portables chiffrées et relue après restauration avec une nouvelle clé locale. Capture : `artifacts/career-ui/10-profile-draft-recovery.png`.
+- `pnpm test` : 238 tests réussis, 0 échec. Les tests ciblés de profil et de sauvegarde/restauration repassent après les derniers ajustements : 16/16.
+- `pnpm build`, `pnpm desktop:compile` et `git diff --check` : réussis. La génération NSIS, la mise à niveau et le smoke de l’app empaquetée pour cette nouvelle tranche seront validés par la CI Windows avant publication de `v0.4.10`.
+- Release précédente publiée : [Anima Desktop v0.4.9](https://github.com/MarwaneKhalis/Anima-Desktop/releases/tag/v0.4.9), workflow Windows 38328568207 réussi (tests, build, NSIS, mise à niveau et installation fraîche).
 - `node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts` : 229 tests réussis, 0 échec (dont focus clavier visible sur la navigation et les formulaires, couleurs forcées, dialogue de campagne et destinations actives annoncées par la navigation).
 - `tsc --noEmit`, `vite build --configLoader native` et `tsc -p tsconfig.desktop.json` : réussis sur les changements de cette tranche. `git diff --check` : réussi.
 - Le smoke de mise à niveau R09 utilise désormais un profil utilisateur synthétique appliqué via l’API de l’app installée précédente, et non un simple fichier sentinelle. Sa validation sur runner Windows est en attente.

@@ -17,6 +17,52 @@ const date = (v: unknown, name: string) => { const s = str(v, name, 40); if (s &
 const answers = (v: unknown): Record<string, AnswerValue> => { const o = obj(v, 'Réponses'); if (Object.keys(o).length > 200) throw new CareerError(400, 'validation', 'Trop de réponses.'); const r: Record<string, AnswerValue> = Object.create(null); for (const [k,x] of Object.entries(o)) { if (!k || k.length > 200 || k === '__proto__' || k === 'constructor' || k === 'prototype' || (typeof x !== 'boolean' && typeof x !== 'string') || (typeof x === 'string' && x.length > 2000)) throw new CareerError(400, 'validation', 'Réponse invalide.'); r[k] = x; } return r; };
 const profileBlank = (): CareerProfile => ({ firstName:'',lastName:'',email:'',phone:'',city:'',country:'',address:'',postalCode:'',headline:'',summary:'',linkedinUrl:'',websiteUrl:'',skills:[],languages:[],experiences:[],education:[],preferences:{titles:[],locations:[],remote:false,contract:''},answers:{},updatedAt:'' });
 
+function normalizeProfile(input: unknown): CareerProfile {
+  const o = obj(input, 'Profil');
+  only(o, Object.keys(profileBlank()));
+  const fields = ['firstName','lastName','email','phone','city','country','address','postalCode','headline','summary','linkedinUrl','websiteUrl'] as const;
+  const profile = profileBlank();
+  for (const key of fields) profile[key] = str(o[key] ?? '', key, key === 'summary' ? 10000 : 1000);
+  profile.skills = list(o.skills ?? [], 'Compétences');
+  profile.languages = list(o.languages ?? [], 'Langues');
+  const experiences = o.experiences ?? [];
+  if (!Array.isArray(experiences) || experiences.length > 100) throw new CareerError(400, 'validation', 'Expériences invalides.');
+  profile.experiences = experiences.map((value) => {
+    const experience = obj(value, 'Expérience');
+    only(experience, ['company','title','start','end','description']);
+    return {
+      company: str(experience.company ?? '', 'Entreprise', 500),
+      title: str(experience.title ?? '', 'Poste', 500),
+      start: str(experience.start ?? '', 'Début', 100),
+      end: str(experience.end ?? '', 'Fin', 100),
+      description: str(experience.description ?? '', 'Description', 4000),
+    };
+  });
+  const education = o.education ?? [];
+  if (!Array.isArray(education) || education.length > 100) throw new CareerError(400, 'validation', 'Études invalides.');
+  profile.education = education.map((value) => {
+    const item = obj(value, 'Études');
+    only(item, ['school','degree','start','end']);
+    return {
+      school: str(item.school ?? '', 'École', 500),
+      degree: str(item.degree ?? '', 'Diplôme', 500),
+      start: str(item.start ?? '', 'Début', 100),
+      end: str(item.end ?? '', 'Fin', 100),
+    };
+  });
+  const preferences = obj(o.preferences ?? {}, 'Préférences');
+  only(preferences, ['titles','locations','remote','contract']);
+  if (preferences.remote !== undefined && typeof preferences.remote !== 'boolean') throw new CareerError(400, 'validation', 'Télétravail invalide.');
+  profile.preferences = {
+    titles: list(preferences.titles ?? [], 'Postes'),
+    locations: list(preferences.locations ?? [], 'Lieux'),
+    remote: preferences.remote === true,
+    contract: str(preferences.contract ?? '', 'Contrat', 500),
+  };
+  profile.answers = answers(o.answers ?? {});
+  return profile;
+}
+
 export class CareerError extends Error { status:number; code:string; constructor(status: number, code: string, message: string) { super(message); this.name = 'CareerError'; this.status=status; this.code=code; } }
 
 export function careerUrl(value: unknown, allowedTestOrigins: string[] = []): string {
@@ -48,6 +94,7 @@ export class CareerStore {
     this.db=db; this.options=options; this.protectedData=new LocalDataProtector(options.dataProtectionKey);
     db.exec(`
       CREATE TABLE IF NOT EXISTS career_profile (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS career_profile_draft (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS career_resumes (id TEXT PRIMARY KEY, name TEXT NOT NULL, filename TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, bytes BLOB NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS career_jobs (id TEXT PRIMARY KEY, url TEXT NOT NULL UNIQUE, title TEXT NOT NULL, company TEXT NOT NULL, location TEXT NOT NULL, description TEXT NOT NULL, source_url TEXT NOT NULL, discovered_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS career_applications (id TEXT PRIMARY KEY, job_id TEXT NOT NULL UNIQUE REFERENCES career_jobs(id), resume_id TEXT NOT NULL REFERENCES career_resumes(id), prospect_id TEXT, state TEXT NOT NULL, outcome TEXT NOT NULL, answers TEXT NOT NULL, missing_fields TEXT NOT NULL, notes TEXT NOT NULL, next_action_at TEXT NOT NULL, last_error TEXT NOT NULL, receipt TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, submitted_at TEXT);
@@ -66,7 +113,10 @@ export class CareerStore {
   private event(applicationId:string,kind:string,detail:string,source:'automation'|'user') { const eventId=randomUUID(); this.db.prepare('INSERT INTO career_events VALUES (?,?,?,?,?,?)').run(eventId,applicationId,kind,this.protectedData.writeText('career_events',eventId,'detail',detail.slice(0,1000)),source,now()); }
   private savedSearch(r:Row):CareerSavedSearch { const searchId=String(r.id); return {id:searchId,source:String(r.source) as CareerSearchSource,criteria:j<OfferSearchCriteria>(this.protectedData.readText('career_saved_searches',searchId,'criteria',r.criteria)),intervalHours:Number(r.interval_hours) as CareerSavedSearch['intervalHours'],enabled:Number(r.enabled)===1,lastRunAt:String(r.last_run_at),nextRunAt:String(r.next_run_at),lastResultCount:Number(r.last_result_count),lastError:this.protectedData.readText('career_saved_searches',searchId,'last_error',r.last_error),updatedAt:String(r.updated_at)}; }
   getProfile(): CareerProfile { const row=this.one('SELECT value FROM career_profile WHERE id=1'); return row ? j<CareerProfile>(this.protectedData.readText('career_profile','1','value',row.value)) : profileBlank(); }
-  saveProfile(input:unknown):CareerProfile { const o=obj(input,'Profil'); only(o,Object.keys(profileBlank())); const fields=['firstName','lastName','email','phone','city','country','address','postalCode','headline','summary','linkedinUrl','websiteUrl'] as const; const p=profileBlank(); for(const k of fields) p[k]=str(o[k]??'',k,k==='summary'?10000:1000); p.skills=list(o.skills??[],'Compétences'); p.languages=list(o.languages??[],'Langues'); const xp=o.experiences??[]; if(!Array.isArray(xp)||xp.length>100) throw new CareerError(400,'validation','Expériences invalides.'); p.experiences=xp.map((x)=>{const v=obj(x,'Expérience'); only(v,['company','title','start','end','description']);return {company:str(v.company??'','Entreprise',500),title:str(v.title??'','Poste',500),start:str(v.start??'','Début',100),end:str(v.end??'','Fin',100),description:str(v.description??'','Description',4000)};}); const ed=o.education??[]; if(!Array.isArray(ed)||ed.length>100) throw new CareerError(400,'validation','Études invalides.'); p.education=ed.map((x)=>{const v=obj(x,'Études'); only(v,['school','degree','start','end']);return {school:str(v.school??'','École',500),degree:str(v.degree??'','Diplôme',500),start:str(v.start??'','Début',100),end:str(v.end??'','Fin',100)};}); const pref=obj(o.preferences??{},'Préférences'); only(pref,['titles','locations','remote','contract']); p.preferences={titles:list(pref.titles??[],'Postes'),locations:list(pref.locations??[],'Lieux'),remote:pref.remote===true,contract:str(pref.contract??'','Contrat',500)}; if(pref.remote!==undefined&&typeof pref.remote!=='boolean') throw new CareerError(400,'validation','Télétravail invalide.'); p.answers=answers(o.answers??{}); const previous=this.getProfile(); const changed=JSON.stringify({...previous,updatedAt:''})!==JSON.stringify(p); if(changed&&this.one("SELECT 1 FROM career_applications WHERE state IN ('running','submitting') LIMIT 1")) throw new CareerError(409,'run_conflict','Profil utilisé par une candidature active.'); p.updatedAt=now(); this.tx(()=>{this.db.prepare('INSERT INTO career_profile(id,value) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(this.protectedData.writeText('career_profile','1','value',JSON.stringify(p))); if(changed){for(const a of this.listApplications().filter(a=>a.state==='ready')){this.db.prepare("UPDATE career_applications SET state='draft',missing_fields=?,updated_at=? WHERE id=?").run(this.protectedData.writeText('career_applications',a.id,'missing_fields','[]'),now(),a.id);this.event(a.id,'profile_updated','Profil modifié : préparation à refaire','user');}}}); return p; }
+  getProfileDraft(): CareerProfile | null { const row=this.one('SELECT value FROM career_profile_draft WHERE id=1'); return row ? j<CareerProfile>(this.protectedData.readText('career_profile_draft','1','value',row.value)) : null; }
+  saveProfileDraft(input:unknown):CareerProfile { const profile=normalizeProfile(input); profile.updatedAt=now(); this.db.prepare('INSERT INTO career_profile_draft(id,value,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').run(this.protectedData.writeText('career_profile_draft','1','value',JSON.stringify(profile)),profile.updatedAt); return profile; }
+  clearProfileDraft():void { this.db.prepare('DELETE FROM career_profile_draft WHERE id=1').run(); }
+  saveProfile(input:unknown):CareerProfile { const p=normalizeProfile(input); const previous=this.getProfile(); const changed=JSON.stringify({...previous,updatedAt:''})!==JSON.stringify(p); if(changed&&this.one("SELECT 1 FROM career_applications WHERE state IN ('running','submitting') LIMIT 1")) throw new CareerError(409,'run_conflict','Profil utilisé par une candidature active.'); p.updatedAt=now(); this.tx(()=>{this.db.prepare('INSERT INTO career_profile(id,value) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(this.protectedData.writeText('career_profile','1','value',JSON.stringify(p))); this.db.prepare('DELETE FROM career_profile_draft WHERE id=1').run(); if(changed){for(const a of this.listApplications().filter(a=>a.state==='ready')){this.db.prepare("UPDATE career_applications SET state='draft',missing_fields=?,updated_at=? WHERE id=?").run(this.protectedData.writeText('career_applications',a.id,'missing_fields','[]'),now(),a.id);this.event(a.id,'profile_updated','Profil modifié : préparation à refaire','user');}}}); return p; }
   private resumeRow(r:Row):Resume { const resumeId=String(r.id); return {id:resumeId,name:this.protectedData.readText('career_resumes',resumeId,'name',r.name),filename:this.protectedData.readText('career_resumes',resumeId,'filename',r.filename),mime:this.protectedData.readText('career_resumes',resumeId,'mime',r.mime),size:Number(r.size),sha256:this.protectedData.readText('career_resumes',resumeId,'sha256',r.sha256),createdAt:String(r.created_at)}; }
   listResumes():Resume[] { return this.all('SELECT * FROM career_resumes ORDER BY created_at DESC').map(r=>this.resumeRow(r)); }
   saveResume(input:{name:string;filename:string;mime:string;bytes:Buffer}):Resume { const name=str(input.name,'Nom',200), filename=str(input.filename,'Fichier',255), mime=str(input.mime,'Type',100), bytes=input.bytes; if(!name||!filename||!Buffer.isBuffer(bytes)) throw new CareerError(400,'validation','CV invalide.'); if(bytes.length>10*1024*1024) throw new CareerError(413,'too_large','CV limité à 10 Mio.'); const ext=filename.toLowerCase().split('.').pop(); const pdf=ext==='pdf'&&mime==='application/pdf'&&bytes.subarray(0,5).toString()==='%PDF-'; const docx=ext==='docx'&&mime==='application/vnd.openxmlformats-officedocument.wordprocessingml.document'&&bytes.subarray(0,4).equals(Buffer.from([0x50,0x4b,0x03,0x04]))&&bytes.includes(Buffer.from('word/')); if(!pdf&&!docx) throw new CareerError(400,'validation','CV PDF ou DOCX invalide.'); const rid=randomUUID(),stamp=now(),hash=createHash('sha256').update(bytes).digest('hex'); this.db.prepare('INSERT INTO career_resumes VALUES (?,?,?,?,?,?,?,?)').run(rid,this.protectedData.writeText('career_resumes',rid,'name',name),this.protectedData.writeText('career_resumes',rid,'filename',filename),this.protectedData.writeText('career_resumes',rid,'mime',mime),bytes.length,this.protectedData.writeText('career_resumes',rid,'sha256',hash),this.protectedData.writeBlob('career_resumes',rid,'bytes',bytes),stamp); return this.getResume(rid).meta; }
