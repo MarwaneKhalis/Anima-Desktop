@@ -228,7 +228,9 @@ export default function CareerWorkspace() {
     });
   const [answerKey, setAnswerKey] = useState(""),
     [answerValue, setAnswerValue] = useState(""),
-    [answerBoolean, setAnswerBoolean] = useState(false);
+    [answerBoolean, setAnswerBoolean] = useState(false),
+    [answerQuery, setAnswerQuery] = useState(""),
+    [editingAnswerKey, setEditingAnswerKey] = useState<string | null>(null);
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [focusProspectId, setFocusProspectId] = useState<string | null>(null);
   const [focusProspectVersion, setFocusProspectVersion] = useState(0);
@@ -764,6 +766,11 @@ export default function CareerWorkspace() {
     .filter((job) => !jobDiscoveredAfter || (discoveredDay(job) && discoveredDay(job) >= jobDiscoveredAfter))
     .filter((job) => !jobDiscoveredBefore || (discoveredDay(job) && discoveredDay(job) <= jobDiscoveredBefore))
     .filter((job) => !normalizedJobQuery || normalizeOfferSearch(`${job.title} ${job.company} ${job.location} ${job.description}`).includes(normalizedJobQuery));
+  const normalizedAnswerQuery = normalizeOfferSearch(answerQuery.trim());
+  const duplicateAnswerKey = !!answerKey.trim()
+    && !!profile
+    && Object.hasOwn(profile.answers, answerKey.trim())
+    && answerKey.trim() !== editingAnswerKey;
   const identityTone = tab === "home" ? "xenogears"
     : tab === "jobs" ? "weltall-ii"
       : tab === "applications" ? "weltall-id"
@@ -2092,7 +2099,20 @@ Aucune offre ne correspond à ces filtres.
                       Utilisez le libellé ou la clé de la question. Une réponse
                       oui/non est enregistrée comme un booléen.
                     </p>
-                    {Object.entries(profile.answers).map(([key, value]) => (
+                    <label className="cw-answer-search">
+                      Filtrer les réponses
+                      <input
+                        className="cw-search"
+                        aria-label="Filtrer les réponses"
+                        placeholder="Question ou mot-clé…"
+                        value={answerQuery}
+                        onChange={(e) => setAnswerQuery(e.target.value)}
+                      />
+                    </label>
+                    {Object.entries(profile.answers)
+                      .filter(([key]) => !normalizedAnswerQuery || normalizeOfferSearch(key).includes(normalizedAnswerQuery))
+                      .sort(([left], [right]) => left.localeCompare(right, "fr"))
+                      .map(([key, value]) => (
                       <div className="cw-row" key={key}>
                         <span>
                           <strong>{key}</strong>
@@ -2104,17 +2124,40 @@ Aucune offre ne correspond à ces filtres.
                               : value}
                           </small>
                         </span>
-                        <button
-                          onClick={() => {
-                            const answers = { ...profile.answers };
-                            delete answers[key];
-                            setProfile({ ...profile, answers });
-                          }}
-                        >
-                          Retirer
-                        </button>
+                        <div className="cw-inline">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingAnswerKey(key);
+                              setAnswerKey(key);
+                              setAnswerBoolean(typeof value === "boolean");
+                              setAnswerValue(typeof value === "boolean" ? String(value) : value);
+                            }}
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const answers = { ...profile.answers };
+                              delete answers[key];
+                              setProfile({ ...profile, answers });
+                              if (editingAnswerKey === key) {
+                                setEditingAnswerKey(null);
+                                setAnswerKey("");
+                                setAnswerValue("");
+                                setAnswerBoolean(false);
+                              }
+                            }}
+                          >
+                            Retirer
+                          </button>
+                        </div>
                       </div>
                     ))}
+                    {Object.keys(profile.answers).length > 0
+                      && !Object.keys(profile.answers).some((key) => !normalizedAnswerQuery || normalizeOfferSearch(key).includes(normalizedAnswerQuery))
+                      && <p className="cw-muted">Aucune réponse ne correspond à cette recherche.</p>}
                     <div className="cw-inline">
                       <label>
                         Question
@@ -2127,6 +2170,7 @@ Aucune offre ne correspond à ces filtres.
                         Réponse
                         {answerBoolean ? (
                           <select
+                            aria-label="Réponse"
                             value={answerValue}
                             onChange={(e) => setAnswerValue(e.target.value)}
                           >
@@ -2136,6 +2180,7 @@ Aucune offre ne correspond à ces filtres.
                           </select>
                         ) : (
                           <input
+                            aria-label="Réponse"
                             value={answerValue}
                             onChange={(e) => setAnswerValue(e.target.value)}
                           />
@@ -2152,24 +2197,41 @@ Aucune offre ne correspond à ces filtres.
                         />
                         Oui / non
                       </label>
+                      {duplicateAnswerKey && <small className="cw-alert" role="alert">Une réponse existe déjà pour cette question.</small>}
                       <button
-                        disabled={!answerKey.trim() || !answerValue}
+                        type="button"
+                        disabled={!answerKey.trim() || !answerValue || duplicateAnswerKey}
                         onClick={() => {
-                          setProfile({
-                            ...profile,
-                            answers: {
-                              ...profile.answers,
-                              [answerKey.trim()]: answerBoolean
-                                ? answerValue === "true"
-                                : answerValue,
-                            },
+                          setProfile((current) => {
+                            if (!current) return current;
+                            const answers = { ...current.answers };
+                            if (editingAnswerKey) delete answers[editingAnswerKey];
+                            answers[answerKey.trim()] = answerBoolean
+                              ? answerValue === "true"
+                              : answerValue;
+                            return { ...current, answers };
                           });
                           setAnswerKey("");
                           setAnswerValue("");
+                          setAnswerBoolean(false);
+                          setEditingAnswerKey(null);
                         }}
                       >
-                        Ajouter la réponse
+                        {editingAnswerKey ? "Enregistrer les modifications" : "Ajouter la réponse"}
                       </button>
+                      {editingAnswerKey && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingAnswerKey(null);
+                            setAnswerKey("");
+                            setAnswerValue("");
+                            setAnswerBoolean(false);
+                          }}
+                        >
+                          Annuler
+                        </button>
+                      )}
                     </div>
                   </section>
                 </>
