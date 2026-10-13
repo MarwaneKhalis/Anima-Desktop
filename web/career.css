@@ -1479,7 +1479,7 @@
 .cw-application-count { grid-column: 1 / -1; }
 .cw-job-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(180px, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 2fr) repeat(5, minmax(130px, 1fr)) auto auto;
   align-items: end;
   gap: 12px;
   margin: 12px 0;
