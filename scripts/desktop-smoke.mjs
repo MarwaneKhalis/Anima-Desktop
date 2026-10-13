@@ -304,6 +304,37 @@ try {
   await mkdir("artifacts/career-ui", { recursive: true });
   await window.screenshot({ path: "artifacts/career-ui/09-offer-filters-packaged.png" });
 
+  // Verify the reorganized destinations and their legacy embedded screens in
+  // the installed app without changing preferences or triggering any sends.
+  const visit = async (buttonName, headingName) => {
+    await window.getByRole("button", { name: buttonName, exact: true }).click();
+    await window.getByRole("heading", { name: headingName, exact: true, level: 1 }).waitFor();
+  };
+  await visit("Aujourd’hui", "Bonjour Camille.");
+  await visit("Candidatures", "Vos candidatures");
+  await visit("Profil & CV", "Votre profil. Vos possibilités.");
+  await visit("Réseau", "Contacts");
+  await window.getByRole("button", { name: "Colonnes", exact: true }).click();
+  await window.getByRole("heading", { name: "Pipeline", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Liste", exact: true }).click();
+  await window.getByRole("heading", { name: "Contacts", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Recherches LinkedIn", exact: true }).click();
+  await window.getByRole("heading", { name: "Recherches enregistrées", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Messages", exact: true }).click();
+  await window.getByRole("heading", { name: "File d’actions", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Modèles", exact: true }).click();
+  await window.getByRole("heading", { name: "Modèles de messages", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Historique", exact: true }).click();
+  await window.getByRole("heading", { name: "Activité", exact: true, level: 1 }).waitFor();
+  await visit("Paramètres", "Les comptes, sans la répétition.");
+  await window.getByRole("button", { name: "Données & sauvegardes", exact: true }).click();
+  await window.getByRole("heading", { name: "Données & sauvegardes", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "Préférences", exact: true }).click();
+  await window.getByRole("heading", { name: "Préférences", exact: true, level: 1 }).waitFor();
+  await window.getByRole("button", { name: "À propos", exact: true }).click();
+  await window.getByRole("heading", { name: "Anima Desktop", exact: true, level: 1 }).waitFor();
+  await visit("Aide", "Aide & erreurs");
+
   const userDatabase = join(userDataDir, "data", "anima-connect.sqlite");
   assert.ok((await stat(userDatabase)).isFile(), "La base doit être écrite dans le profil utilisateur temporaire.");
   await application.close();
