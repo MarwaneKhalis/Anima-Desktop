@@ -1,6 +1,5 @@
 name: Verify Anima Desktop
 on:
-  push:
   pull_request:
 jobs:
   verify:
