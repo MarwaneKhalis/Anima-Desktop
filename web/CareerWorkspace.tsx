@@ -1382,7 +1382,7 @@ export default function CareerWorkspace() {
                         Métier(s) ou mot(s)-clé(s)
                         <input
                           ref={offerSearchKeywordRef}
-                          type="text"                          type="text"
+                          type="text"
                           required
                           value={searchCriteria.keywords || profile?.preferences.titles.join(", ") || ""}
                           onChange={(e) => setSearchCriteria({ ...searchCriteria, keywords: e.target.value })}
