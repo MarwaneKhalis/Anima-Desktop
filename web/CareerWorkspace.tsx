@@ -1789,7 +1789,10 @@ export default function CareerWorkspace() {
                   </div>
                   {!visibleApplications.length && (
                     <div className="cw-empty">
-                      {applicationQuery || applicationStateFilter !== "all" || applicationOutcomeFilter !== "all" ? "Aucune candidature ne correspond à ces filtres." : applicationsSection === "attention" ? "Aucune candidature ne demande d’action pour le moment." : applicationsSection === "followups" ? "Aucune relance n’est échue pour le moment." : "Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge."}
+                      <p role="status">{applicationQuery || applicationStateFilter !== "all" || applicationOutcomeFilter !== "all" ? "Aucune candidature ne correspond à ces filtres." : applicationsSection === "attention" ? "Aucune candidature ne demande d’action pour le moment." : applicationsSection === "followups" ? "Aucune relance n’est échue pour le moment." : "Choisissez une offre et un CV. Le moteur s’occupe du parcours pris en charge."}</p>
+                      {!applicationQuery && applicationStateFilter === "all" && applicationOutcomeFilter === "all" && applicationsSection === "all" && (
+                        <button type="button" className="cw-primary" onClick={() => setTab("jobs")}>Voir les offres →</button>
+                      )}
                     </div>
                   )}
                     </>
