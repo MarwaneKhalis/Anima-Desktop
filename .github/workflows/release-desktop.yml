@@ -20,6 +20,7 @@ jobs:
       contents: write
     env:
       PLAYWRIGHT_BROWSERS_PATH: .playwright-browsers
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,5 +84,11 @@ jobs:
         run: |
           $version = node -p "require('./package.json').version"
           $tag = if ($env:RELEASE_TAG) { $env:RELEASE_TAG } else { $env:GITHUB_REF_NAME }
-          gh release create $tag "release/Anima-Desktop-Setup.exe" --title "Anima Desktop $version" --generate-notes
+          gh release view $tag --json tagName *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          if ($releaseExists) {
+            gh release upload $tag "release/Anima-Desktop-Setup.exe" --clobber
+          } else {
+            gh release create $tag "release/Anima-Desktop-Setup.exe" --title "Anima Desktop $version" --generate-notes
+          }
           if ($LASTEXITCODE -ne 0) { throw "GitHub release upload failed with exit code $LASTEXITCODE." }
