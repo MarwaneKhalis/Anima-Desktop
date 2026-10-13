@@ -575,8 +575,22 @@ try {
   await visit("Réseau", "Contacts");
   const networkContactRow = window.getByRole("row").filter({ hasText: "Nadia Leroy" });
   await networkContactRow.waitFor({ state: "visible" });
-  await networkContactRow.click();
-  await window.getByRole("heading", { name: "Nadia Leroy", exact: true }).waitFor();
+  await networkContactRow.focus();
+  await window.keyboard.press("Enter");
+  const contactDialog = window.getByRole("dialog", { name: "Nadia Leroy", exact: true });
+  await contactDialog.waitFor({ state: "visible" });
+  const closeContactDialog = window.getByRole("button", { name: "Fermer la fiche contact", exact: true });
+  assert.equal(await closeContactDialog.evaluate((element) => element === document.activeElement), true,
+    "La fiche contact doit recevoir le focus initial et exposer un dialogue nommé.");
+  await window.keyboard.press("Shift+Tab");
+  assert.equal(await contactDialog.evaluate((dialog) => dialog.contains(document.activeElement)), true,
+    "Maj+Tab doit conserver le focus dans la fiche contact.");
+  await window.keyboard.press("Escape");
+  await contactDialog.waitFor({ state: "hidden" });
+  assert.equal(await networkContactRow.evaluate((row) => row === document.activeElement), true,
+    "Échap doit fermer la fiche et restituer le focus à la ligne déclencheuse.");
+  await window.keyboard.press("Enter");
+  await contactDialog.waitFor({ state: "visible" });
   const prepareMessageSection = window.locator(".drawer-section").filter({
     has: window.getByRole("heading", { name: "Préparer un message", exact: true }),
   });
