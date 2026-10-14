@@ -1004,7 +1004,7 @@ test("form controls keep a visible keyboard focus ring, including forced colors"
   });
   assert.equal(normalFocus.outlineStyle, "solid");
   assert.equal(normalFocus.outlineWidth, "3px");
-  assert.equal(normalFocus.outlineColor, "rgb(93, 119, 107)", "the search focus ring follows the Weltall-2 offers accent");
+  assert.equal(normalFocus.outlineColor, "rgb(76, 107, 132)", "the search focus ring follows the Weltall-2 offers accent");
 
   await page.emulateMedia({ forcedColors: "active" });
   const forcedFocus = await search.evaluate((element) => {
@@ -1367,7 +1367,7 @@ test("Gear section accents follow the identity map and keep readable contrast", 
 
   const sections = [
     { label: "Profil & CV", identity: "weltall", accent: "#526b80" },
-    { label: "Offres", identity: "weltall-ii", accent: "#5d776b" },
+    { label: "Offres", identity: "weltall-ii", accent: "#4c6b84" },
     { label: "Candidatures", identity: "weltall-id", accent: "#8a3d4e" },
     { label: "Aujourd’hui", identity: "xenogears", accent: "#696487" },
   ];
