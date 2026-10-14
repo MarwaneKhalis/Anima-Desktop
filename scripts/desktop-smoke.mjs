@@ -887,7 +887,28 @@ try {
   assert.equal(completedCampaignAfterRestart?.counts.submitted, 1);
   const restoredQueue = campaignsAfterRestart.campaigns.find((item) => item.id === queuedCampaign.campaign.id);
   assert.equal(restoredQueue?.state, "queued", "La campagne non lancée doit rester en attente après redémarrage.");
+  const restoredNetworkQueue = parseJson(await requestJson(restartedWindow, "/api/bootstrap"), 200).queue;
+  const restoredNetworkAction = restoredNetworkQueue.find((item) => item.id === queuedNetworkAction.id);
+  assert.equal(restoredNetworkAction?.state, "uncertain",
+    "Une action réseau incertaine doit rester à vérifier après fermeture et redémarrage de l’application.");
+  const networkArea = restartedWindow.getByRole("button", { name: "Réseau", exact: true });
+  await networkArea.focus();
+  await restartedWindow.keyboard.press("Enter");
+  await restartedWindow.getByRole("heading", { name: "Contacts", exact: true, level: 1 }).waitFor();
+  const messagesNavigation = restartedWindow.getByRole("button", { name: "Messages", exact: true });
+  await messagesNavigation.focus();
+  await restartedWindow.keyboard.press("Enter");
+  await restartedWindow.getByRole("heading", { name: "File d’actions", exact: true, level: 1 }).waitFor();
+  const restoredNetworkCard = restartedWindow.locator(".queue-card").filter({ hasText: "Nadia Leroy" });
+  await restoredNetworkCard.waitFor({ state: "visible" });
+  const reviewNetworkAction = restoredNetworkCard.getByRole("button", { name: "Vérifié : envoyé", exact: true });
+  await reviewNetworkAction.focus();
+  assert.equal(await reviewNetworkAction.evaluate((element) => element === document.activeElement), true,
+    "Après redémarrage, l’action incertaine doit rester repérable et atteignable au clavier dans Réseau > Messages.");
+  assert.equal(restoredNetworkAction.state, "uncertain",
+    "La navigation clavier ne doit pas confirmer ni modifier l’état incertain.");
   await restartedWindow.getByRole("button", { name: "Aujourd’hui", exact: true }).click();
+  await restartedWindow.getByRole("heading", { name: "Bonjour Camille.", exact: true, level: 1 }).waitFor();
   const todayActions = restartedWindow.locator(".cw-panel").filter({ has: restartedWindow.getByRole("heading", { name: "À ne pas laisser passer" }) });
   const queuedAction = todayActions.getByRole("button", { name: /Campagne · En attente/ });
   await queuedAction.waitFor({ state: "visible" });
