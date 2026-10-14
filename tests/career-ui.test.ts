@@ -1512,7 +1512,7 @@ test("career UI prepares a multi-selection in order without sending", async (t) 
     name: "CV batch",
     filename: "cv-batch.pdf",
     mime: "application/pdf",
-    base64: Buffer.from("%PDF-1.7\\n%%EOF\\n").toString("base64"),
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
   });
   assert.equal(resume.response.status, 201);
 
@@ -1534,6 +1534,7 @@ test("career UI prepares a multi-selection in order without sending", async (t) 
     selected.push({ jobId: job.value.id, applicationId: application.value.id, title });
   }
 
+  const clickOrder = [...selected].reverse();
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
@@ -1541,7 +1542,7 @@ test("career UI prepares a multi-selection in order without sending", async (t) 
   await page.getByRole("button", { name: "Candidatures", exact: true }).click();
   await page.getByRole("heading", { name: "Vos candidatures", exact: true }).waitFor();
   await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV batch" });
-  for (const item of selected) {
+  for (const item of clickOrder) {
     await page.getByLabel(`Sélectionner ${item.title}`, { exact: true }).check();
   }
   await page.getByRole("button", {
@@ -1558,8 +1559,8 @@ test("career UI prepares a multi-selection in order without sending", async (t) 
   );
   assert.deepEqual(
     await review.locator(".cw-campaign-review-jobs article strong").allTextContents(),
-    selected.map((item) => item.title),
-    "La revue doit conserver l’ordre des candidatures sélectionnées.",
+    clickOrder.map((item) => item.title),
+    "La revue doit conserver l’ordre des clics de sélection, même s’il diffère de celui de création.",
   );
   await page.getByRole("button", { name: "Créer la campagne sans envoi" }).click();
   await page.locator(".cw-notice, .cw-alert").first().waitFor({ timeout: 5_000 });
@@ -1574,8 +1575,13 @@ test("career UI prepares a multi-selection in order without sending", async (t) 
   assert.equal(detail.campaign.counts.total, 2);
   assert.deepEqual(
     detail.items.map((item: any) => item.jobId),
-    selected.map((item) => item.jobId),
-    "La campagne doit contenir exactement les deux offres choisies, sans doublon et dans le même ordre.",
+    clickOrder.map((item) => item.jobId),
+    "La campagne doit contenir exactement les deux offres choisies, sans doublon et dans l’ordre de sélection.",
+  );
+  assert.deepEqual(
+    detail.items.map((item: any) => item.applicationId),
+    clickOrder.map((item) => item.applicationId),
+    "Chaque offre doit rester liée à la candidature effectivement sélectionnée.",
   );
   assert.equal(new Set(detail.items.map((item: any) => item.applicationId)).size, 2);
   assert.ok(detail.items.every((item: any) => item.state === "pending"));
