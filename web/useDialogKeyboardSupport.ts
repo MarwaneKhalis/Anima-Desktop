@@ -26,6 +26,11 @@ export function useDialogKeyboardSupport(
     const firstFocus = container.querySelector<HTMLElement>("[data-dialog-initial-focus]") || focusable()[0] || container;
     firstFocus.focus();
     function handleKeyDown(event: KeyboardEvent) {
+      const activeElement = document.activeElement;
+      const activeModal = activeElement instanceof Element
+        ? activeElement.closest<HTMLElement>('[role="dialog"][aria-modal="true"]')
+        : null;
+      if (activeModal && activeModal !== container) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
