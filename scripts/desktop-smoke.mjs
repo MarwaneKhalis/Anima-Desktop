@@ -62,8 +62,10 @@ const fixture = createServer(async (req, res) => {
         else crashSubmissionReleases.push(resolveCrash);
       });
     }
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end("<html><body><h1>Merci pour votre candidature.</h1><p>Candidature reçue. Référence : AC-1234</p></body></html>");
+    if (!req.aborted && !res.destroyed && !res.socket?.destroyed) {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end("<html><body><h1>Merci pour votre candidature.</h1><p>Candidature reçue. Référence : AC-1234</p></body></html>");
+    }
     return;
   }
   res.writeHead(404);
@@ -133,6 +135,17 @@ async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_00
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
   assert.fail(`Campagne ${id} attendue en état ${expectedState}, état reçu : ${JSON.stringify(last?.campaign?.state)}`);
+}
+
+async function waitFor(read, predicate, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = await read();
+    if (predicate(last)) return last;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  assert.fail(`État attendu non atteint dans le délai prévu : ${JSON.stringify(last)}`);
 }
 
 async function findCampaignRowById(window, id) {
