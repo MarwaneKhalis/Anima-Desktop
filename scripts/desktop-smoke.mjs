@@ -983,6 +983,9 @@ try {
   const recoveredRow = await findCampaignRowById(recoveredWindow, crashCampaign.campaign.id);
   await recoveredRow.getByRole("button", { name: "Détails", exact: true }).click();
   await recoveredRow.getByText("Envoi à vérifier", { exact: true }).waitFor({ state: "visible" });
+  await recoveredRow.getByText("Résolvez d’abord l’envoi incertain avant de reprendre.", { exact: true }).waitFor({ state: "visible" });
+  assert.equal(await recoveredRow.getByRole("button", { name: "Reprendre", exact: true }).count(), 0,
+    "Une campagne avec un envoi incertain ne doit pas proposer de reprise automatique.");
 
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
   assert.equal(crashSubmissionAccepted, 1, "Le redémarrage ne doit pas rejouer le POST déjà accepté.");
