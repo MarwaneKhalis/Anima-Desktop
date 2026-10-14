@@ -204,7 +204,7 @@ test("ATS smoke ignores hidden CAPTCHA and login signals", async () => {
     }),
   });
   try {
-    const page = { evaluate: (callback: () => unknown) => Promise.resolve(callback()) };
+    const page = { evaluate: async <T>(callback: () => T): Promise<T> => callback() };
     assert.deepEqual(await inspectSignals(page), {
       captcha: false, login: false, applyLinkVisible: false, applicationFormVisible: false,
     });
