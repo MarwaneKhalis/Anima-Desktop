@@ -60,7 +60,7 @@ async function waitForServer(
   );
 }
 
-export async function startCareerTestServer(options: { mockFranceTravailSearch?: boolean; mockArbeitnowSearch?: boolean; mockJobicySearch?: boolean; mockRemoteOkSearch?: boolean; mockHimalayasSearch?: boolean; mockRemotiveSearch?: boolean; mockAllPublicSearch?: boolean } = {}): Promise<CareerTestServer> {
+export async function startCareerTestServer(options: { mockFranceTravailSearch?: boolean; mockArbeitnowSearch?: boolean; pauseArbeitnowSearch?: boolean; mockJobicySearch?: boolean; mockRemoteOkSearch?: boolean; mockHimalayasSearch?: boolean; mockRemotiveSearch?: boolean; mockAllPublicSearch?: boolean } = {}): Promise<CareerTestServer> {
   const fixture = await startCareerFixtures();
   const port = await reservePort();
   const dataDir = await mkdtemp(join(tmpdir(), "anima-career-api-"));
@@ -79,6 +79,7 @@ export async function startCareerTestServer(options: { mockFranceTravailSearch?:
         CAREER_TEST_ORIGINS: JSON.stringify([new URL(fixture.baseUrl).origin, new URL(fixture.atsUrl).origin]),
         CAREER_TEST_FRANCE_TRAVAIL_URL: options.mockFranceTravailSearch ? `${fixture.baseUrl}/simple` : "",
         CAREER_TEST_ARBEITNOW_URL: options.mockArbeitnowSearch || options.mockAllPublicSearch ? `${fixture.baseUrl}/simple?source=arbeitnow` : "",
+        CAREER_TEST_SEARCH_GATE_URL: options.pauseArbeitnowSearch ? `${fixture.baseUrl}/wait-search` : "",
         CAREER_TEST_JOBICY_URL: options.mockJobicySearch || options.mockAllPublicSearch ? `${fixture.baseUrl}/simple?source=jobicy` : "",
         CAREER_TEST_REMOTEOK_URL: options.mockRemoteOkSearch || options.mockAllPublicSearch ? `${fixture.baseUrl}/remoteok-job` : "",
         CAREER_TEST_HIMALAYAS_URL: options.mockHimalayasSearch || options.mockAllPublicSearch ? `${fixture.baseUrl}/himalayas-job` : "",
