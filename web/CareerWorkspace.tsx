@@ -731,7 +731,7 @@ export default function CareerWorkspace() {
                 return <div className="cw-campaign-item" key={item.id}>
                 <span><strong>{job ? `${job.title} · ${job.company}` : "Offre"}</strong><small title={CAMPAIGN_ITEM_STATE_META[item.state]?.description}>{campaignItemStates[item.state] || item.state}</small>{item.error && <small>{item.error}</small>}</span>
                 <div>
-                  <button onClick={() => { setTab("applications"); setApplicationsSection("all"); openApplicationDetail(item.applicationId); }}>Voir la candidature</button>
+                  <button onClick={() => openApplicationDetail(item.applicationId)}>Voir la candidature</button>
                   {["pending", "needs_input", "failed"].includes(item.state) && <button disabled={busy || demo} onClick={() => void action(async () => {
                     const updated = await api<CampaignDetail>(`/campaigns/${campaign.id}/items/${item.id}/skip`, "POST", { reason: "Passée depuis le suivi de campagne." });
                     setCampaignDetails((current) => ({ ...current, [campaign.id]: updated }));
