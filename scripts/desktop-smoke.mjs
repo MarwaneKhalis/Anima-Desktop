@@ -1021,6 +1021,13 @@ try {
   await recoveredRow.getByRole("button", { name: "Masquer", exact: true }).waitFor({ state: "visible" });
   await recoveredRow.getByText("Envoi à vérifier", { exact: true }).waitFor({ state: "visible" });
   await recoveredRow.getByText("Résolvez d’abord l’envoi incertain avant de reprendre.", { exact: true }).waitFor({ state: "visible" });
+  const uncertainItem = recoveredRow.locator(".cw-campaign-item").filter({ hasText: "Envoi à vérifier" });
+  assert.equal(await uncertainItem.count(), 1, "L’envoi incertain doit rester identifiable parmi les offres de la campagne.");
+  await uncertainItem.getByRole("button", { name: "Voir la candidature", exact: true }).click();
+  const recoveredApplicationDrawer = recoveredWindow.locator(".cw-drawer");
+  await recoveredApplicationDrawer.getByRole("heading", { name: "Envoi accepté avant interruption", exact: true }).waitFor({ state: "visible" });
+  await recoveredApplicationDrawer.getByText("Envoi à vérifier", { exact: true }).waitFor({ state: "visible" });
+  await recoveredApplicationDrawer.getByRole("button", { name: "Fermer la candidature", exact: true }).click();
   assert.equal(await recoveredRow.getByRole("button", { name: "Reprendre", exact: true }).count(), 0,
     "Une campagne avec un envoi incertain ne doit pas proposer de reprise automatique.");
 
