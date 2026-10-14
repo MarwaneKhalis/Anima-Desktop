@@ -1005,7 +1005,7 @@ try {
     "uncertain",
     "L’application doit signaler l’incertitude au niveau de la candidature.",
   );
-  await recoveredWindow.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await recoveredWindow.getByRole("button", { name: /^Candidatures\b/ }).click();
   await recoveredWindow.getByRole("button", { name: "Campagnes", exact: true }).click();
   const recoveredRow = await findCampaignRowById(recoveredWindow, crashCampaign.campaign.id);
   await recoveredRow.getByRole("button", { name: "Détails", exact: true }).click();
