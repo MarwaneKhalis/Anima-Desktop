@@ -944,13 +944,27 @@ try {
   const interruptedProcess = restarted.process();
   assert.equal(interruptedProcess.exitCode, null, "Le processus doit être actif avant l’interruption simulée.");
   const processExited = new Promise((resolveExit) => interruptedProcess.once("exit", resolveExit));
-  assert.equal(interruptedProcess.kill(), true, "L’arrêt brutal doit être transmis au processus empaqueté.");
+  const terminateProcessTree = process.platform === "win32"
+    ? new Promise((resolveKill, rejectKill) => {
+      const terminator = spawn("taskkill", ["/PID", String(interruptedProcess.pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      terminator.once("error", rejectKill);
+      terminator.once("exit", (code) => {
+        if (code === 0) resolveKill();
+        else rejectKill(new Error(`taskkill n’a pas arrêté l’arbre Electron (code ${code}).`));
+      });
+    })
+    : Promise.resolve().then(() => {
+      assert.equal(interruptedProcess.kill(), true, "L’arrêt brutal doit être transmis au processus empaqueté.");
+    });
   let processExitTimer;
   try {
     await Promise.race([
-      processExited,
+      Promise.all([processExited, terminateProcessTree]),
       new Promise((_, reject) => {
-        processExitTimer = setTimeout(() => reject(new Error("Le processus ne s’est pas arrêté dans le délai prévu.")), 15_000);
+        processExitTimer = setTimeout(() => reject(new Error("L’arbre Electron ne s’est pas arrêté dans le délai prévu.")), 15_000);
       }),
     ]);
   } finally {
