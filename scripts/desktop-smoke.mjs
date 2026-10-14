@@ -1018,7 +1018,7 @@ try {
   await recoveredWindow.getByRole("button", { name: /^Candidatures\b/ }).click();
   await recoveredWindow.getByRole("button", { name: "Campagnes", exact: true }).click();
   const recoveredRow = await findCampaignRowById(recoveredWindow, crashCampaign.campaign.id);
-  await recoveredRow.getByRole("button", { name: "Détails", exact: true }).click();
+  await recoveredRow.getByRole("button", { name: "Masquer", exact: true }).waitFor({ state: "visible" });
   await recoveredRow.getByText("Envoi à vérifier", { exact: true }).waitFor({ state: "visible" });
   await recoveredRow.getByText("Résolvez d’abord l’envoi incertain avant de reprendre.", { exact: true }).waitFor({ state: "visible" });
   assert.equal(await recoveredRow.getByRole("button", { name: "Reprendre", exact: true }).count(), 0,
