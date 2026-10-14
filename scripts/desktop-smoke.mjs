@@ -1005,6 +1005,16 @@ try {
     "uncertain",
     "L’application doit signaler l’incertitude au niveau de la candidature.",
   );
+  const recoveredTodayActions = recoveredWindow.locator(".cw-panel").filter({
+    has: recoveredWindow.getByRole("heading", { name: "À ne pas laisser passer" }),
+  });
+  const uncertainCampaignAction = recoveredTodayActions.getByRole("button", { name: /Campagne · En pause/ });
+  await uncertainCampaignAction.waitFor({ state: "visible" });
+  assert.match(await uncertainCampaignAction.innerText(), /1 à vérifier/,
+    "Aujourd’hui doit exposer la campagne interrompue avec son envoi incertain.");
+  await uncertainCampaignAction.click();
+  await recoveredWindow.getByRole("heading", { name: "Campagnes actives", level: 2 }).waitFor();
+
   await recoveredWindow.getByRole("button", { name: /^Candidatures\b/ }).click();
   await recoveredWindow.getByRole("button", { name: "Campagnes", exact: true }).click();
   const recoveredRow = await findCampaignRowById(recoveredWindow, crashCampaign.campaign.id);
