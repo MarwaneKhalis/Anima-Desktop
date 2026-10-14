@@ -123,6 +123,7 @@ async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_00
 
 async function findCampaignRowBySubmissionCap(window, maxSubmissions) {
   const rows = window.locator(".cw-campaign-row").filter({ hasText: `plafond ${maxSubmissions}` });
+  await rows.first().waitFor({ state: "visible" });
   assert.equal(await rows.count(), 1, `Une campagne doit afficher le plafond unique ${maxSubmissions}.`);
   return rows;
 }
