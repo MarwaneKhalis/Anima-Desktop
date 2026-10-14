@@ -549,6 +549,7 @@ try {
   const skippedControl = await waitForCampaignState(window, skipCampaign.campaign.id, "completed");
   assert.equal(skippedControl.campaign.counts.skipped, 1, "Passer une offre la marque comme ignorée et termine la campagne.");
   assert.equal(fixtureSubmissions.length, 6, "Arrêter et passer une offre ne déclenchent aucun envoi.");
+  const submissionsAfterCampaignSmoke = fixtureSubmissions.length;
 
   const backupPassphrase = "AnimaDesktopSmokeRestore-2026";
   const portableBackup = await window.evaluate(async (passphrase) => window.anima.request({
@@ -762,7 +763,7 @@ try {
   await confirmDialog.waitFor({ state: "hidden" });
   assert.equal(await confirmNetworkAction.evaluate((element) => element === document.activeElement), true,
     "Échap doit fermer la confirmation et rendre le focus à son déclencheur.");
-  assert.equal(fixtureSubmissions.length, 2, "Fermer la confirmation ne doit envoyer aucun formulaire.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke, "Fermer la confirmation ne doit envoyer aucun formulaire.");
   await window.getByRole("button", { name: "Contacts", exact: true }).click();
   await window.getByRole("heading", { name: "Contacts", exact: true, level: 1 }).waitFor();
   await window.getByRole("button", { name: "Colonnes", exact: true }).click();
@@ -861,7 +862,7 @@ try {
   await queuedAction.waitFor({ state: "visible" });
   await queuedAction.click();
   await restartedWindow.getByRole("heading", { name: "Campagnes actives", level: 2 }).waitFor();
-  assert.equal(fixtureSubmissions.length, 2, "Ouvrir la campagne depuis Aujourd’hui ne lance aucun envoi.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke, "Ouvrir la campagne depuis Aujourd’hui ne lance aucun envoi.");
 
   // The packaged demo must use its isolated fixtures and block actions that
   // could affect real accounts or send applications.
@@ -893,7 +894,7 @@ try {
   assert.deepEqual(realDataAfterDemo.applications.map(({ id, state }) => ({ id, state })),
     afterRestart.applications.map(({ id, state }) => ({ id, state })),
     "Quitter la démo doit préserver les candidatures réelles.");
-  assert.equal(fixtureSubmissions.length, 2, "L’exploration de la démo ne doit envoyer aucun formulaire.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke, "L’exploration de la démo ne doit envoyer aucun formulaire.");
   await assertNoHttpListener(expectedPort);
 
   await restarted.close();
