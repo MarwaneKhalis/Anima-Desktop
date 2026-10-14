@@ -209,6 +209,7 @@ test("ATS smoke ignores hidden CAPTCHA and login signals", async () => {
       captcha: false, login: false, applyLinkVisible: false, applicationFormVisible: false,
     });
     hiddenChallenge.visible = true;
+    hiddenChallenge.getBoundingClientRect = () => ({ width: 100, height: 20 });
     assert.equal((await inspectSignals(page)).captcha, true);
   } finally {
     if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
