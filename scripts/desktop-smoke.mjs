@@ -1024,10 +1024,27 @@ try {
   const uncertainItem = recoveredRow.locator(".cw-campaign-item").filter({ hasText: "Envoi à vérifier" });
   assert.equal(await uncertainItem.count(), 1, "L’envoi incertain doit rester identifiable parmi les offres de la campagne.");
   await uncertainItem.getByRole("button", { name: "Voir la candidature", exact: true }).click();
-  const recoveredApplicationDrawer = recoveredWindow.locator(".cw-drawer");
+  const recoveredApplicationDrawer = recoveredWindow.getByRole("dialog", { name: "Envoi accepté avant interruption", exact: true });
   await recoveredApplicationDrawer.getByRole("heading", { name: "Envoi accepté avant interruption", exact: true }).waitFor({ state: "visible" });
   await recoveredApplicationDrawer.getByText("Envoi à vérifier", { exact: true }).waitFor({ state: "visible" });
-  await recoveredApplicationDrawer.getByRole("button", { name: "Fermer la candidature", exact: true }).click();
+  assert.equal(await recoveredApplicationDrawer.getAttribute("aria-modal"), "true");
+  const closeApplicationButton = recoveredApplicationDrawer.getByRole("button", { name: "Fermer la candidature", exact: true });
+  assert.equal(await closeApplicationButton.evaluate((element) => element === document.activeElement), true,
+    "La fiche candidature doit recevoir son focus initial sur la fermeture.");
+  await recoveredWindow.keyboard.press("Shift+Tab");
+  assert.equal(await recoveredApplicationDrawer.evaluate((dialog) => {
+    const focusable = Array.from(dialog.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"))
+      .filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden");
+    return focusable.at(-1) === document.activeElement;
+  }), true, "Maj+Tab depuis le premier contrôle doit rester dans la fiche candidature.");
+  await recoveredWindow.keyboard.press("Tab");
+  assert.equal(await closeApplicationButton.evaluate((element) => element === document.activeElement), true,
+    "Tab depuis le dernier contrôle doit revenir au premier contrôle de la fiche.");
+  await recoveredWindow.keyboard.press("Escape");
+  await recoveredApplicationDrawer.waitFor({ state: "hidden" });
+  const openApplicationButton = uncertainItem.getByRole("button", { name: "Voir la candidature", exact: true });
+  assert.equal(await openApplicationButton.evaluate((element) => element === document.activeElement), true,
+    "La fermeture par Échap doit rendre le focus au bouton déclencheur.");
   assert.equal(await recoveredRow.getByRole("button", { name: "Reprendre", exact: true }).count(), 0,
     "Une campagne avec un envoi incertain ne doit pas proposer de reprise automatique.");
 
