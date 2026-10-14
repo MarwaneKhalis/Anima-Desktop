@@ -14,8 +14,23 @@ if (process.env.CI === "true" && process.env.ANIMA_SMOKE_NO_SANDBOX === "1") {
   throw new Error("Le smoke test CI doit conserver le sandbox Chromium activé.");
 }
 const fixtureSubmissions = [];
+let pauseFixtureRequests = 0;
+let pauseGateOpen = false;
+const pauseFixtureReleases = [];
+function releasePauseFixtures() {
+  pauseGateOpen = true;
+  for (const release of pauseFixtureReleases.splice(0)) release();
+}
 const fixture = createServer(async (req, res) => {
-  if (req.method === "GET" && ["/apply", "/apply-campaign"].includes(req.url)) {
+  const requestPath = new URL(req.url || "/", "http://127.0.0.1").pathname;
+  if (req.method === "GET" && ["/apply", "/apply-campaign", "/apply-pause"].includes(requestPath)) {
+    if (requestPath === "/apply-pause") {
+      pauseFixtureRequests++;
+      await new Promise((resolvePause) => {
+        if (pauseGateOpen) resolvePause();
+        else pauseFixtureReleases.push(resolvePause);
+      });
+    }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><html lang="fr"><body>
       <h1>Poste de test</h1>
@@ -95,6 +110,24 @@ async function waitForCampaign(window, timeoutMs = 60_000) {
   assert.fail(`Campagne attendue terminée, état reçu : ${JSON.stringify(last)}`);
 }
 
+async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = parseJson(await requestJson(window, `/api/career/campaigns/${id}`), 200);
+    if (last.campaign.state === expectedState) return last;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  assert.fail(`Campagne ${id} attendue en état ${expectedState}, état reçu : ${JSON.stringify(last?.campaign?.state)}`);
+}
+
+async function findCampaignRowById(window, id) {
+  const row = window.locator(`.cw-campaign-row[data-campaign-id="${id}"]`);
+  await row.waitFor({ state: "visible" });
+  assert.equal(await row.count(), 1, `Une seule ligne doit correspondre à la campagne ${id}.`);
+  return row;
+}
+
 async function getFreePort() {
   const server = createNetServer();
   const address = await listen(server);
@@ -132,6 +165,7 @@ async function assertSingleInstance(exe, env, userData) {
 let application;
 let restarted;
 let diagnosticWindow;
+let activeSmokeCampaignId;
 let userDataDir;
 let smokeError;
 try {
@@ -430,6 +464,93 @@ try {
   assert.equal(queuedCampaign.campaign.state, "queued", "La campagne reste en attente de confirmation humaine.");
   assert.equal(fixtureSubmissions.length, 2, "La mise en file d’attente ne doit déclencher aucun envoi.");
 
+  const pauseJobs = [];
+  for (const [title, url] of [
+    ["Campagne initiale smoke", `${fixtureOrigin}/apply-campaign?step=1`],
+    ["Campagne secondaire smoke", `${fixtureOrigin}/apply-campaign?step=2`],
+    ["Campagne pause smoke", `${fixtureOrigin}/apply-pause?hold=1`],
+    ["Campagne reprise smoke", `${fixtureOrigin}/apply-campaign?step=4`],
+  ]) {
+    pauseJobs.push(parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+      url, sourceUrl: url, title, company: "Fixture Anima Desktop", location: "Paris",
+    }), 201));
+  }
+  const pauseCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
+    jobIds: pauseJobs.map((item) => item.id), resumeId: selectedResume.id, maxSubmissions: 4,
+    idempotencyKey: "anima-desktop-smoke-pause-resume",
+  }), 201);
+  activeSmokeCampaignId = pauseCampaign.campaign.id;
+  const stopJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: `${fixtureOrigin}/apply?stop=1`, title: "Campagne arrêt smoke", company: "Fixture Anima Desktop", location: "Paris",
+  }), 201);
+  const stopCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
+    jobIds: [stopJob.id], resumeId: selectedResume.id, maxSubmissions: 1,
+    idempotencyKey: "anima-desktop-smoke-stop",
+  }), 201);
+  const skipJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
+    url: `${fixtureOrigin}/apply?skip=1`, title: "Campagne offre passée smoke", company: "Fixture Anima Desktop", location: "Paris",
+  }), 201);
+  assert.notEqual(stopJob.id, skipJob.id, "Les campagnes de contrôle doivent utiliser des offres distinctes.");
+  const skipCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
+    jobIds: [skipJob.id], resumeId: selectedResume.id, maxSubmissions: 1,
+    idempotencyKey: "anima-desktop-smoke-skip",
+  }), 201);
+  assert.equal(pauseCampaign.campaign.state, "queued");
+  assert.equal(stopCampaign.campaign.state, "queued");
+  assert.equal(skipCampaign.campaign.state, "queued");
+  assert.equal(fixtureSubmissions.length, 2, "La préparation des campagnes de contrôle ne doit rien envoyer.");
+
+  await window.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await window.getByRole("button", { name: "Campagnes", exact: true }).click();
+  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+    .getByRole("button", { name: "Reprendre", exact: true }).click();
+  await waitForCampaignState(window, pauseCampaign.campaign.id, "running");
+  const pauseRequestDeadline = Date.now() + 10_000;
+  while (pauseFixtureRequests === 0 && Date.now() < pauseRequestDeadline) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+  assert.ok(pauseFixtureRequests > 0, "La campagne doit être entrée dans la page fixture suspendue avant sa pause.");
+  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+    .getByRole("button", { name: "Pause", exact: true }).click();
+  releasePauseFixtures();
+  const pausedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "paused");
+  const pauseDrainDeadline = Date.now() + 15_000;
+  let pausedAndDrained = pausedCampaign;
+  while (Date.now() < pauseDrainDeadline &&
+    (pausedAndDrained.campaign.state !== "paused" || pausedAndDrained.campaign.counts.running !== 0)) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    pausedAndDrained = parseJson(await requestJson(window, `/api/career/campaigns/${pauseCampaign.campaign.id}`), 200);
+  }
+  assert.equal(pausedAndDrained.campaign.state, "paused");
+  assert.equal(pausedAndDrained.campaign.counts.running, 0, "Pause attend la fin de l’offre en cours.");
+  assert.equal(pausedAndDrained.items.filter((item) => item.state === "pending").length, 1,
+    "Mettre en pause conserve les offres restantes après l’offre déjà engagée.");
+  assert.equal(pausedAndDrained.items.filter((item) => item.state === "submitted").length, 3);
+  assert.equal(fixtureSubmissions.length, 5, "Seules les trois offres locales déjà engagées ont été traitées.");
+  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+    .getByRole("button", { name: "Reprendre", exact: true }).waitFor({ state: "visible" });
+  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+    .getByRole("button", { name: "Reprendre", exact: true }).click();
+  const resumedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "completed");
+  activeSmokeCampaignId = null;
+  assert.equal(resumedCampaign.items.filter((item) => item.state === "submitted").length, 4,
+    "La reprise traite la seule offre restante après la pause.");
+  assert.equal(fixtureSubmissions.length, 6, "La reprise envoie uniquement la dernière candidature synthétique locale.");
+
+  const stopRow = await findCampaignRowById(window, stopCampaign.campaign.id);
+  await stopRow.getByRole("button", { name: "Arrêter", exact: true }).click();
+  const stoppedControl = await waitForCampaignState(window, stopCampaign.campaign.id, "stopped");
+  assert.equal(stoppedControl.items.filter((item) => item.state === "pending").length, 1,
+    "Arrêter conserve l’offre en attente pour l’audit sans la lancer.");
+  const skipRow = await findCampaignRowById(window, skipCampaign.campaign.id);
+  await skipRow.getByRole("button", { name: "Détails", exact: true }).click();
+  await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).waitFor({ state: "visible" });
+  await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).click();
+  const skippedControl = await waitForCampaignState(window, skipCampaign.campaign.id, "completed");
+  assert.equal(skippedControl.campaign.counts.skipped, 1, "Passer une offre la marque comme ignorée et termine la campagne.");
+  assert.equal(fixtureSubmissions.length, 6, "Arrêter et passer une offre ne déclenchent aucun envoi.");
+  const submissionsAfterCampaignSmoke = fixtureSubmissions.length;
+
   const backupPassphrase = "AnimaDesktopSmokeRestore-2026";
   const portableBackup = await window.evaluate(async (passphrase) => window.anima.request({
     method: "POST",
@@ -441,6 +562,7 @@ try {
   assert.equal(portableBackup.base64, true, "Le fichier de sauvegarde doit traverser le pont IPC en binaire.");
   const stoppedCampaign = parseJson(await requestJson(window, `/api/career/campaigns/${queuedCampaign.campaign.id}/stop`, "POST", {}), 200);
   assert.equal(stoppedCampaign.campaign.state, "stopped", "La campagne de fixture doit être arrêtée avant restauration.");
+  const submissionsBeforeRestore = fixtureSubmissions.length;
   const restoredBackup = await window.evaluate(async ({ passphrase, portableBackup }) => window.anima.request({
     method: "POST",
     path: "/api/restore?demo=0",
@@ -456,7 +578,7 @@ try {
   const campaignsAfterRestore = parseJson(await requestJson(window, "/api/career/campaigns"), 200);
   const restoredQueueAfterRestore = campaignsAfterRestore.campaigns.find((item) => item.id === queuedCampaign.campaign.id);
   assert.equal(restoredQueueAfterRestore?.state, "queued", "La restauration doit rétablir la campagne en attente sans l’exécuter.");
-  assert.equal(fixtureSubmissions.length, 2, "La restauration ne doit déclencher aucun envoi.");
+  assert.equal(fixtureSubmissions.length, submissionsBeforeRestore, "La restauration ne doit déclencher aucun envoi.");
 
   // Exercise the offer toolbar in the installed Windows renderer using local
   // rows only; none of these external-looking links are opened during the smoke.
@@ -641,7 +763,7 @@ try {
   await confirmDialog.waitFor({ state: "hidden" });
   assert.equal(await confirmNetworkAction.evaluate((element) => element === document.activeElement), true,
     "Échap doit fermer la confirmation et rendre le focus à son déclencheur.");
-  assert.equal(fixtureSubmissions.length, 2, "Fermer la confirmation ne doit envoyer aucun formulaire.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke, "Fermer la confirmation ne doit envoyer aucun formulaire.");
   await window.getByRole("button", { name: "Contacts", exact: true }).click();
   await window.getByRole("heading", { name: "Contacts", exact: true, level: 1 }).waitFor();
   await window.getByRole("button", { name: "Colonnes", exact: true }).click();
@@ -740,7 +862,7 @@ try {
   await queuedAction.waitFor({ state: "visible" });
   await queuedAction.click();
   await restartedWindow.getByRole("heading", { name: "Campagnes actives", level: 2 }).waitFor();
-  assert.equal(fixtureSubmissions.length, 2, "Ouvrir la campagne depuis Aujourd’hui ne lance aucun envoi.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke, "Ouvrir la campagne depuis Aujourd’hui ne lance aucun envoi.");
 
   // The packaged demo must use its isolated fixtures and block actions that
   // could affect real accounts or send applications.
@@ -772,7 +894,7 @@ try {
   assert.deepEqual(realDataAfterDemo.applications.map(({ id, state }) => ({ id, state })),
     afterRestart.applications.map(({ id, state }) => ({ id, state })),
     "Quitter la démo doit préserver les candidatures réelles.");
-  assert.equal(fixtureSubmissions.length, 2, "L’exploration de la démo ne doit envoyer aucun formulaire.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke, "L’exploration de la démo ne doit envoyer aucun formulaire.");
   await assertNoHttpListener(expectedPort);
 
   await restarted.close();
@@ -807,6 +929,7 @@ try {
   console.log("Installé dans un profil temporaire : brouillon de profil après navigation/rechargement, Chromium embarqué, préparation sans envoi, envoi fixture unique, reçu et campagne persistée après redémarrage vérifiés ; aucun serveur HTTP détecté.");
 } catch (error) {
   smokeError = error;
+  console.error("Smoke test failure:", error);
   if (diagnosticWindow) {
     try {
       await mkdir("artifacts", { recursive: true });
@@ -819,6 +942,19 @@ try {
 
 const cleanupErrors = [];
 for (const cleanup of [
+  async () => {
+    releasePauseFixtures();
+    if (!application || !diagnosticWindow || !activeSmokeCampaignId) return;
+    let timer;
+    try {
+      await Promise.race([
+        requestJson(diagnosticWindow, `/api/career/campaigns/${activeSmokeCampaignId}/stop`, "POST", {}),
+        new Promise((resolveStop) => { timer = setTimeout(resolveStop, 5_000); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  },
   () => application?.close(),
   () => restarted?.close(),
   () => fixture.listening ? new Promise((resolveClose, reject) => fixture.close((error) => error ? reject(error) : resolveClose())) : undefined,
