@@ -503,15 +503,16 @@ try {
 
   await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByRole("button", { name: "Campagnes", exact: true }).click();
-  const pauseRow = await findCampaignRowById(window, pauseCampaign.campaign.id);
-  await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).click();
+  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+    .getByRole("button", { name: "Reprendre", exact: true }).click();
   await waitForCampaignState(window, pauseCampaign.campaign.id, "running");
   const pauseRequestDeadline = Date.now() + 10_000;
   while (pauseFixtureRequests === 0 && Date.now() < pauseRequestDeadline) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
   }
   assert.ok(pauseFixtureRequests > 0, "La campagne doit être entrée dans la page fixture suspendue avant sa pause.");
-  await pauseRow.getByRole("button", { name: "Pause", exact: true }).click();
+  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+    .getByRole("button", { name: "Pause", exact: true }).click();
   releasePauseFixtures();
   const pausedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "paused");
   const pauseDrainDeadline = Date.now() + 15_000;
@@ -527,8 +528,10 @@ try {
     "Mettre en pause conserve les offres restantes après l’offre déjà engagée.");
   assert.equal(pausedAndDrained.items.filter((item) => item.state === "submitted").length, 3);
   assert.equal(fixtureSubmissions.length, 5, "Seules les trois offres locales déjà engagées ont été traitées.");
-  await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).waitFor({ state: "visible" });
-  await pauseRow.getByRole("button", { name: "Reprendre", exact: true }).click();
+  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+    .getByRole("button", { name: "Reprendre", exact: true }).waitFor({ state: "visible" });
+  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+    .getByRole("button", { name: "Reprendre", exact: true }).click();
   const resumedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "completed");
   activeSmokeCampaignId = null;
   assert.equal(resumedCampaign.items.filter((item) => item.state === "submitted").length, 4,
