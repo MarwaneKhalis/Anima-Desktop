@@ -5,6 +5,7 @@ import {
   allowsReadOnlyRequest,
   classifyPageSignals,
   createSmokeEgressResolver,
+  inspectSignals,
   installReadOnlyGuards,
   parseCliArgs,
   runAtsLiveSmoke,
@@ -167,6 +168,54 @@ test("ATS smoke classifies accessible pages, login walls and CAPTCHA", () => {
   assert.equal(classifyPageSignals({ captcha: true, login: true, httpStatus: 200 }), "captcha");
   assert.equal(classifyPageSignals({ httpStatus: 403 }), "login");
   assert.equal(classifyPageSignals({ httpStatus: 404 }), "inaccessible");
+});
+
+test("ATS smoke ignores hidden CAPTCHA and login signals", async () => {
+  const makeElement = (text: string, visible: boolean) => ({
+    innerText: text,
+    textContent: text,
+    title: "",
+    visible,
+    getBoundingClientRect: () => ({ width: visible ? 100 : 0, height: visible ? 20 : 0 }),
+    getAttribute: () => null,
+    querySelectorAll: () => [],
+  });
+  const hiddenCaptchaHeading = makeElement("CAPTCHA", false);
+  const hiddenChallenge = makeElement("", false);
+  const headings = [hiddenCaptchaHeading];
+  const challenges = [hiddenChallenge];
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const originalGetComputedStyle = Object.getOwnPropertyDescriptor(globalThis, "getComputedStyle");
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      querySelectorAll(selector: string) {
+        if (selector.startsWith("h1")) return headings;
+        if (selector.startsWith("iframe")) return challenges;
+        return [];
+      },
+    },
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: (element: { visible: boolean }) => ({
+      display: element.visible ? "block" : "none",
+      visibility: "visible",
+    }),
+  });
+  try {
+    const page = { evaluate: (callback: () => unknown) => Promise.resolve(callback()) };
+    assert.deepEqual(await inspectSignals(page), {
+      captcha: false, login: false, applyLinkVisible: false, applicationFormVisible: false,
+    });
+    hiddenChallenge.visible = true;
+    assert.equal((await inspectSignals(page)).captcha, true);
+  } finally {
+    if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+    else Reflect.deleteProperty(globalThis, "document");
+    if (originalGetComputedStyle) Object.defineProperty(globalThis, "getComputedStyle", originalGetComputedStyle);
+    else Reflect.deleteProperty(globalThis, "getComputedStyle");
+  }
 });
 
 test("ATS smoke installs HTTP and WebSocket guards before any page load", async () => {

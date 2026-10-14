@@ -87,7 +87,7 @@ export function classifyPageSignals({ captcha = false, login = false, httpStatus
   return "accessible";
 }
 
-async function inspectSignals(page) {
+export async function inspectSignals(page) {
   return page.evaluate(() => {
     const visible = element => {
       const style = getComputedStyle(element);
@@ -95,10 +95,11 @@ async function inspectSignals(page) {
       return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
     };
     const headings = Array.from(document.querySelectorAll("h1, h2, [role='alert']"))
+      .filter(visible)
       .map(element => element.innerText || element.textContent || "").join(" ").toLowerCase();
-    const challengeElement = document.querySelector(
+    const challengeVisible = Array.from(document.querySelectorAll(
       "iframe[src*='captcha' i], iframe[src*='challenge' i], [id*='captcha' i], [class*='captcha' i], [data-sitekey]",
-    );
+    )).some(visible);
     const passwordPrompt = Array.from(document.querySelectorAll("input[type='password']")).some(visible);
     const applyLinkVisible = Array.from(document.querySelectorAll("a[href]")).some(anchor => {
       if (!visible(anchor)) return false;
@@ -109,7 +110,7 @@ async function inspectSignals(page) {
       visible(form) && Array.from(form.querySelectorAll("input, select, textarea")).some(visible),
     );
     return {
-      captcha: Boolean(challengeElement) || /verify (that )?you are (human|not a robot)|are you a robot|security challenge|captcha|recaptcha|hcaptcha/i.test(headings),
+      captcha: challengeVisible || /verify (that )?you are (human|not a robot)|are you a robot|security challenge|captcha|recaptcha|hcaptcha/i.test(headings),
       login: passwordPrompt || /sign in to continue|log in to continue|please sign in|please log in|connectez-vous pour postuler|identifiez-vous pour postuler/i.test(headings),
       applyLinkVisible,
       applicationFormVisible,
