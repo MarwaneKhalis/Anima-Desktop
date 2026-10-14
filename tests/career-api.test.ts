@@ -136,6 +136,55 @@ test("saved public searches persist, collect offers on demand, pause and delete"
   assert.equal((await app.json("/api/career/saved-searches?demo=1", { source: "arbeitnow", criteria: { keywords: "Test" }, intervalHours: 24 }, "POST")).response.status, 403);
 });
 
+test("saved recurring search edits are rejected without changing criteria during collection", async (t) => {
+  const app = await startCareerTestServer({ mockArbeitnowSearch: true, pauseArbeitnowSearch: true });
+  t.after(app.close);
+  const created = await app.json("/api/career/saved-searches?demo=0", {
+    source: "arbeitnow",
+    criteria: { keywords: "TypeScript", commune: "Paris", limit: 10 },
+    intervalHours: 6,
+    enabled: true,
+  });
+  assert.equal(created.response.status, 201);
+  const saved = created.value as { id: string };
+  app.fixture.holdSearchRequests();
+  const collection = app.json(`/api/career/saved-searches/${saved.id}/run?demo=0`, {}, "POST");
+  try {
+    await Promise.race([
+      app.fixture.waitForSearchRequest(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Search fixture was not reached.")), 5_000)),
+    ]);
+    const changed = {
+      source: "arbeitnow",
+      criteria: { keywords: "Product Designer", commune: "Lyon", limit: 25 },
+      intervalHours: 12,
+      enabled: true,
+    };
+    const rejected = await app.json(`/api/career/saved-searches/${saved.id}?demo=0`, changed, "PATCH");
+    assert.equal(rejected.response.status, 409);
+    assert.equal(rejected.value.error, "Cette recherche est en cours de collecte. Attendez sa fin avant de modifier ses critères ou sa fréquence.");
+    const current = await app.json("/api/career/saved-searches?demo=0");
+    const preserved = current.value.searches.find((search: { id: string }) => search.id === saved.id);
+    assert.deepEqual(preserved.criteria, { keywords: "TypeScript", commune: "Paris", limit: 10 });
+    assert.equal(preserved.intervalHours, 6);
+    assert.equal(preserved.enabled, true);
+  } finally {
+    app.fixture.releaseSearchRequests();
+  }
+
+  const completed = await collection;
+  assert.equal(completed.response.status, 200);
+  const retry = await app.json(`/api/career/saved-searches/${saved.id}?demo=0`, {
+    source: "arbeitnow",
+    criteria: { keywords: "Product Designer", commune: "Lyon", limit: 25 },
+    intervalHours: 12,
+    enabled: true,
+  }, "PATCH");
+  assert.equal(retry.response.status, 200);
+  assert.deepEqual(retry.value.criteria, { keywords: "Product Designer", commune: "Lyon", limit: 25 });
+  assert.equal(retry.value.intervalHours, 12);
+});
+
 test("manual employer responses are validated, encrypted in history, and separate from application outcome", async (t) => {
   const app = await startCareerTestServer();
   t.after(app.close);
