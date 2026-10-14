@@ -171,19 +171,40 @@ test("ATS smoke classifies accessible pages, login walls and CAPTCHA", () => {
 });
 
 test("ATS smoke ignores hidden CAPTCHA and login signals", async () => {
-  const makeElement = (text: string, visible: boolean) => ({
-    innerText: text,
-    textContent: text,
-    title: "",
-    visible,
-    getBoundingClientRect: () => ({ width: visible ? 100 : 0, height: visible ? 20 : 0 }),
-    getAttribute: () => null,
-    querySelectorAll: () => [],
-  });
+  type FakeElement = {
+    innerText: string;
+    textContent: string;
+    title: string;
+    visible: boolean;
+    opacity: string;
+    parentElement: FakeElement | null;
+    getBoundingClientRect: () => { width: number; height: number };
+    getAttribute: () => null;
+    querySelectorAll: () => FakeElement[];
+  };
+  const makeElement = (text: string, visible: boolean, opacity = "1"): FakeElement => {
+    const element: FakeElement = {
+      innerText: text,
+      textContent: text,
+      title: "",
+      visible,
+      opacity,
+      parentElement: null,
+      getBoundingClientRect: () => ({ width: element.visible ? 100 : 0, height: element.visible ? 20 : 0 }),
+      getAttribute: () => null,
+      querySelectorAll: () => [],
+    };
+    return element;
+  };
   const hiddenCaptchaHeading = makeElement("CAPTCHA", false);
-  const hiddenChallenge = makeElement("", false);
-  const headings = [hiddenCaptchaHeading];
-  const challenges = [hiddenChallenge];
+  const hiddenLoginHeading = makeElement("Please sign in to continue", false);
+  const transparentParent = makeElement("", true, "0");
+  const challenge = makeElement("", true);
+  challenge.parentElement = transparentParent;
+  const hiddenPassword = makeElement("", false);
+  const headings = [hiddenCaptchaHeading, hiddenLoginHeading];
+  const challenges = [challenge];
+  const passwords = [hiddenPassword];
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   const originalGetComputedStyle = Object.getOwnPropertyDescriptor(globalThis, "getComputedStyle");
   Object.defineProperty(globalThis, "document", {
@@ -192,15 +213,17 @@ test("ATS smoke ignores hidden CAPTCHA and login signals", async () => {
       querySelectorAll(selector: string) {
         if (selector.startsWith("h1")) return headings;
         if (selector.startsWith("iframe")) return challenges;
+        if (selector.startsWith("input[type='password']")) return passwords;
         return [];
       },
     },
   });
   Object.defineProperty(globalThis, "getComputedStyle", {
     configurable: true,
-    value: (element: { visible: boolean }) => ({
+    value: (element: FakeElement) => ({
       display: element.visible ? "block" : "none",
       visibility: "visible",
+      opacity: element.opacity,
     }),
   });
   try {
@@ -208,9 +231,14 @@ test("ATS smoke ignores hidden CAPTCHA and login signals", async () => {
     assert.deepEqual(await inspectSignals(page), {
       captcha: false, login: false, applyLinkVisible: false, applicationFormVisible: false,
     });
-    hiddenChallenge.visible = true;
-    hiddenChallenge.getBoundingClientRect = () => ({ width: 100, height: 20 });
+    transparentParent.opacity = "1";
     assert.equal((await inspectSignals(page)).captcha, true);
+    challenge.visible = false;
+    hiddenLoginHeading.visible = true;
+    assert.equal((await inspectSignals(page)).login, true);
+    hiddenLoginHeading.visible = false;
+    hiddenPassword.visible = true;
+    assert.equal((await inspectSignals(page)).login, true);
   } finally {
     if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
     else Reflect.deleteProperty(globalThis, "document");

@@ -90,9 +90,14 @@ export function classifyPageSignals({ captcha = false, login = false, httpStatus
 export async function inspectSignals(page) {
   return page.evaluate(() => {
     const visible = element => {
-      const style = getComputedStyle(element);
+      for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+        const style = getComputedStyle(ancestor);
+        if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" || Number(style.opacity) === 0) {
+          return false;
+        }
+      }
       const rect = element.getBoundingClientRect();
-      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+      return rect.width > 0 && rect.height > 0;
     };
     const headings = Array.from(document.querySelectorAll("h1, h2, [role='alert']"))
       .filter(visible)
