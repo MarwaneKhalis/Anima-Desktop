@@ -32,14 +32,16 @@ async function revealCampaignActions(page: import("playwright").Page) {
   }
 }
 
-async function openCampaignActions(page: import("playwright").Page) {
+async function openCampaignActions(page: import("playwright").Page, credentialId?: string) {
   await revealCampaignActions(page);
   await page.getByRole("button", { name: "Rechercher et préparer un lancement" }).click();
-  await confirmCampaignReview(page);
+  await confirmCampaignReview(page, "submit", credentialId);
 }
 
-async function confirmCampaignReview(page: import("playwright").Page, mode: "prepare" | "submit" = "submit") {
-  await page.getByRole("dialog", { name: "Récapitulatif de campagne" }).waitFor();
+async function confirmCampaignReview(page: import("playwright").Page, mode: "prepare" | "submit" = "submit", credentialId?: string) {
+  const dialog = page.getByRole("dialog", { name: "Récapitulatif de campagne" });
+  await dialog.waitFor();
+  if (credentialId) await dialog.getByLabel("Compte carrière", { exact: true }).selectOption(credentialId);
   if (mode === "submit") {
     const sendMode = page.getByRole("radio", { name: /Envoyer les candidatures/ });
     await sendMode.check();
@@ -294,6 +296,13 @@ test("France Travail search launches a durable application campaign from the des
     base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
   });
   assert.equal(resume.response.status, 201);
+  const credential = await app.json("/api/career/credentials", {
+    origin: app.fixture.baseUrl,
+    label: "Compte de test",
+    username: "candidate@example.test",
+    password: "fixture-secret-password",
+  });
+  assert.equal(credential.response.status, 201);
   const source = await app.json("/api/career/sources/france-travail", {
     clientId: "fixture-client",
     clientSecret: "fixture-secret",
@@ -309,7 +318,7 @@ test("France Travail search launches a durable application campaign from the des
   await openOfferFilters(page);
   await page.getByLabel("Source d’offres").selectOption("france-travail");
   await page.getByLabel("Métier(s) ou mot(s)-clé(s)").fill("Ingénieure logiciel");
-  await openCampaignActions(page);
+  await openCampaignActions(page, credential.value.id);
 
   const completed = await waitFor(async () => {
     const { value } = await app.json("/api/career/campaigns");
@@ -317,6 +326,7 @@ test("France Travail search launches a durable application campaign from the des
   }, (campaign) => campaign?.state === "completed", 20_000);
   assert.equal(completed.counts.total, 1);
   assert.equal(completed.counts.submitted, 1);
+  assert.equal(completed.credentialId, credential.value.id, "The selected account must be persisted on the campaign and passed to its engine.");
 
   const { value: snapshot } = await app.json("/api/career/bootstrap");
   assert.equal(snapshot.jobs.length, 1);
