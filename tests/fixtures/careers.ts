@@ -22,6 +22,9 @@ export interface CareerFixtures {
   resolveAshbyChallenge(): void;
   resolveMfa(): void;
   resolveUnknownAnswer(value: string): void;
+  holdSearchRequests(): void;
+  waitForSearchRequest(): Promise<void>;
+  releaseSearchRequests(): void;
 }
 const page = (res: ServerResponse, html: string) => { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(`<!doctype html><html><body>${html}</body></html>`); };
 const read = async (req: IncomingMessage): Promise<Buffer> => {
@@ -64,6 +67,10 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   let unknownVisits = 0;
   let applyScriptVisits = 0;
   let unknownAnswer = "";
+  let searchGateOpen = true;
+  let searchRequestCount = 0;
+  const searchStartWaiters: Array<() => void> = [];
+  const searchReleaseWaiters: Array<() => void> = [];
   let challengeSolved = false;
   let manualSubmitChallengeSolved = false;
   let ashbyChallengeSolved = false;
@@ -109,6 +116,14 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://fixture.invalid");
     const path = url.pathname;
+    if (path === "/wait-search") {
+      searchRequestCount++;
+      for (const resolve of searchStartWaiters.splice(0)) resolve();
+      if (!searchGateOpen) await new Promise<void>(resolve => searchReleaseWaiters.push(resolve));
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     if (path === "/service-worker.js") {
       res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
       res.end(`
@@ -247,6 +262,9 @@ export async function startCareerFixtures(): Promise<CareerFixtures> {
     resolveAshbyChallenge: () => { ashbyChallengeSolved = true; },
     resolveMfa: () => { mfaSolved = true; },
     resolveUnknownAnswer: value => { unknownAnswer = value; },
+    holdSearchRequests: () => { searchGateOpen = false; },
+    waitForSearchRequest: () => searchRequestCount ? Promise.resolve() : new Promise(resolve => searchStartWaiters.push(resolve)),
+    releaseSearchRequests: () => { searchGateOpen = true; for (const resolve of searchReleaseWaiters.splice(0)) resolve(); },
     close: async () => { await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())); await new Promise<void>((resolve, reject) => ats.close(err => err ? reject(err) : resolve())); },
   };
 }

@@ -102,8 +102,20 @@ const testOfferSearch: OfferSearchService | undefined = testFranceTravailUrl
     }
   : undefined;
 const testArbeitnowUrl = testFixtureUrl("CAREER_TEST_ARBEITNOW_URL");
+const testSearchGateUrl = testFixtureUrl("CAREER_TEST_SEARCH_GATE_URL");
 const testPublicOfferSearch: OfferSearchService | undefined = testArbeitnowUrl
-  ? { search: async (criteria) => ({ offers: [{ url: testArbeitnowUrl, title: "Offre de test Arbeitnow France", company: "Entreprise de test", location: "Paris, France", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://www.arbeitnow.fr" }], note: `Résultat de test pour ${criteria.keywords}.` }) }
+  ? {
+      search: async (criteria) => {
+        if (testSearchGateUrl) {
+          const gateResponse = await fetch(testSearchGateUrl);
+          if (!gateResponse.ok) throw new Error("Search fixture gate failed.");
+        }
+        return {
+          offers: [{ url: testArbeitnowUrl, title: "Offre de test Arbeitnow France", company: "Entreprise de test", location: "Paris, France", description: "Offre synthétique pour test de bout en bout.", sourceUrl: "https://www.arbeitnow.fr" }],
+          note: `Résultat de test pour ${criteria.keywords}.`,
+        };
+      },
+    }
   : undefined;
 const testJobicyUrl = testFixtureUrl("CAREER_TEST_JOBICY_URL");
 const testJobicyOfferSearch: OfferSearchService | undefined = testJobicyUrl
