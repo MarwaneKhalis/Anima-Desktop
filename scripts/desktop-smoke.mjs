@@ -544,6 +544,8 @@ try {
   assert.equal(stoppedControl.items.filter((item) => item.state === "pending").length, 1,
     "Arrêter conserve l’offre en attente pour l’audit sans la lancer.");
   const skipRow = await findCampaignRowById(window, skipCampaign.campaign.id);
+  await skipRow.getByRole("button", { name: "Détails", exact: true }).click();
+  await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).waitFor({ state: "visible" });
   await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).click();
   const skippedControl = await waitForCampaignState(window, skipCampaign.campaign.id, "completed");
   assert.equal(skippedControl.campaign.counts.skipped, 1, "Passer une offre la marque comme ignorée et termine la campagne.");
