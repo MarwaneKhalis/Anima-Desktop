@@ -17,13 +17,20 @@ const fixtureSubmissions = [];
 let pauseFixtureRequests = 0;
 let pauseGateOpen = false;
 const pauseFixtureReleases = [];
+let crashSubmissionAccepted = 0;
+let crashSubmissionGateOpen = false;
+const crashSubmissionReleases = [];
 function releasePauseFixtures() {
   pauseGateOpen = true;
   for (const release of pauseFixtureReleases.splice(0)) release();
 }
+function releaseCrashSubmissionFixtures() {
+  crashSubmissionGateOpen = true;
+  for (const release of crashSubmissionReleases.splice(0)) release();
+}
 const fixture = createServer(async (req, res) => {
   const requestPath = new URL(req.url || "/", "http://127.0.0.1").pathname;
-  if (req.method === "GET" && ["/apply", "/apply-campaign", "/apply-pause"].includes(requestPath)) {
+  if (req.method === "GET" && ["/apply", "/apply-campaign", "/apply-pause", "/apply-crash"].includes(requestPath)) {
     if (requestPath === "/apply-pause") {
       pauseFixtureRequests++;
       await new Promise((resolvePause) => {
@@ -34,7 +41,7 @@ const fixture = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><html lang="fr"><body>
       <h1>Poste de test</h1>
-      <form method="post" action="/submit" enctype="multipart/form-data">
+      <form method="post" action="${requestPath === "/apply-crash" ? "/submit-crash" : "/submit"}" enctype="multipart/form-data">
         <label>Prénom <input name="firstName" required></label>
         <label>Nom <input name="lastName" required></label>
         <label>Adresse e-mail <input type="email" name="email" required></label>
@@ -44,12 +51,21 @@ const fixture = createServer(async (req, res) => {
     </body></html>`);
     return;
   }
-  if (req.method === "POST" && req.url === "/submit") {
+  if (req.method === "POST" && ["/submit", "/submit-crash"].includes(req.url || "")) {
     const chunks = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
     fixtureSubmissions.push(Buffer.concat(chunks));
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end("<html><body><h1>Merci pour votre candidature.</h1><p>Candidature reçue. Référence : AC-1234</p></body></html>");
+    if (req.url === "/submit-crash") {
+      crashSubmissionAccepted++;
+      await new Promise((resolveCrash) => {
+        if (crashSubmissionGateOpen) resolveCrash();
+        else crashSubmissionReleases.push(resolveCrash);
+      });
+    }
+    if (!req.aborted && !res.destroyed && !res.socket?.destroyed) {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end("<html><body><h1>Merci pour votre candidature.</h1><p>Candidature reçue. Référence : AC-1234</p></body></html>");
+    }
     return;
   }
   res.writeHead(404);
@@ -119,6 +135,17 @@ async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_00
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
   assert.fail(`Campagne ${id} attendue en état ${expectedState}, état reçu : ${JSON.stringify(last?.campaign?.state)}`);
+}
+
+async function waitFor(read, predicate, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = await read();
+    if (predicate(last)) return last;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  assert.fail(`État attendu non atteint dans le délai prévu : ${JSON.stringify(last)}`);
 }
 
 async function findCampaignRowById(window, id) {
@@ -895,6 +922,105 @@ try {
     afterRestart.applications.map(({ id, state }) => ({ id, state })),
     "Quitter la démo doit préserver les candidatures réelles.");
   assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke, "L’exploration de la démo ne doit envoyer aucun formulaire.");
+
+  // Simulate the dangerous crash window: the local fixture accepts the POST
+  // but withholds its receipt until after the packaged app process is killed.
+  const crashJob = parseJson(await requestJson(restartedWindow, "/api/career/jobs", "POST", {
+    url: `${fixtureOrigin}/apply-crash?accepted-before-receipt=1`,
+    sourceUrl: `${fixtureOrigin}/apply-crash?accepted-before-receipt=1`,
+    title: "Envoi accepté avant interruption",
+    company: "Fixture récupération",
+    location: "Paris",
+  }), 201);
+  const pendingAfterCrashJob = parseJson(await requestJson(restartedWindow, "/api/career/jobs", "POST", {
+    url: `${fixtureOrigin}/apply?pending-after-crash=1`,
+    title: "Offre en attente après interruption",
+    company: "Fixture récupération",
+    location: "Paris",
+  }), 201);
+  const crashCampaign = parseJson(await requestJson(restartedWindow, "/api/career/campaigns", "POST", {
+    jobIds: [crashJob.id, pendingAfterCrashJob.id],
+    resumeId: selectedResume.id,
+    maxSubmissions: 2,
+    idempotencyKey: "anima-desktop-smoke-crash-after-accepted-post",
+  }), 201);
+  activeSmokeCampaignId = crashCampaign.campaign.id;
+  const crashStart = await requestJson(restartedWindow, `/api/career/campaigns/${crashCampaign.campaign.id}/start`, "POST", {});
+  assert.ok(crashStart.status >= 200 && crashStart.status < 300, crashStart.body);
+  const acceptedDeadline = Date.now() + 20_000;
+  while (crashSubmissionAccepted === 0 && Date.now() < acceptedDeadline) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+  assert.equal(crashSubmissionAccepted, 1, "La fixture doit accepter un POST avant de retenir sa réponse.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke + 1);
+
+  const interruptedProcess = restarted.process();
+  assert.equal(interruptedProcess.exitCode, null, "Le processus doit être actif avant l’interruption simulée.");
+  const processExited = new Promise((resolveExit) => interruptedProcess.once("exit", resolveExit));
+  const terminateProcessTree = process.platform === "win32"
+    ? new Promise((resolveKill, rejectKill) => {
+      const terminator = spawn("taskkill", ["/PID", String(interruptedProcess.pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      terminator.once("error", rejectKill);
+      terminator.once("exit", (code) => {
+        if (code === 0) resolveKill();
+        else rejectKill(new Error(`taskkill n’a pas arrêté l’arbre Electron (code ${code}).`));
+      });
+    })
+    : Promise.resolve().then(() => {
+      assert.equal(interruptedProcess.kill(), true, "L’arrêt brutal doit être transmis au processus empaqueté.");
+    });
+  let processExitTimer;
+  try {
+    await Promise.race([
+      Promise.all([processExited, terminateProcessTree]),
+      new Promise((_, reject) => {
+        processExitTimer = setTimeout(() => reject(new Error("L’arbre Electron ne s’est pas arrêté dans le délai prévu.")), 15_000);
+      }),
+    ]);
+  } finally {
+    if (processExitTimer) clearTimeout(processExitTimer);
+  }
+  restarted = undefined;
+  diagnosticWindow = undefined;
+
+  restarted = await electron.launch(launchOptions);
+  const recoveredWindow = diagnosticWindow = await restarted.firstWindow();
+  await recoveredWindow.waitForLoadState("load");
+  const recoveredCampaign = await waitFor(
+    async () => parseJson(await requestJson(recoveredWindow, `/api/career/campaigns/${crashCampaign.campaign.id}`), 200),
+    (detail) => detail.campaign.state === "paused" && detail.items.some((item) => item.state === "uncertain"),
+    15_000,
+  );
+  assert.deepEqual(
+    recoveredCampaign.items.map((item) => item.state),
+    ["uncertain", "pending"],
+    "La reprise doit conserver l’envoi incertain et laisser l’offre suivante en attente.",
+  );
+  const recoveredBootstrap = parseJson(await requestJson(recoveredWindow, "/api/career/bootstrap"), 200);
+  assert.equal(
+    recoveredBootstrap.applications.find((item) => item.jobId === crashJob.id)?.state,
+    "uncertain",
+    "L’application doit signaler l’incertitude au niveau de la candidature.",
+  );
+  await recoveredWindow.getByRole("button", { name: /^Candidatures\b/ }).click();
+  await recoveredWindow.getByRole("button", { name: "Campagnes", exact: true }).click();
+  const recoveredRow = await findCampaignRowById(recoveredWindow, crashCampaign.campaign.id);
+  await recoveredRow.getByRole("button", { name: "Détails", exact: true }).click();
+  await recoveredRow.getByText("Envoi à vérifier", { exact: true }).waitFor({ state: "visible" });
+  await recoveredRow.getByText("Résolvez d’abord l’envoi incertain avant de reprendre.", { exact: true }).waitFor({ state: "visible" });
+  assert.equal(await recoveredRow.getByRole("button", { name: "Reprendre", exact: true }).count(), 0,
+    "Une campagne avec un envoi incertain ne doit pas proposer de reprise automatique.");
+
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
+  assert.equal(crashSubmissionAccepted, 1, "Le redémarrage ne doit pas rejouer le POST déjà accepté.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke + 1);
+  releaseCrashSubmissionFixtures();
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
+  assert.equal(crashSubmissionAccepted, 1, "Libérer la réponse interrompue ne doit révéler aucun second POST.");
+  assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke + 1);
   await assertNoHttpListener(expectedPort);
 
   await restarted.close();
@@ -944,6 +1070,7 @@ const cleanupErrors = [];
 for (const cleanup of [
   async () => {
     releasePauseFixtures();
+    releaseCrashSubmissionFixtures();
     if (!application || !diagnosticWindow || !activeSmokeCampaignId) return;
     let timer;
     try {
