@@ -99,7 +99,9 @@ test("recurring search edit keeps its draft when a collection is in progress", a
   await interval.selectOption("12");
   await editor.getByRole("button", { name: "Enregistrer les changements", exact: true }).click();
   const conflictMessage = "Cette recherche est en cours de collecte. Attendez sa fin avant de modifier ses critères ou sa fréquence.";
-  await page.getByText(conflictMessage, { exact: true }).waitFor({ state: "visible" });
+  const conflictAlert = page.getByRole("alert").filter({ hasText: "Cette recherche est en cours de collecte." });
+  await conflictAlert.waitFor({ state: "visible" });
+  assert.match(await conflictAlert.innerText(), /Attendez sa fin avant de modifier ses critères ou sa fréquence\./);
   assert.equal(await keywords.inputValue(), "Product Designer", "The rejected update must keep the edited keywords.");
   assert.equal(await commune.inputValue(), "Lyon", "The rejected update must keep the edited location.");
   assert.equal(await editor.getByLabel("Nombre d’offres").inputValue(), "25");
