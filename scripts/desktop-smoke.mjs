@@ -509,7 +509,7 @@ try {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
   }
   assert.ok(pauseFixtureRequests > 0, "La campagne doit être entrée dans la page fixture suspendue avant sa pause.");
-  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+  await (await findCampaignRowBySubmissionCap(window, 4))
     .getByRole("button", { name: "Pause", exact: true }).click();
   releasePauseFixtures();
   const pausedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "paused");
@@ -526,9 +526,9 @@ try {
     "Mettre en pause conserve les offres restantes après l’offre déjà engagée.");
   assert.equal(pausedAndDrained.items.filter((item) => item.state === "submitted").length, 3);
   assert.equal(fixtureSubmissions.length, 5, "Seules les trois offres locales déjà engagées ont été traitées.");
-  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+  await (await findCampaignRowBySubmissionCap(window, 4))
     .getByRole("button", { name: "Reprendre", exact: true }).waitFor({ state: "visible" });
-  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+  await (await findCampaignRowBySubmissionCap(window, 4))
     .getByRole("button", { name: "Reprendre", exact: true }).click();
   const resumedCampaign = await waitForCampaignState(window, pauseCampaign.campaign.id, "completed");
   activeSmokeCampaignId = null;
