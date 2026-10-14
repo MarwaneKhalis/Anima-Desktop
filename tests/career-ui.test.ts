@@ -59,6 +59,59 @@ async function confirmCampaignReview(page: import("playwright").Page, mode: "pre
   if (await error.isVisible()) throw new Error(`Campaign launch failed: ${await error.innerText()}`);
 }
 
+test("recurring search edit keeps its draft when a collection is in progress", async (t) => {
+  const app = await startCareerTestServer({ mockArbeitnowSearch: true, pauseArbeitnowSearch: true });
+  t.after(app.close);
+  const created = await app.json("/api/career/saved-searches?demo=0", {
+    source: "arbeitnow",
+    criteria: { keywords: "TypeScript", commune: "Paris", limit: 10 },
+    intervalHours: 6,
+    enabled: true,
+  });
+  assert.equal(created.response.status, 201);
+  const saved = created.value as { id: string };
+  app.fixture.holdSearchRequests();
+  const collection = app.json(`/api/career/saved-searches/${saved.id}/run?demo=0`, {}, "POST");
+  await Promise.race([
+    app.fixture.waitForSearchRequest(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Search fixture was not reached.")), 5_000)),
+  ]);
+
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Offres", exact: true }).click();
+  await page.getByRole("button", { name: "Recherches enregistrées", exact: true }).click();
+  await page.getByRole("heading", { name: "Recherches enregistrées", exact: true, level: 1 }).waitFor();
+  await page.getByRole("button", { name: "Modifier", exact: true }).click();
+  const editor = page.getByRole("form", { name: "Modifier la recherche TypeScript" });
+  const keywords = editor.getByLabel("Mots-clés");
+  const commune = editor.getByLabel("Ville ou commune");
+  const interval = editor.getByLabel("Fréquence");
+  await keywords.fill("Product Designer");
+  await commune.fill("Lyon");
+  await editor.getByLabel("Nombre d’offres").selectOption("25");
+  await interval.selectOption("12");
+  await editor.getByRole("button", { name: "Enregistrer les changements", exact: true }).click();
+  const conflictMessage = "Cette recherche est en cours de collecte. Attendez sa fin avant de modifier ses critères ou sa fréquence.";
+  await page.getByText(conflictMessage, { exact: true }).waitFor({ state: "visible" });
+  assert.equal(await keywords.inputValue(), "Product Designer", "The rejected update must keep the edited keywords.");
+  assert.equal(await commune.inputValue(), "Lyon", "The rejected update must keep the edited location.");
+  assert.equal(await editor.getByLabel("Nombre d’offres").inputValue(), "25");
+  assert.equal(await interval.inputValue(), "12");
+  await app.fixture.releaseSearchRequests();
+  const completed = await collection;
+  assert.equal(completed.response.status, 200);
+
+  await editor.getByRole("button", { name: "Enregistrer les changements", exact: true }).click();
+  await page.getByText("Recherche mise à jour.", { exact: true }).waitFor({ state: "visible" });
+  const refreshed = await app.json("/api/career/saved-searches?demo=0");
+  const updated = refreshed.value.searches.find((search: { id: string }) => search.id === saved.id);
+  assert.deepEqual(updated.criteria, { keywords: "Product Designer", commune: "Lyon", limit: 25 });
+  assert.equal(updated.intervalHours, 12);
+});
+
 test("career UI completes a real browser application flow and survives reload", async (t) => {
   const app = await startCareerTestServer();
   t.after(() => app.close());
