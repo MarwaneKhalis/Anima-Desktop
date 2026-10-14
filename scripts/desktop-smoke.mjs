@@ -784,8 +784,12 @@ try {
   assert.equal(await closeConfirmation.evaluate((element) => element === document.activeElement), true,
     "La confirmation doit avoir un nom accessible et un focus initial visible.");
   await window.keyboard.press("Shift+Tab");
-  assert.equal(await confirmDialog.evaluate((dialog) => dialog.contains(document.activeElement)), true,
-    "Le focus doit rester dans la confirmation quand on recule depuis son premier contrôle.");
+  const lastConfirmationControl = confirmDialog.getByRole("button", { name: "Retour", exact: true });
+  assert.equal(await lastConfirmationControl.evaluate((element) => element === document.activeElement), true,
+    "Maj+Tab depuis le premier contrôle doit passer au dernier contrôle disponible.");
+  await window.keyboard.press("Tab");
+  assert.equal(await closeConfirmation.evaluate((element) => element === document.activeElement), true,
+    "Tab depuis le dernier contrôle doit revenir au premier contrôle.");
   await window.keyboard.press("Escape");
   await confirmDialog.waitFor({ state: "hidden" });
   assert.equal(await confirmNetworkAction.evaluate((element) => element === document.activeElement), true,
