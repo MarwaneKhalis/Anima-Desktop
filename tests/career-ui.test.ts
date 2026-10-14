@@ -1497,3 +1497,94 @@ test("possible duplicate imports link directly to the existing contact for revie
   await review.getByRole("button", { name: "Ouvrir la fiche" }).click();
   await page.getByRole("heading", { name: "Amélie Lévy" }).waitFor();
 });
+
+
+test("career UI prepares a multi-selection in order without sending", async (t) => {
+  const app = await startCareerTestServer();
+  t.after(() => app.close());
+  const initialized = await app.json("/api/career/vault/initialize", {
+    passphrase: "fixture-passphrase-123",
+  });
+  assert.equal(initialized.response.status, 201);
+  const savedProfile = await app.json("/api/career/profile", profile(), "PUT");
+  assert.equal(savedProfile.response.status, 200);
+  const resume = await app.json("/api/career/resumes", {
+    name: "CV batch",
+    filename: "cv-batch.pdf",
+    mime: "application/pdf",
+    base64: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+  });
+  assert.equal(resume.response.status, 201);
+
+  const selected = [];
+  for (const [index, title] of ["Premier lot", "Deuxième lot"].entries()) {
+    const url = `${app.fixture.baseUrl}/simple?multi=${index + 1}`;
+    const job = await app.json("/api/career/jobs", {
+      url,
+      title,
+      company: "Fixture multi-sélection",
+      location: "Paris",
+    });
+    assert.equal(job.response.status, 201);
+    const application = await app.json("/api/career/applications", {
+      jobId: job.value.id,
+      resumeId: resume.value.id,
+    });
+    assert.equal(application.response.status, 201);
+    selected.push({ jobId: job.value.id, applicationId: application.value.id, title });
+  }
+
+  const clickOrder = [...selected].reverse();
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await page.goto(app.baseUrl, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Candidatures", exact: true }).click();
+  await page.getByRole("heading", { name: "Vos candidatures", exact: true }).waitFor();
+  await page.getByLabel("CV pour les candidatures").selectOption({ label: "CV batch" });
+  for (const item of clickOrder) {
+    await page.getByLabel(`Sélectionner ${item.title}`, { exact: true }).check();
+  }
+  await page.getByRole("button", {
+    name: "Lancer une campagne · 2 offre(s) · plafond 10 ↗",
+    exact: true,
+  }).click();
+
+  const review = page.getByRole("dialog", { name: "Récapitulatif de campagne" });
+  await review.waitFor();
+  assert.equal(
+    await page.getByRole("radio", { name: /Préparer sans envoyer/ }).isChecked(),
+    true,
+    "La sélection multiple doit ouvrir la revue en mode préparation.",
+  );
+  assert.deepEqual(
+    await review.locator(".cw-campaign-review-jobs article strong").allTextContents(),
+    clickOrder.map((item) => item.title),
+    "La revue doit conserver l’ordre des clics de sélection, même s’il diffère de celui de création.",
+  );
+  await page.getByRole("button", { name: "Créer la campagne sans envoi" }).click();
+  await page.locator(".cw-notice, .cw-alert").first().waitFor({ timeout: 5_000 });
+  const alert = page.locator(".cw-alert");
+  if (await alert.isVisible()) throw new Error(`Campaign preparation failed: ${await alert.innerText()}`);
+
+  const { value: campaignList } = await app.json("/api/career/campaigns");
+  assert.equal(campaignList.campaigns.length, 1);
+  const campaignId = campaignList.campaigns[0].id;
+  const { value: detail } = await app.json(`/api/career/campaigns/${campaignId}`);
+  assert.equal(detail.campaign.state, "queued");
+  assert.equal(detail.campaign.counts.total, 2);
+  assert.deepEqual(
+    detail.items.map((item: any) => item.jobId),
+    clickOrder.map((item) => item.jobId),
+    "La campagne doit contenir exactement les deux offres choisies, sans doublon et dans l’ordre de sélection.",
+  );
+  assert.deepEqual(
+    detail.items.map((item: any) => item.applicationId),
+    clickOrder.map((item) => item.applicationId),
+    "Chaque offre doit rester liée à la candidature effectivement sélectionnée.",
+  );
+  assert.equal(new Set(detail.items.map((item: any) => item.applicationId)).size, 2);
+  assert.ok(detail.items.every((item: any) => item.state === "pending"));
+  assert.equal(app.fixture.submissions.length, 0, "La préparation ne doit envoyer aucun formulaire.");
+  await page.locator(`.cw-campaign-row[data-campaign-id="${campaignId}"]`).waitFor();
+});
