@@ -942,12 +942,20 @@ try {
   assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke + 1);
 
   const interruptedProcess = restarted.process();
-  const processExited = new Promise((resolveExit) => {
-    if (interruptedProcess.exitCode !== null) return resolveExit();
-    interruptedProcess.once("exit", resolveExit);
-  });
-  interruptedProcess.kill();
-  await processExited;
+  assert.equal(interruptedProcess.exitCode, null, "Le processus doit être actif avant l’interruption simulée.");
+  const processExited = new Promise((resolveExit) => interruptedProcess.once("exit", resolveExit));
+  assert.equal(interruptedProcess.kill(), true, "L’arrêt brutal doit être transmis au processus empaqueté.");
+  let processExitTimer;
+  try {
+    await Promise.race([
+      processExited,
+      new Promise((_, reject) => {
+        processExitTimer = setTimeout(() => reject(new Error("Le processus ne s’est pas arrêté dans le délai prévu.")), 15_000);
+      }),
+    ]);
+  } finally {
+    if (processExitTimer) clearTimeout(processExitTimer);
+  }
   restarted = undefined;
   diagnosticWindow = undefined;
 
@@ -980,7 +988,7 @@ try {
   assert.equal(crashSubmissionAccepted, 1, "Le redémarrage ne doit pas rejouer le POST déjà accepté.");
   assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke + 1);
   releaseCrashSubmissionFixtures();
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
   assert.equal(crashSubmissionAccepted, 1, "Libérer la réponse interrompue ne doit révéler aucun second POST.");
   assert.equal(fixtureSubmissions.length, submissionsAfterCampaignSmoke + 1);
   await assertNoHttpListener(expectedPort);
