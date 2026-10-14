@@ -61,7 +61,6 @@ async function confirmCampaignReview(page: import("playwright").Page, mode: "pre
 
 test("recurring search edit keeps its draft when a collection is in progress", async (t) => {
   const app = await startCareerTestServer({ mockArbeitnowSearch: true, pauseArbeitnowSearch: true });
-  t.after(app.close);
   const created = await app.json("/api/career/saved-searches?demo=0", {
     source: "arbeitnow",
     criteria: { keywords: "TypeScript", commune: "Paris", limit: 10 },
@@ -72,6 +71,11 @@ test("recurring search edit keeps its draft when a collection is in progress", a
   const saved = created.value as { id: string };
   app.fixture.holdSearchRequests();
   const collection = app.json(`/api/career/saved-searches/${saved.id}/run?demo=0`, {}, "POST");
+  t.after(async () => {
+    app.fixture.releaseSearchRequests();
+    await collection.catch(() => undefined);
+    await app.close();
+  });
   await Promise.race([
     app.fixture.waitForSearchRequest(),
     new Promise((_, reject) => setTimeout(() => reject(new Error("Search fixture was not reached.")), 5_000)),
