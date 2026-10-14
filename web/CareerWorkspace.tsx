@@ -175,6 +175,13 @@ export default function CareerWorkspace() {
     [campaignMode, setCampaignMode] = useState<"prepare" | "submit">("prepare");
   const campaignDialogRef = useRef<HTMLElement | null>(null);
   const campaignReturnFocusRef = useRef<HTMLElement | null>(null);
+  const applicationDialogRef = useRef<HTMLElement | null>(null);
+  const applicationReturnFocusRef = useRef<HTMLElement | null>(null);
+  function openApplicationDetail(applicationId: string) {
+    const active = document.activeElement;
+    applicationReturnFocusRef.current = active instanceof HTMLElement ? active : null;
+    setDetail(applicationId);
+  }
   function rememberCampaignTrigger(element?: HTMLElement | null) {
     const active = document.activeElement;
     campaignReturnFocusRef.current = element ?? (active instanceof HTMLElement ? active : null);
@@ -593,6 +600,12 @@ export default function CareerWorkspace() {
     );
   const current = data?.applications.find((a) => a.id === detail),
     currentJob = current && data ? labelJob(data, current) : undefined;
+  useDialogKeyboardSupport(
+    !!current && !!data,
+    applicationDialogRef,
+    () => setDetail(null),
+    applicationReturnFocusRef,
+  );
   const linkedApplications = data
     ? data.applications.flatMap((application) => {
         const job = data.jobs.find((item) => item.id === application.jobId);
@@ -718,7 +731,7 @@ export default function CareerWorkspace() {
                 return <div className="cw-campaign-item" key={item.id}>
                 <span><strong>{job ? `${job.title} · ${job.company}` : "Offre"}</strong><small title={CAMPAIGN_ITEM_STATE_META[item.state]?.description}>{campaignItemStates[item.state] || item.state}</small>{item.error && <small>{item.error}</small>}</span>
                 <div>
-                  <button onClick={() => { setTab("applications"); setApplicationsSection("all"); setDetail(item.applicationId); }}>Voir la candidature</button>
+                  <button onClick={() => { setTab("applications"); setApplicationsSection("all"); openApplicationDetail(item.applicationId); }}>Voir la candidature</button>
                   {["pending", "needs_input", "failed"].includes(item.state) && <button disabled={busy || demo} onClick={() => void action(async () => {
                     const updated = await api<CampaignDetail>(`/campaigns/${campaign.id}/items/${item.id}/skip`, "POST", { reason: "Passée depuis le suivi de campagne." });
                     setCampaignDetails((current) => ({ ...current, [campaign.id]: updated }));
@@ -1108,7 +1121,7 @@ export default function CareerWorkspace() {
                           key={a.id}
                           className="cw-row"
                           onClick={() => {
-                            setDetail(a.id);
+                            openApplicationDetail(a.id);
                             setTab("applications");
                           }}
                         >
@@ -1167,7 +1180,7 @@ export default function CareerWorkspace() {
                           className="cw-row"
                           key={a.id}
                           onClick={() => {
-                            setDetail(a.id);
+                            openApplicationDetail(a.id);
                             setApplicationsSection("attention");
                             setTab("applications");
                           }}
@@ -1189,7 +1202,7 @@ export default function CareerWorkspace() {
                           className="cw-row"
                           key={`application-${action.application.id}`}
                           onClick={() => {
-                            setDetail(action.application.id);
+                            openApplicationDetail(action.application.id);
                             setApplicationsSection("followups");
                             setTab("applications");
                           }}
@@ -1589,11 +1602,11 @@ export default function CareerWorkspace() {
                             {data.applications.some((a) => a.jobId === j.id) ? (
                               <button
                                 onClick={() => {
-                                  setDetail(
-                                    data.applications.find(
-                                      (a) => a.jobId === j.id,
-                                    )!.id,
-                                  );
+                                  openApplicationDetail(
+                                     data.applications.find(
+                                       (a) => a.jobId === j.id,
+                                     )!.id,
+                                   );
                                   setTab("applications");
                                 }}
                               >
@@ -1610,7 +1623,7 @@ export default function CareerWorkspace() {
                                       "POST",
                                       { jobId: j.id, resumeId },
                                     );
-                                    setDetail(a.id);
+                                    openApplicationDetail(a.id);
                                     setTab("applications");
                                   }, "Candidature créée. Vous pouvez lancer son envoi automatique.")
                                 }
@@ -1752,7 +1765,7 @@ export default function CareerWorkspace() {
                               Contact : {prospects.find((p) => p.id === a.prospectId)?.firstName} {prospects.find((p) => p.id === a.prospectId)?.lastName}
                             </small>
                           )}
-                          <button onClick={() => setDetail(a.id)}>
+                          <button onClick={() => openApplicationDetail(a.id)}>
                             Ouvrir le suivi →
                           </button>
                         </div>
@@ -2486,7 +2499,15 @@ export default function CareerWorkspace() {
       </main>
       {current && data && (
         <div className="cw-overlay" onClick={() => setDetail(null)}>
-          <aside className="cw-drawer" onClick={(e) => e.stopPropagation()}>
+          <aside
+            ref={applicationDialogRef}
+            className="cw-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="application-drawer-title"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="cw-section-head">
               <span className={`cw-status ${current.state}`} title={APPLICATION_STATE_META[current.state].description}>
                 {states[current.state]}
@@ -2498,7 +2519,7 @@ export default function CareerWorkspace() {
                 ×
               </button>
             </div>
-            <h2>{currentJob?.title}</h2>
+            <h2 id="application-drawer-title">{currentJob?.title || "Candidature"}</h2>
             <p>
               {currentJob?.company} · {currentJob?.location}
             </p>
