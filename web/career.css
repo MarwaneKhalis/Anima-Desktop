@@ -27,9 +27,9 @@
   font-size: 14px;
 }
 .cw-shell[data-identity="weltall-ii"] {
-  --section-accent: #5d776b;
-  --section-accent-strong: #435d52;
-  --accent-soft: #ebf0eb;
+  --section-accent: #4c6b84;
+  --section-accent-strong: #39556c;
+  --accent-soft: #e9eef2;
 }
 .cw-shell[data-identity="weltall-id"] {
   --section-accent: #8a3d4e;
