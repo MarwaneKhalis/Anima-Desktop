@@ -36,6 +36,9 @@ export function createSmokeEgressResolver(
   resolve(hostname: string): Promise<Array<{ address: string; family: number }>>;
 };
 export function classifyPageSignals(input?: { captcha?: boolean; login?: boolean; httpStatus?: number | null }): "accessible" | "inaccessible" | "login" | "captcha";
+export function inspectSignals(page: {
+  evaluate<T>(callback: () => T): Promise<T>;
+}): Promise<{ captcha: boolean; login: boolean; applyLinkVisible: boolean; applicationFormVisible: boolean }>;
 export function installReadOnlyGuards(context: ReadOnlyGuardContext, target: AtsTarget, allowEgressHost?: (hostname: string) => unknown): Promise<{ blockedRequests: number; blockedWebSockets: number }>;
 export function parseCliArgs(argv: string[]): { error?: string; help?: boolean; timeoutMs?: number; urls?: string[] };
 export function runAtsLiveSmoke(

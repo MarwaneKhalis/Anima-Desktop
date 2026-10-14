@@ -5,6 +5,7 @@ import {
   allowsReadOnlyRequest,
   classifyPageSignals,
   createSmokeEgressResolver,
+  inspectSignals,
   installReadOnlyGuards,
   parseCliArgs,
   runAtsLiveSmoke,
@@ -167,6 +168,83 @@ test("ATS smoke classifies accessible pages, login walls and CAPTCHA", () => {
   assert.equal(classifyPageSignals({ captcha: true, login: true, httpStatus: 200 }), "captcha");
   assert.equal(classifyPageSignals({ httpStatus: 403 }), "login");
   assert.equal(classifyPageSignals({ httpStatus: 404 }), "inaccessible");
+});
+
+test("ATS smoke ignores hidden CAPTCHA and login signals", async () => {
+  type FakeElement = {
+    innerText: string;
+    textContent: string;
+    title: string;
+    visible: boolean;
+    opacity: string;
+    parentElement: FakeElement | null;
+    getBoundingClientRect: () => { width: number; height: number };
+    getAttribute: () => null;
+    querySelectorAll: () => FakeElement[];
+  };
+  const makeElement = (text: string, visible: boolean, opacity = "1"): FakeElement => {
+    const element: FakeElement = {
+      innerText: text,
+      textContent: text,
+      title: "",
+      visible,
+      opacity,
+      parentElement: null,
+      getBoundingClientRect: () => ({ width: element.visible ? 100 : 0, height: element.visible ? 20 : 0 }),
+      getAttribute: () => null,
+      querySelectorAll: () => [],
+    };
+    return element;
+  };
+  const hiddenCaptchaHeading = makeElement("CAPTCHA", false);
+  const hiddenLoginHeading = makeElement("Please sign in to continue", false);
+  const transparentParent = makeElement("", true, "0");
+  const challenge = makeElement("", true);
+  challenge.parentElement = transparentParent;
+  const hiddenPassword = makeElement("", false);
+  const headings = [hiddenCaptchaHeading, hiddenLoginHeading];
+  const challenges = [challenge];
+  const passwords = [hiddenPassword];
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const originalGetComputedStyle = Object.getOwnPropertyDescriptor(globalThis, "getComputedStyle");
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      querySelectorAll(selector: string) {
+        if (selector.startsWith("h1")) return headings;
+        if (selector.startsWith("iframe")) return challenges;
+        if (selector.startsWith("input[type='password']")) return passwords;
+        return [];
+      },
+    },
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: (element: FakeElement) => ({
+      display: element.visible ? "block" : "none",
+      visibility: "visible",
+      opacity: element.opacity,
+    }),
+  });
+  try {
+    const page = { evaluate: async <T>(callback: () => T): Promise<T> => callback() };
+    assert.deepEqual(await inspectSignals(page), {
+      captcha: false, login: false, applyLinkVisible: false, applicationFormVisible: false,
+    });
+    transparentParent.opacity = "1";
+    assert.equal((await inspectSignals(page)).captcha, true);
+    challenge.visible = false;
+    hiddenLoginHeading.visible = true;
+    assert.equal((await inspectSignals(page)).login, true);
+    hiddenLoginHeading.visible = false;
+    hiddenPassword.visible = true;
+    assert.equal((await inspectSignals(page)).login, true);
+  } finally {
+    if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+    else Reflect.deleteProperty(globalThis, "document");
+    if (originalGetComputedStyle) Object.defineProperty(globalThis, "getComputedStyle", originalGetComputedStyle);
+    else Reflect.deleteProperty(globalThis, "getComputedStyle");
+  }
 });
 
 test("ATS smoke installs HTTP and WebSocket guards before any page load", async () => {
