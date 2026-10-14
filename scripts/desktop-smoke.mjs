@@ -121,13 +121,10 @@ async function waitForCampaignState(window, id, expectedState, timeoutMs = 15_00
   assert.fail(`Campagne ${id} attendue en état ${expectedState}, état reçu : ${JSON.stringify(last?.campaign?.state)}`);
 }
 
-async function findCampaignRowById(window, id) {
-  const list = parseJson(await requestJson(window, "/api/career/campaigns?limit=10&offset=0"), 200);
-  const index = list.campaigns.findIndex((campaign) => campaign.id === id);
-  assert.notEqual(index, -1, `La campagne ${id} doit apparaître dans la liste renvoyée par l’API.`);
-  const row = window.locator(".cw-campaign-row").nth(index);
-  await row.waitFor({ state: "visible" });
-  return row;
+async function findCampaignRowBySubmissionCap(window, maxSubmissions) {
+  const rows = window.locator(".cw-campaign-row").filter({ hasText: `plafond ${maxSubmissions}` });
+  assert.equal(await rows.count(), 1, `Une campagne doit afficher le plafond unique ${maxSubmissions}.`);
+  return rows;
 }
 
 async function getFreePort() {
@@ -486,14 +483,14 @@ try {
     url: `${fixtureOrigin}/apply`, title: "Campagne arrêt smoke", company: "Fixture Anima Desktop", location: "Paris",
   }), 201);
   const stopCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
-    jobIds: [stopJob.id], resumeId: selectedResume.id, maxSubmissions: 1,
+    jobIds: [stopJob.id], resumeId: selectedResume.id, maxSubmissions: 2,
     idempotencyKey: "anima-desktop-smoke-stop",
   }), 201);
   const skipJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
     url: `${fixtureOrigin}/apply`, title: "Campagne offre passée smoke", company: "Fixture Anima Desktop", location: "Paris",
   }), 201);
   const skipCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
-    jobIds: [skipJob.id], resumeId: selectedResume.id, maxSubmissions: 1,
+    jobIds: [skipJob.id], resumeId: selectedResume.id, maxSubmissions: 3,
     idempotencyKey: "anima-desktop-smoke-skip",
   }), 201);
   assert.equal(pauseCampaign.campaign.state, "queued");
@@ -503,7 +500,7 @@ try {
 
   await window.getByRole("button", { name: "Candidatures", exact: true }).click();
   await window.getByRole("button", { name: "Campagnes", exact: true }).click();
-  await (await findCampaignRowById(window, pauseCampaign.campaign.id))
+  await (await findCampaignRowBySubmissionCap(window, 4))
     .getByRole("button", { name: "Reprendre", exact: true }).click();
   await waitForCampaignState(window, pauseCampaign.campaign.id, "running");
   const pauseRequestDeadline = Date.now() + 10_000;
@@ -538,12 +535,12 @@ try {
     "La reprise traite la seule offre restante après la pause.");
   assert.equal(fixtureSubmissions.length, 6, "La reprise envoie uniquement la dernière candidature synthétique locale.");
 
-  const stopRow = await findCampaignRowById(window, stopCampaign.campaign.id);
+  const stopRow = await findCampaignRowBySubmissionCap(window, 2);
   await stopRow.getByRole("button", { name: "Arrêter", exact: true }).click();
   const stoppedControl = await waitForCampaignState(window, stopCampaign.campaign.id, "stopped");
   assert.equal(stoppedControl.items.filter((item) => item.state === "pending").length, 1,
     "Arrêter conserve l’offre en attente pour l’audit sans la lancer.");
-  const skipRow = await findCampaignRowById(window, skipCampaign.campaign.id);
+  const skipRow = await findCampaignRowBySubmissionCap(window, 3);
   await skipRow.getByRole("button", { name: "Détails", exact: true }).click();
   await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).waitFor({ state: "visible" });
   await skipRow.getByRole("button", { name: "Passer cette offre", exact: true }).click();
