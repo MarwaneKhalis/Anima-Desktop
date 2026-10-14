@@ -481,15 +481,16 @@ try {
   }), 201);
   activeSmokeCampaignId = pauseCampaign.campaign.id;
   const stopJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
-    url: `${fixtureOrigin}/apply`, title: "Campagne arrêt smoke", company: "Fixture Anima Desktop", location: "Paris",
+    url: `${fixtureOrigin}/apply?stop=1`, title: "Campagne arrêt smoke", company: "Fixture Anima Desktop", location: "Paris",
   }), 201);
   const stopCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
     jobIds: [stopJob.id], resumeId: selectedResume.id, maxSubmissions: 1,
     idempotencyKey: "anima-desktop-smoke-stop",
   }), 201);
   const skipJob = parseJson(await requestJson(window, "/api/career/jobs", "POST", {
-    url: `${fixtureOrigin}/apply`, title: "Campagne offre passée smoke", company: "Fixture Anima Desktop", location: "Paris",
+    url: `${fixtureOrigin}/apply?skip=1`, title: "Campagne offre passée smoke", company: "Fixture Anima Desktop", location: "Paris",
   }), 201);
+  assert.notEqual(stopJob.id, skipJob.id, "Les campagnes de contrôle doivent utiliser des offres distinctes.");
   const skipCampaign = parseJson(await requestJson(window, "/api/career/campaigns", "POST", {
     jobIds: [skipJob.id], resumeId: selectedResume.id, maxSubmissions: 1,
     idempotencyKey: "anima-desktop-smoke-skip",
