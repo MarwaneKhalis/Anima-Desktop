@@ -41,7 +41,11 @@ async function openCampaignActions(page: import("playwright").Page, credentialId
 async function confirmCampaignReview(page: import("playwright").Page, mode: "prepare" | "submit" = "submit", credentialId?: string) {
   const dialog = page.getByRole("dialog", { name: "Récapitulatif de campagne" });
   await dialog.waitFor();
-  if (credentialId) await dialog.getByLabel("Compte carrière", { exact: true }).selectOption(credentialId);
+  if (credentialId) {
+    const credentialSelect = dialog.getByRole("combobox").nth(1);
+    await credentialSelect.selectOption(credentialId);
+    assert.equal(await credentialSelect.inputValue(), credentialId, "The chosen linked account must be selected before launch.");
+  }
   if (mode === "submit") {
     const sendMode = page.getByRole("radio", { name: /Envoyer les candidatures/ });
     await sendMode.check();
