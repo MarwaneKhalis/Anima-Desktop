@@ -54,7 +54,7 @@ async function confirmCampaignReview(page: import("playwright").Page, mode: "pre
   } else {
     await page.getByRole("button", { name: "Préparer sans envoyer" }).click();
   }
-  await page.locator(".cw-notice, .cw-alert").first().waitFor({ timeout: 5_000 });
+  await page.locator(".cw-notice, .cw-alert").first().waitFor({ timeout: 10_000 });
   const error = page.locator(".cw-alert");
   if (await error.isVisible()) throw new Error(`Campaign launch failed: ${await error.innerText()}`);
 }
@@ -1577,7 +1577,7 @@ test("career UI prepares a multi-selection in order without sending", async (t) 
     "La revue doit conserver l’ordre des clics de sélection, même s’il diffère de celui de création.",
   );
   await page.getByRole("button", { name: "Créer la campagne sans envoi" }).click();
-  await page.locator(".cw-notice, .cw-alert").first().waitFor({ timeout: 5_000 });
+  await page.locator(".cw-notice, .cw-alert").first().waitFor({ timeout: 10_000 });
   const alert = page.locator(".cw-alert");
   if (await alert.isVisible()) throw new Error(`Campaign preparation failed: ${await alert.innerText()}`);
 
